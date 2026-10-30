@@ -20,5 +20,16 @@
     "check": "npm run typecheck && npm run test",
     "doctor": "bash scripts/doctor.sh",
     "test-media": "bash scripts/make-test-media.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@webgpu/types": "^0.1.74",
+    "electron": "^45.2.0",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "mediabunny": "^1.65.0"
   }
 }

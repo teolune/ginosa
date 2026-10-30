@@ -2,6 +2,8 @@
 
 ## M0 · Foundations (in progress)
 
+Verified on the M5 MacBook Pro (2026-10-30): typecheck clean, 20/20 unit tests, render harness frame-accurate (each render matches its source frame, inverted). See `docs/M0-results.md`.
+
 - Electron + electron-vite + TypeScript project, macOS window with an inset title bar.
 - Read-only `ginosa-media://` protocol that streams local files with range requests.
 - WebGPU device setup and a WGSL test shader (none / invert) drawing decoded frames.

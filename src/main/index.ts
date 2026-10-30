@@ -78,10 +78,8 @@ function createHarnessWindow(options: HarnessOptions): BrowserWindow {
       backgroundThrottling: false
     }
   })
-  // Electron changed this event's signature over time; read the message either way.
-  window.webContents.on('console-message', (event: unknown, _level?: unknown, message?: unknown) => {
-    const text = typeof message === 'string' ? message : (event as { message?: string }).message
-    console.log(`[renderer] ${text ?? ''}`)
+  window.webContents.on('console-message', (event) => {
+    console.log(`[renderer] ${event.message}`)
   })
   window.webContents.on('render-process-gone', (_event, details) => {
     console.error(`[harness] renderer crashed: ${details.reason}`)
