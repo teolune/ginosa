@@ -1,0 +1,33 @@
+# Dependencies and licences
+
+ginosa is a personal project that won't be distributed, so licences don't limit which libraries we use. They're still recorded here. Versions are pinned in `package-lock.json`. Run `npm ls --depth=0` to see the exact installed versions.
+
+## npm packages
+
+| Package | Use | Licence | Added |
+| --- | --- | --- | --- |
+| electron | App shell (bundles Chromium and Node) | MIT; Chromium: BSD-3-Clause plus third-party | M0 |
+| electron-vite | Build and dev server for main, preload and renderer | MIT | M0 |
+| vite (installed with electron-vite) | Bundler and dev server | MIT | M0 |
+| typescript | Language and typechecking | Apache-2.0 | M0 |
+| vitest | Unit tests | MIT | M0 |
+| @types/node | Node type definitions | MIT | M0 |
+| @webgpu/types | WebGPU type definitions | BSD-3-Clause | M0 |
+| mediabunny | Reading/writing MP4, MOV, WebM etc.; WebCodecs wrapper | MPL-2.0 | M0 |
+
+## Planned (not installed yet)
+
+| Package | Use | Licence | Milestone |
+| --- | --- | --- | --- |
+| react, react-dom | Panels and inspectors | MIT | M1 |
+| immer | Immutable project state and undo patches | MIT | M1 |
+| playwright | UI smoke tests | Apache-2.0 | M2 |
+| essentia.js (fallback only) | Beat tracking if our own detector falls short | AGPL-3.0 | M8 |
+
+## External tools (installed with Homebrew, not bundled)
+
+| Tool | Use | Licence |
+| --- | --- | --- |
+| FFmpeg / ffprobe | Conform, optimised copies, ProRes, export muxing, test media | LGPL-2.1+ / GPL-2+ (Homebrew build includes GPL parts) |
+| ffglitch | Codec-level datamosh (M15) | FFmpeg-derived; checked when added |
+| GitHub CLI (gh) | Pushing to the private repo | MIT |

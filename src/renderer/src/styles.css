@@ -1,0 +1,258 @@
+:root {
+  --bg: #111214;
+  --panel: #17181b;
+  --panel-raised: #1d1f23;
+  --border: #2a2c31;
+  --border-strong: #3a3d44;
+  --text: #e4e5e8;
+  --text-muted: #9a9ca3;
+  --accent: #5b8cff;
+  --ok: #3fb27f;
+  --bad: #e5604d;
+  --radius: 6px;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+.titlebar {
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 0 84px; /* room for the macOS traffic lights */
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  -webkit-app-region: drag;
+}
+
+.wordmark {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.milestone {
+  color: var(--text-muted);
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+.panel + .panel {
+  border-top: 1px solid var(--border);
+}
+
+.panel h2 {
+  margin: 0;
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.panel h3 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.panel-body {
+  padding: 0 14px 14px;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.kv dt {
+  color: var(--text-muted);
+}
+
+.kv dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 34px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  text-align: center;
+  line-height: 18px;
+}
+
+.badge.ok {
+  color: var(--ok);
+  background: rgba(63, 178, 127, 0.12);
+}
+
+.badge.no {
+  color: var(--bad);
+  background: rgba(229, 96, 77, 0.12);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.stage {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.monitor {
+  --aspect: 16 / 9;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #0b0c0d;
+}
+
+.monitor-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: var(--aspect);
+  background: #000;
+  outline: 1px solid var(--border);
+}
+
+.transport {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.timecode {
+  min-width: 92px;
+  color: var(--text);
+}
+
+.button,
+.select {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.button:hover:not(:disabled) {
+  border-color: #50545c;
+}
+
+.button.primary {
+  border-color: var(--accent);
+  background: rgba(91, 140, 255, 0.16);
+}
+
+.button:disabled,
+.slider:disabled,
+.scrubber:disabled {
+  opacity: 0.4;
+}
+
+.scrubber {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+
+.slider {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.statusbar {
+  flex: none;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  height: 26px;
+  padding: 0 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.status {
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.status.error {
+  color: var(--bad);
+}
