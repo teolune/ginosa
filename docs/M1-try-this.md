@@ -2,7 +2,24 @@
 
 M1 is the editor's skeleton: projects, the workspace with floating windows, undo/redo, autosave and crash recovery. There's still no media or clips (M2–M3), but everything you can change is real and saved. About 15 minutes.
 
-Start the app with `npm run dev` (in its own Terminal tab).
+## In Terminal
+
+Open a new Terminal tab (Cmd+T), not the one running `npm run agent`. Paste one line at a time, without any ``` marks:
+
+```
+cd ~/Desktop/video/Developer/Ginosa
+npm run check
+npm run snapshot -- --scenario recovered
+open renders/ui/recovered.png
+npm run dev
+```
+
+- [ ] `npm run check` ends with **Tests 56 passed (56)**. That covers the timeline engine, undo/redo, the project file format, window layout, and crash recovery with a simulated crash.
+- [ ] The snapshot command prints `[snapshot] recovered -> …/renders/ui/recovered.png`. A ginosa window flashes up for a moment, which is expected.
+- [ ] `open renders/ui/recovered.png` shows the app after a simulated crash and restore: a vertical monitor, a track renamed **Recovered**, an **A4** track, and *Unsaved · autosaved* in the title bar.
+- [ ] `npm run dev` opens the app. This tab stays busy while the app is open; that's normal. Use it for the checks below. Pressing Ctrl+C in this tab quits the app abruptly, which is handy for the crash test.
+
+Other scenarios you can screenshot the same way: `start`, `workspace`, `windows`, `settings`, `docked`, `recovery`.
 
 ## Projects
 
