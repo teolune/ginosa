@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M1 · Workspace and project.** Projects with undo/redo, autosave and crash recovery; the editing workspace with floating, dockable tool windows. M0's diagnostics and playback test live on as tool windows. Next: M2, media import and the cache manager.
+**M2 · Media and cache.** Import with bins, thumbnails and waveforms, a Source Monitor with In/Out, automatic optimised copies (ProRes, variable frame rate, HDR), relinking, and a Cache Manager that never touches your originals. Built on M1's projects, undo/redo, crash recovery and floating windows. Next: M3, the timeline.
 
 ## Setup (once)
 
@@ -27,7 +27,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
-| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` |
+| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache) |
 
 ### Render harness flags
 
@@ -46,7 +46,8 @@ Each run writes one PNG per frame plus `report.json`, which holds GPU and codec 
 
 ```
 src/
-  main/       Electron main process: windows, file dialogs, read-only media protocol, render harness
+  main/       Electron main process: windows, menus, projects, read-only media protocol,
+              media probing and optimised copies (FFmpeg), cache service, render harness
   preload/    The bridge between main and renderer (window.ginosa)
   renderer/   Interface and GPU rendering (WebGPU + WGSL)
   engine/     Editing engine: plain TypeScript, no UI code, unit-tested
@@ -57,7 +58,7 @@ docs/         decisions log, milestone checklists
 
 ## Principles
 
-- Original media is only ever opened read-only.
+- Original media is only ever opened read-only. Everything ginosa generates lives in its cache (`~/Movies/ginosa Cache` by default), and deleting is only possible inside it.
 - The engine stays separate from the interface.
 - Nothing pretends to work: unfinished features are labelled as such.
 - Every milestone ends with a working app and a "Try this" checklist in `docs/`.

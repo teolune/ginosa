@@ -35,6 +35,11 @@ if command -v ffmpeg >/dev/null 2>&1; then
   for enc in libx264 h264_videotoolbox hevc_videotoolbox prores_ks prores_videotoolbox aac; do
     if grep -q " $enc " <<<"$encoders"; then info "encoder $enc: yes"; else info "encoder $enc: no"; fi
   done
+  filters="$(ffmpeg -hide_banner -filters 2>/dev/null)"
+  for filter in zscale tonemap libplacebo colorspace lut3d; do
+    if grep -qE "^ [A-Z.|]+ $filter " <<<"$filters"; then info "filter $filter: yes"; else info "filter $filter: no"; fi
+  done
+  if ffmpeg -hide_banner -hwaccels 2>/dev/null | grep -q videotoolbox; then info "hwaccel videotoolbox: yes"; fi
 else
   bad "FFmpeg missing: brew install ffmpeg"
 fi

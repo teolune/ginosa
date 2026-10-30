@@ -6,6 +6,7 @@ import type { HarnessJob, HarnessReport, JournalEntry, MenuState, UnsavedChoice 
 import { PROJECT_EXTENSION } from '@shared/ipc'
 import { handleMediaProtocol, registerMediaSchemePrivileges } from './media-protocol'
 import { isHarnessRun, parseHarnessArgs, writeHarnessFile, type HarnessOptions } from './harness'
+import { registerMediaIpc } from './media/media-ipc'
 import { AppMenu } from './menu'
 import { normaliseProjectPath, ProjectService, RecentProjects } from './project-service'
 import { JsonFile } from './settings-store'
@@ -255,6 +256,13 @@ function registerIpc(): void {
     return join(dir, `Snapshot${PROJECT_EXTENSION}`)
   })
 
+  ipcMain.handle('snapshot:testMedia', async () => {
+    if (!snapshot) return []
+    const dir = join(process.cwd(), 'media', 'test')
+    const { readdir } = await import('node:fs/promises')
+    return (await readdir(dir).catch(() => [] as string[])).filter((f) => !f.startsWith('.')).sort().map((f) => join(dir, f))
+  })
+
   ipcMain.handle('snapshot:simulateCrash', async () => {
     if (snapshot) await projects.simulateCrash()
   })
@@ -297,6 +305,8 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   handleMediaProtocol()
   registerIpc()
+  // Snapshots use a throwaway cache, like their throwaway settings folder.
+  await registerMediaIpc(() => mainWindow, snapshotMode ? { cacheRoot: join(app.getPath('userData'), 'ginosa Cache') } : {})
 
   if (harnessMode) {
     if (!harness) return

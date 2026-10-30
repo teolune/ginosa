@@ -33,6 +33,26 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'source-monitor',
+    title: 'Source Monitor',
+    shortcut: 'Alt+5',
+    defaultRect: { x: 420, y: 30, w: 720, h: 500 },
+    minSize: { w: 420, h: 300 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
+    id: 'cache-manager',
+    title: 'Cache Manager',
+    shortcut: 'Alt+6',
+    defaultRect: { x: 560, y: 60, w: 520, h: 520 },
+    minSize: { w: 400, h: 260 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'playback-test',
     title: 'Playback Test (M0)',
     shortcut: 'Alt+4',

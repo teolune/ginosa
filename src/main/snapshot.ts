@@ -14,7 +14,7 @@ export interface SnapshotOptions {
   height: number
 }
 
-export const SNAPSHOT_SCENARIOS = ['start', 'workspace', 'windows', 'settings', 'docked', 'recovery', 'recovered'] as const
+export const SNAPSHOT_SCENARIOS = ['start', 'workspace', 'windows', 'settings', 'docked', 'recovery', 'recovered', 'media', 'source', 'cache', 'waveform'] as const
 
 function flag(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name)

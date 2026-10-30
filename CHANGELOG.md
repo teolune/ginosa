@@ -1,5 +1,29 @@
 # Changelog
 
+## M2 · Media and cache
+
+- **Import:** Cmd+I, the Import button, or drag from Finder. Folders become bins. Duplicates are skipped, unreadable files are reported, and each import is one undo step.
+- **File details:** FFmpeg's ffprobe reads codec, size, rotation, frame rate, bit depth, colour tags and audio format, then scans the first 10 s for variable frame rate and keyframe spacing. Each file gets a fingerprint (size, date, and a hash of its first and last MiB).
+- **Media panel (Premiere style):**
+  - Bins nest and can be dragged into each other.
+  - Selection works with Cmd and Shift, items rename inline, and search filters by name.
+  - Columns (Name, Duration, Size, FPS, Codec, Status) appear as the panel widens.
+  - Right-click menus, plus status pills for offline, changed, copying and optimised items.
+- **Thumbnails and waveforms:** made by FFmpeg and stored in the cache. Waveforms keep 100 min/max peaks per second.
+- **Source Monitor (⌥5):** plays video (from the optimised copy when there is one), steps frames, and shows waveforms for audio. In and Out marks (I/O) are saved with the project and undoable.
+- **Optimised copies:** made automatically when a file can't be decoded here (ProRes), has a variable frame rate, or is HDR. Offered, not forced, when keyframes are far apart.
+  - 8-bit sources become H.264 and 10-bit sources become HEVC 10-bit (VideoToolbox), with keyframes every half second. Audio becomes 24-bit PCM.
+  - HDR (HLG/PQ) is converted to Rec.709 with a generated tone-mapping LUT and tagged as Rec.709.
+  - Copies are made one at a time, with progress shown and Cancel available. Partial files are removed if a copy fails or is cancelled.
+- **Relink:** offline files show a pill. Locate a single file, or pick a folder and ginosa finds every missing file inside it by name and size.
+- **Cache Manager (⌥6):**
+  - Shows the cache folder, size per project and category, and active copies.
+  - Clear a category, or Clean Up a whole project, with a two-click confirm.
+  - The cache location can be changed.
+  - Deletion is guarded: project-ID and category checks, real-path containment, and symlinks are refused. Originals are opened read-only and never touched.
+- **Project format v2:** adds media and bins. v1 projects upgrade automatically.
+- 92 unit and integration tests. The media tests run the real FFmpeg on generated clips.
+
 ## M1 · Workspace and project
 
 - **Projects:** `Name.ginosa` folders with `project.json`; New / Open / Open Recent / Save / Save As / Close / Show in Finder; start screen with recent projects.

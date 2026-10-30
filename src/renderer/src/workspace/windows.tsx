@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
+import { CacheManagerWindow } from '../windows/CacheManagerWindow'
 import { DiagnosticsWindow } from '../windows/DiagnosticsWindow'
 import { HistoryWindow } from '../windows/HistoryWindow'
 import { PlaybackTestWindow } from '../windows/PlaybackTestWindow'
 import { ProjectSettingsWindow } from '../windows/ProjectSettingsWindow'
+import { SourceMonitorWindow } from '../windows/SourceMonitorWindow'
 
 /** Window contents by id. New windows (Effects Library, Keyframe Editor…) register in specs.ts and here. */
 export function renderWindow(id: string): ReactNode {
@@ -13,6 +15,10 @@ export function renderWindow(id: string): ReactNode {
       return <HistoryWindow />
     case 'diagnostics':
       return <DiagnosticsWindow />
+    case 'source-monitor':
+      return <SourceMonitorWindow />
+    case 'cache-manager':
+      return <CacheManagerWindow />
     case 'playback-test':
       return <PlaybackTestWindow />
     default:

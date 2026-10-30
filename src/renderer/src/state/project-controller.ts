@@ -183,6 +183,12 @@ export class ProjectController extends Observable {
     this.history?.jumpTo(position)
   }
 
+  /** Shows a short message in the error toast. */
+  showMessage(message: string): void {
+    this.lastError = message
+    this.notify()
+  }
+
   clearError(): void {
     this.lastError = null
     this.notify()

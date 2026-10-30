@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { MediaPanel } from '../panels/MediaPanel'
+import { MediaPanel } from '../media-panel/MediaPanel'
 import { ProgramMonitor } from '../panels/ProgramMonitor'
 import { TimelinePanel } from '../panels/TimelinePanel'
 import { useObservable } from '../state/observable'

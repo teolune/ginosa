@@ -47,5 +47,12 @@ echo "29.97 fps H.264 (timecode check)"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc=size=1920x1080:rate=30000/1001:duration=5" \
   "${h264[@]}" -movflags +faststart "$out/testsrc_1080p2997_h264.mp4"
 
+echo "Song: 20 s, kick-like hits at 120 BPM (for waveform and, later, beat-detection tests)"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.8*sin(2*PI*55*t)*exp(-14*mod(t\,0.5))+0.15*sin(2*PI*880*t)*exp(-40*mod(t+0.25\,0.5))':sample_rate=48000:duration=20" \
+  -c:a pcm_s24le "$out/song_120bpm.wav"
+
+echo "4K still image"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
+
 echo
 ls -lh "$out"

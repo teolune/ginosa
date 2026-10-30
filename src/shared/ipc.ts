@@ -3,6 +3,17 @@
  * Keep this file free of Node or DOM imports so every side can use it.
  */
 
+import type { MediaFingerprint } from '../engine/project/media'
+import type {
+  CacheCategory,
+  CacheProjectUsage,
+  FileStatus,
+  GenerateRequest,
+  OptimiseJob,
+  OptimiseRequest,
+  ProbeResult
+} from './media-types'
+
 /** Custom URL scheme that streams local media files (read-only, with HTTP range support). */
 export const MEDIA_SCHEME = 'ginosa-media'
 
@@ -92,6 +103,8 @@ export interface JournalEntry {
 /** Commands sent from the native menu to the renderer. */
 export type MenuCommand =
   | { type: 'new-project' }
+  | { type: 'import' }
+  | { type: 'new-bin' }
   | { type: 'open-project' }
   | { type: 'open-recent'; path: string }
   | { type: 'save' }
@@ -162,11 +175,39 @@ export interface GinosaBridge {
     closeNow(): void
     closeCancelled(): void
   }
+  media: {
+    chooseImport(): Promise<string[]>
+    classify(paths: string[]): Promise<{ files: string[]; folders: Array<{ name: string; files: string[] }> }>
+    probe(paths: string[]): Promise<ProbeResult[]>
+    probeOne(path: string): Promise<ProbeResult>
+    thumbnail(request: GenerateRequest): Promise<string>
+    waveform(request: GenerateRequest): Promise<ArrayBuffer>
+    checkFiles(items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>): Promise<Array<{ id: string; status: FileStatus }>>
+    chooseRelink(fileName: string): Promise<string | null>
+    searchMoved(folder: string, wanted: Array<{ id: string; fileName: string; size: number }>): Promise<Array<{ id: string; path: string }>>
+    reveal(path: string): Promise<void>
+    optimise(request: OptimiseRequest): Promise<OptimiseJob>
+    optimisedPath(projectId: string, mediaId: string, fingerprint: MediaFingerprint): Promise<string | null>
+    jobs(): Promise<OptimiseJob[]>
+    cancelJob(jobId: string): Promise<void>
+    onJobUpdate(listener: (job: OptimiseJob) => void): () => void
+    /** Path of a file dropped from Finder. */
+    pathForFile(file: File): string
+  }
+  cache: {
+    registerProject(projectId: string, name: string, path: string): Promise<void>
+    usage(): Promise<{ root: string; projects: CacheProjectUsage[] }>
+    clear(projectId: string, category: CacheCategory | 'all'): Promise<void>
+    reveal(): Promise<void>
+    chooseLocation(): Promise<{ root: string; previous: string } | null>
+  }
   snapshot: {
     /** Present only when the app was started with --snapshot (automated UI screenshots). */
     scenario: string | null
     tempProjectPath(): Promise<string>
     simulateCrash(): Promise<void>
+    /** Files in the repo's media/test folder (snapshot runs only). */
+    testMedia(): Promise<string[]>
     ready(): Promise<void>
   }
 }

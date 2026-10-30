@@ -1,4 +1,5 @@
 import { FRAME_RATES } from '../time'
+import type { AudioStreamInfo, Bin, ColourInfo, MediaInfo, MediaItem, VideoStreamInfo } from './media'
 import { MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type Project, type Track } from './model'
 
 /**
@@ -45,8 +46,115 @@ function migrate(raw: Json): Json {
   if (version > PROJECT_SCHEMA_VERSION) {
     throw new ProjectFormatError(`This project was saved by a newer ginosa (format ${version}); this build reads up to ${PROJECT_SCHEMA_VERSION}`)
   }
-  // Version 1 is the first format; later versions add upgrade steps here, oldest first.
-  return raw
+  // Upgrade steps, oldest first. Each one turns version n into n + 1.
+  let data = raw
+  if (version < 2) data = { ...data, schemaVersion: 2, media: [], bins: [] }
+  return data
+}
+
+function optionalString(object: Json, key: string): string | null {
+  const value = object[key]
+  return typeof value === 'string' ? value : null
+}
+
+function optionalNumber(object: Json, key: string): number | null {
+  const value = object[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function parseColour(value: unknown): ColourInfo {
+  const o = isObject(value) ? value : {}
+  const range = o['range']
+  return {
+    primaries: optionalString(o, 'primaries'),
+    transfer: optionalString(o, 'transfer'),
+    matrix: optionalString(o, 'matrix'),
+    range: range === 'tv' || range === 'pc' ? range : null
+  }
+}
+
+function parseVideo(value: unknown, where: string): VideoStreamInfo | null {
+  if (value === null || value === undefined) return null
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const rate = value['frameRate']
+  const hdr = value['hdr']
+  return {
+    codec: expectString(value, 'codec', where),
+    profile: optionalString(value, 'profile'),
+    width: expectInteger(value, 'width', where, 1, 65_536),
+    height: expectInteger(value, 'height', where, 1, 65_536),
+    rotation: optionalNumber(value, 'rotation') ?? 0,
+    frameRate:
+      isObject(rate) && typeof rate['num'] === 'number' && typeof rate['den'] === 'number' && rate['den'] > 0
+        ? { num: rate['num'], den: rate['den'] }
+        : null,
+    frameCount: optionalNumber(value, 'frameCount'),
+    pixelFormat: optionalString(value, 'pixelFormat'),
+    bitDepth: optionalNumber(value, 'bitDepth'),
+    colour: parseColour(value['colour']),
+    hdr: hdr === 'hlg' || hdr === 'pq' ? hdr : null,
+    variableFrameRate: value['variableFrameRate'] === true,
+    keyframeInterval: optionalNumber(value, 'keyframeInterval')
+  }
+}
+
+function parseAudio(value: unknown, where: string): AudioStreamInfo | null {
+  if (value === null || value === undefined) return null
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  return {
+    codec: expectString(value, 'codec', where),
+    sampleRate: expectInteger(value, 'sampleRate', where, 1, 1_000_000),
+    channels: expectInteger(value, 'channels', where, 1, 64),
+    channelLayout: optionalString(value, 'channelLayout')
+  }
+}
+
+function parseMediaInfo(value: unknown, where: string): MediaInfo {
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  return {
+    container: expectString(value, 'container', where),
+    durationSeconds: optionalNumber(value, 'durationSeconds') ?? 0,
+    bitRate: optionalNumber(value, 'bitRate'),
+    video: parseVideo(value['video'], `${where}.video`),
+    audio: parseAudio(value['audio'], `${where}.audio`)
+  }
+}
+
+function parseMediaItem(value: unknown, index: number): MediaItem {
+  const where = `media[${index}]`
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const kind = value['kind']
+  if (kind !== 'video' && kind !== 'audio' && kind !== 'image') throw new ProjectFormatError(`${where}.kind is not a media kind`)
+  const fingerprint = value['fingerprint']
+  if (!isObject(fingerprint)) throw new ProjectFormatError(`${where}.fingerprint is missing`)
+  const marks = isObject(value['marks']) ? value['marks'] : {}
+  const binId = value['binId']
+  return {
+    id: expectString(value, 'id', where),
+    name: expectString(value, 'name', where),
+    kind,
+    path: expectString(value, 'path', where),
+    fingerprint: {
+      size: expectInteger(fingerprint, 'size', `${where}.fingerprint`, 0, Number.MAX_SAFE_INTEGER),
+      mtimeMs: optionalNumber(fingerprint, 'mtimeMs') ?? 0,
+      sample: expectString(fingerprint, 'sample', `${where}.fingerprint`)
+    },
+    info: parseMediaInfo(value['info'], `${where}.info`),
+    binId: typeof binId === 'string' ? binId : null,
+    importedAt: expectString(value, 'importedAt', where),
+    marks: { in: optionalNumber(marks, 'in'), out: optionalNumber(marks, 'out') }
+  }
+}
+
+function parseBin(value: unknown, index: number): Bin {
+  const where = `bins[${index}]`
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const parentId = value['parentId']
+  return {
+    id: expectString(value, 'id', where),
+    name: expectString(value, 'name', where),
+    parentId: typeof parentId === 'string' ? parentId : null
+  }
 }
 
 function parseTrack(value: unknown, index: number): Track {
@@ -90,6 +198,17 @@ export function parseProject(input: string | unknown): Project {
   const ids = new Set(tracks.map((t) => t.id))
   if (ids.size !== tracks.length) throw new ProjectFormatError('Two tracks share the same id')
 
+  const mediaRaw = data['media']
+  const binsRaw = data['bins']
+  if (!Array.isArray(mediaRaw)) throw new ProjectFormatError('media should be a list')
+  if (!Array.isArray(binsRaw)) throw new ProjectFormatError('bins should be a list')
+  const bins = binsRaw.map(parseBin)
+  const binIds = new Set(bins.map((b) => b.id))
+  // Anything pointing at a missing bin is shown at the top level rather than lost.
+  for (const bin of bins) if (bin.parentId && !binIds.has(bin.parentId)) bin.parentId = null
+  const media = mediaRaw.map(parseMediaItem)
+  for (const item of media) if (item.binId && !binIds.has(item.binId)) item.binId = null
+
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: expectString(data, 'id', 'project'),
@@ -105,6 +224,8 @@ export function parseProject(input: string | unknown): Project {
         sampleRate: expectInteger(settings, 'sampleRate', 'sequence.settings', 8_000, 192_000)
       },
       tracks
-    }
+    },
+    media,
+    bins
   }
 }

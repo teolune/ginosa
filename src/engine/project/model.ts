@@ -1,11 +1,13 @@
 import { FRAME_RATES, type FrameRateName } from '../time'
+import type { Bin, MediaItem } from './media'
 
 /**
  * The project document. Everything the user can undo lives here; window layouts
  * and other UI state do not. Media, bins and clips join the model in M2–M3.
  */
 
-export const PROJECT_SCHEMA_VERSION = 1
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. */
+export const PROJECT_SCHEMA_VERSION = 2
 
 export type TrackKind = 'video' | 'audio'
 
@@ -40,6 +42,8 @@ export interface Project {
   name: string
   createdAt: string
   sequence: Sequence
+  media: MediaItem[]
+  bins: Bin[]
 }
 
 export const RESOLUTION_PRESETS = [
@@ -99,7 +103,9 @@ export function createProject({ name, settings, createId = defaultId, now = () =
         createTrack('audio', 1, createId),
         createTrack('audio', 2, createId)
       ]
-    }
+    },
+    media: [],
+    bins: []
   }
 }
 

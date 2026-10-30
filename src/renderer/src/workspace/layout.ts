@@ -59,7 +59,7 @@ export const SNAP_DISTANCE = 8
 export const DEFAULT_WORKSPACE = 'Edit'
 
 export const PANEL_LIMITS = {
-  mediaWidth: { min: 180, max: 560, initial: 260 },
+  mediaWidth: { min: 200, max: 760, initial: 460 },
   timelineHeight: { min: 140, max: 640, initial: 280 },
   dockWidth: { min: 240, max: 560, initial: 320 }
 } as const

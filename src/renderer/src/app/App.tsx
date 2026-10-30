@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { addTrack, renameTrack, setSequenceSettings } from '@engine/project/commands'
+import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
+import { secondsToTicks } from '@engine/time'
 import type { MenuCommand, MenuState } from '@shared/ipc'
+import { mediaController } from '../state/media-controller'
 import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 import { workspaceController } from '../state/workspace'
@@ -60,6 +63,42 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       workspaceController.setDocked('project-settings', true)
       workspaceController.setDocked('diagnostics', true)
       break
+    case 'media':
+    case 'source':
+    case 'cache':
+    case 'waveform': {
+      const files = await window.ginosa.snapshot.testMedia()
+      await mediaController.importPaths(files, null)
+      const bin = createBin('Selects', null)
+      projectController.dispatch(bin)
+      const media = projectController.project?.media ?? []
+      const h264 = media.find((m) => m.name === 'testsrc_1080p24_h264')
+      const hevc = media.find((m) => m.name === 'testsrc_1080p24_hevc')
+      if (hevc) projectController.dispatch(moveToBin([hevc.id], [], bin.binId))
+      // Let checks, thumbnails and the ProRes optimised copy finish.
+      for (let i = 0; i < 60; i++) {
+        await wait(500)
+        const busy = (projectController.project?.media ?? []).some((m) => {
+          const r = mediaController.get(m.id)
+          return r.status === 'checking' || r.job?.status === 'running' || r.job?.status === 'queued' || (m.kind !== 'audio' && !r.thumbnailUrl && r.status === 'online')
+        })
+        if (!busy) break
+      }
+      if (scenario === 'source' && h264) {
+        projectController.dispatch(setMarks(h264.id, { in: secondsToTicks(2), out: secondsToTicks(6) }))
+        mediaController.openInSource(h264.id)
+        workspaceController.open('source-monitor')
+      }
+      if (scenario === 'cache') workspaceController.open('cache-manager')
+      const song = (projectController.project?.media ?? []).find((m) => m.kind === 'audio')
+      if (scenario === 'waveform' && song) {
+        projectController.dispatch(setMarks(song.id, { in: secondsToTicks(4), out: secondsToTicks(12) }))
+        mediaController.openInSource(song.id)
+        workspaceController.open('source-monitor')
+        await wait(1500)
+      }
+      break
+    }
     case 'recovery':
     case 'recovered': {
       // Edit, "crash", reopen: the recovery dialog must offer exactly these changes back.
@@ -141,6 +180,10 @@ export function App() {
       switch (command.type) {
         case 'new-project':
           return projectController.newProject()
+        case 'import':
+          return mediaController.chooseAndImport(mediaController.targetBinId)
+        case 'new-bin':
+          return mediaController.newBin()
         case 'open-project':
           return projectController.open()
         case 'open-recent':
