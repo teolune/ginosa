@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M0 · Foundations.** The app opens a diagnostics shell. It proves that WebGPU, hardware video decoding and local file access work on this Mac, and that frames render through a GPU shader. The real editor workspace arrives in M1.
+**M1 · Workspace and project.** Projects with undo/redo, autosave and crash recovery; the editing workspace with floating, dockable tool windows. M0's diagnostics and playback test live on as tool windows. Next: M2, media import and the cache manager.
 
 ## Setup (once)
 
@@ -26,6 +26,8 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run test-media` | Generates synthetic test clips in `media/test/` |
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
+| `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
+| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` |
 
 ### Render harness flags
 

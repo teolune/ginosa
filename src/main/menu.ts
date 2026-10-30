@@ -1,0 +1,134 @@
+import { app, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import type { MenuCommand, MenuState } from '@shared/ipc'
+
+/** Native macOS menu bar. Items send MenuCommands to the renderer, which owns the app state. */
+
+const EMPTY_STATE: MenuState = {
+  hasProject: false,
+  dirty: false,
+  undoLabel: null,
+  redoLabel: null,
+  windows: [],
+  workspaces: [],
+  activeWorkspace: null,
+  recent: []
+}
+
+export class AppMenu {
+  private state: MenuState = EMPTY_STATE
+
+  constructor(private readonly getWindow: () => BrowserWindow | null) {}
+
+  update(state: MenuState): void {
+    this.state = state
+    this.build()
+  }
+
+  private send(command: MenuCommand): void {
+    this.getWindow()?.webContents.send('menu:command', command)
+  }
+
+  build(): void {
+    const s = this.state
+    const isDev = !app.isPackaged
+    const template: MenuItemConstructorOptions[] = [
+      {
+        label: 'ginosa',
+        submenu: [
+          { role: 'about', label: 'About ginosa' },
+          { type: 'separator' },
+          { role: 'hide', label: 'Hide ginosa' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit', label: 'Quit ginosa' }
+        ]
+      },
+      {
+        label: 'File',
+        submenu: [
+          { label: 'New Project…', accelerator: 'CmdOrCtrl+N', click: () => this.send({ type: 'new-project' }) },
+          { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => this.send({ type: 'open-project' }) },
+          {
+            label: 'Open Recent',
+            enabled: s.recent.length > 0,
+            submenu: s.recent.length
+              ? s.recent.map((item) => ({ label: item.name, click: () => this.send({ type: 'open-recent', path: item.path }) }))
+              : [{ label: 'No recent projects', enabled: false }]
+          },
+          { type: 'separator' },
+          { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save' }) },
+          { label: 'Save As…', accelerator: 'Shift+CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save-as' }) },
+          { type: 'separator' },
+          { label: 'Show Project in Finder', enabled: s.hasProject, click: () => this.send({ type: 'reveal-project' }) },
+          { label: 'Close Project', enabled: s.hasProject, click: () => this.send({ type: 'close-project' }) }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          {
+            label: s.undoLabel ? `Undo ${s.undoLabel}` : 'Undo',
+            accelerator: 'CmdOrCtrl+Z',
+            click: () => this.send({ type: 'undo' })
+          },
+          {
+            label: s.redoLabel ? `Redo ${s.redoLabel}` : 'Redo',
+            accelerator: 'Shift+CmdOrCtrl+Z',
+            click: () => this.send({ type: 'redo' })
+          },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'Window',
+        submenu: [
+          ...s.windows.map(
+            (w): MenuItemConstructorOptions => ({
+              label: w.title,
+              type: 'checkbox',
+              checked: w.open,
+              accelerator: w.shortcut,
+              enabled: s.hasProject,
+              click: () => this.send({ type: 'toggle-window', id: w.id })
+            })
+          ),
+          { type: 'separator' },
+          {
+            label: 'Workspaces',
+            enabled: s.hasProject,
+            submenu: [
+              ...s.workspaces.map(
+                (name): MenuItemConstructorOptions => ({
+                  label: name,
+                  type: 'radio',
+                  checked: name === s.activeWorkspace,
+                  click: () => this.send({ type: 'workspace-apply', name })
+                })
+              ),
+              { type: 'separator' },
+              { label: 'Save Workspace As…', click: () => this.send({ type: 'workspace-save-as' }) },
+              { label: 'Reset Current Workspace', click: () => this.send({ type: 'workspace-reset' }) }
+            ]
+          },
+          { type: 'separator' },
+          { role: 'minimize' },
+          { role: 'zoom' }
+        ]
+      },
+      ...(isDev
+        ? [
+            {
+              label: 'Developer',
+              submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }] as MenuItemConstructorOptions[]
+            }
+          ]
+        : [])
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  }
+}

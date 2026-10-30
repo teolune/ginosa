@@ -27,7 +27,8 @@
         "./src/shared/*"
       ]
     },
-    "outDir": "./out/.tsc-web"
+    "outDir": "./out/.tsc-web",
+    "jsx": "react-jsx"
   },
   "include": [
     "src/renderer/src/**/*",

@@ -19,10 +19,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "check": "npm run typecheck && npm run test",
     "doctor": "bash scripts/doctor.sh",
-    "test-media": "bash scripts/make-test-media.sh"
+    "test-media": "bash scripts/make-test-media.sh",
+    "agent": "node scripts/agent-runner.mjs",
+    "snapshot": "electron-vite build && electron . --snapshot"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@webgpu/types": "^0.1.74",
     "electron": "^45.2.0",
     "electron-vite": "^6.0.0",
@@ -30,6 +34,9 @@
     "vitest": "^5.0.5"
   },
   "dependencies": {
-    "mediabunny": "^1.65.0"
+    "immer": "^11.2.9",
+    "mediabunny": "^1.65.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }

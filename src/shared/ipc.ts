@@ -53,6 +53,72 @@ export interface HarnessReport {
   frames: HarnessFrameResult[]
 }
 
+/** A project as stored on disk: a folder named `<Name>.ginosa` holding project.json. */
+export const PROJECT_EXTENSION = '.ginosa'
+
+export interface RecentProject {
+  name: string
+  path: string
+  openedAt: string
+  /** The last session with this project ended without closing it (crash or force quit). */
+  interrupted?: boolean
+}
+
+export interface RecoveryInfo {
+  /** JSON of the newest snapshot (project.json or an autosave), before the journal is replayed. */
+  baseJson: string
+  /** When that snapshot was written. */
+  baseSavedAt: string
+  /** Each entry is one change's Immer patches, in order. */
+  journal: unknown[][]
+  /** Time of the last journal entry, i.e. the last change before the crash. */
+  lastChangeAt: string | null
+}
+
+export interface OpenedProject {
+  path: string
+  json: string
+  recovery: RecoveryInfo | null
+}
+
+export interface JournalEntry {
+  seq: number
+  at: string
+  kind: 'do' | 'undo' | 'redo'
+  label: string
+  patches: unknown[]
+}
+
+/** Commands sent from the native menu to the renderer. */
+export type MenuCommand =
+  | { type: 'new-project' }
+  | { type: 'open-project' }
+  | { type: 'open-recent'; path: string }
+  | { type: 'save' }
+  | { type: 'save-as' }
+  | { type: 'close-project' }
+  | { type: 'reveal-project' }
+  | { type: 'undo' }
+  | { type: 'redo' }
+  | { type: 'toggle-window'; id: string }
+  | { type: 'workspace-apply'; name: string }
+  | { type: 'workspace-save-as' }
+  | { type: 'workspace-reset' }
+
+/** What the renderer tells the main process so the native menu can reflect it. */
+export interface MenuState {
+  hasProject: boolean
+  dirty: boolean
+  undoLabel: string | null
+  redoLabel: string | null
+  windows: Array<{ id: string; title: string; shortcut: string; open: boolean }>
+  workspaces: string[]
+  activeWorkspace: string | null
+  recent: RecentProject[]
+}
+
+export type UnsavedChoice = 'save' | 'discard' | 'cancel'
+
 /** API exposed to the renderer by the preload script as `window.ginosa`. */
 export interface GinosaBridge {
   versions: { electron: string; chrome: string; node: string }
@@ -65,5 +131,42 @@ export interface GinosaBridge {
     writeFile(name: string, data: ArrayBuffer): Promise<string>
     done(report: HarnessReport): Promise<void>
     log(message: string): void
+  }
+  project: {
+    /** Asks where to create a new project. Returns the folder path (not yet created) or null. */
+    chooseNewLocation(): Promise<string | null>
+    create(path: string, json: string): Promise<void>
+    /** Shows the open dialog when no path is given. */
+    open(path?: string): Promise<OpenedProject | null>
+    save(json: string): Promise<void>
+    saveAs(json: string): Promise<string | null>
+    autosave(json: string): Promise<void>
+    journal(entry: JournalEntry): void
+    discardRecovery(): Promise<void>
+    close(): Promise<void>
+    recent(): Promise<RecentProject[]>
+    reveal(): Promise<void>
+    askUnsaved(projectName: string): Promise<UnsavedChoice>
+    showError(title: string, detail: string): Promise<void>
+  }
+  workspace: {
+    load(): Promise<unknown>
+    save(data: unknown): Promise<void>
+  }
+  menu: {
+    setState(state: MenuState): void
+    onCommand(listener: (command: MenuCommand) => void): () => void
+  }
+  app: {
+    onCloseRequested(listener: () => void): () => void
+    closeNow(): void
+    closeCancelled(): void
+  }
+  snapshot: {
+    /** Present only when the app was started with --snapshot (automated UI screenshots). */
+    scenario: string | null
+    tempProjectPath(): Promise<string>
+    simulateCrash(): Promise<void>
+    ready(): Promise<void>
   }
 }

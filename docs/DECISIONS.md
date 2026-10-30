@@ -14,14 +14,15 @@
 | 8 | 1080p target; heavy 4K editing stays in Premiere | Approved | |
 | 9 | Datamosh: GPU engine first (all modes), codec-level bake second | Approved | |
 | 10 | Use any library needed; record every dependency and licence | Approved | See `DEPENDENCIES.md` |
-| 11 | Direct 1080p import with automatic optimised copies; proxies later | Proposed | |
-| 12 | Any standard frame rate up to 60 fps; real-time 1080p preview target | Proposed | |
-| 13 | Working colour Rec.709 SDR, processed in 16-bit float | Proposed | |
-| 14 | React for panels; timeline, keyframe editor and scopes drawn on canvas/GPU | Proposed | M0 uses plain DOM; React arrives in M1 |
-| 15 | Gradient Map: Photoshop-matching editor plus .GRD import of solid gradients | Proposed | |
+| 11 | Direct 1080p import with automatic optimised copies; proxies later | Approved | |
+| 12 | Any standard frame rate up to 60 fps; real-time 1080p preview target | Approved | |
+| 13 | Working colour Rec.709 SDR, processed in 16-bit float | Approved | Camera footage is log: log-to-Rec.709 conversion and camera `.cube` LUTs move into M4 |
+| 14 | React for panels; timeline, keyframe editor and scopes drawn on canvas/GPU | Approved | M0 uses plain DOM; React arrives in M1 |
+| 15 | Gradient Map: Photoshop-matching editor plus .GRD import of solid gradients | Approved | |
 | 16 | Workflow: Mac linked to Claude, local git repo, private GitHub repo as backup | Approved | Repo: `teolune/ginosa` |
 | 17 | Effects build order as listed in the plan's milestones | Proposed | |
 | 18 | App name: **ginosa** | Approved | 2026-10-30 |
+| 19 | Log footage support (camera conversion + `.cube` LUT per clip) moves into M4 | Proposed | Raised by M0: camera originals are log |
 
 ## Implementation notes (engineering choices, no approval needed)
 
