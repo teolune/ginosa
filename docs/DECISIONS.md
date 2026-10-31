@@ -39,11 +39,11 @@
 | 33 | Export defaults: H.264 in MP4 at 40 Mbit/s for 1080p 25 fps (scaled by pixels per second; HEVC 25% less), a keyframe every second, AAC 320 kbit/s; ProRes with 24-bit PCM. Settings are remembered between exports on this Mac | Proposed | Raised by M5 |
 | 34 | Export covers the whole sequence and always has a stereo sound track (silent if the timeline has none). Exporting an In–Out range comes with sequence In/Out marks | Proposed | Raised by M5 |
 | 35 | ProRes 4444 exports have no alpha channel for now: the timeline composites onto black | Proposed | Raised by M5. Transparent exports could come with adjustment layers/titles |
-| 36 | Adjustment layers are made on the timeline (+ Adjustment, File → New Adjustment Layer, or right-clicking a video track), not as a Media panel item as in Premiere, since there's no file behind them. New ones last 5 s, on the first free video track above the clips at the playhead | Proposed | Raised by M6 |
-| 37 | A clip's effects run at the clip's own resolution (times the playback resolution) before Motion, so Transform's Position on a clip is in the clip's own pixels; on an adjustment layer it's in the frame's | Proposed | Raised by M6 |
-| 38 | Effects keep transparency: what a Transform uncovers stays empty (black), even with an Invert after it, as in Photoshop and Premiere | Proposed | Raised by M6 |
-| 39 | Effect presets are shared by every project (kept in ginosa's settings folder). Pixel positions scale to the clip a preset is applied to | Proposed | Raised by M6 |
-| 40 | Invert's Hue only turns hue 180° keeping HSL saturation and lightness (Premiere's Hue); Chroma only flips OKLab a/b keeping perceptual lightness; Luminance only flips OKLab lightness keeping a/b | Proposed | Raised by M6 |
+| 36 | Adjustment layers are made on the timeline (+ Adjustment, File → New Adjustment Layer, or right-clicking a video track), not as a Media panel item as in Premiere, since there's no file behind them. New ones last 5 s, on the first free video track above the clips at the playhead | Approved | 2026-10-31 |
+| 37 | A clip's effects run at the clip's own resolution (times the playback resolution) before Motion, so Transform's Position on a clip is in the clip's own pixels; on an adjustment layer it's in the frame's | Approved | 2026-10-31 |
+| 38 | Effects keep transparency: what a Transform uncovers stays empty (black), even with an Invert after it, as in Photoshop and Premiere | Approved | 2026-10-31. Later, maybe with the menus: a setting for the background colour (instead of black) |
+| 39 | Effect presets are shared by every project (kept in ginosa's settings folder). Pixel positions scale to the clip a preset is applied to | Approved | 2026-10-31 |
+| 40 | Invert's Hue only turns hue 180° keeping HSL saturation and lightness (Premiere's Hue); Chroma only flips OKLab a/b keeping perceptual lightness; Luminance only flips OKLab lightness keeping a/b | Proposed | Raised by M6. The modes come from the plan, but this exact maths is my choice. Judge by eye in Effect Controls (Invert → Channel) on your footage |
 
 ## Implementation notes (engineering choices, no approval needed)
 
