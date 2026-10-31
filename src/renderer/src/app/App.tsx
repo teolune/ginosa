@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
+import { addMarker, placeMedia, splitClips } from '@engine/timeline/edits'
+import { RULER_HEIGHT, layoutRows, timeToX } from '../timeline/geometry'
+import { TimelineInteraction } from '../timeline/interaction'
 import type { MenuCommand, MenuState } from '@shared/ipc'
 import { mediaController } from '../state/media-controller'
 import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 import { workspaceController } from '../state/workspace'
+import { timelineController } from '../timeline/timeline-controller'
 import { Workspace } from '../workspace/Workspace'
 import { ErrorToast, PromptDialog, RecoveryDialog, type PromptRequest } from './Dialogs'
 import { StartScreen } from './StartScreen'
@@ -38,6 +42,34 @@ function menuState(): MenuState {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** A small edit for the timeline snapshot: linked clips, a still on V2, a song, a cut, markers. */
+async function buildSnapshotTimeline(): Promise<void> {
+  const project = projectController.project
+  if (!project) return
+  const byName = (name: string) => project.media.find((m) => m.name === name)
+  const tracks = project.sequence.tracks
+  const [v1, v2] = tracks.filter((t) => t.kind === 'video')
+  const [a1, a2] = tracks.filter((t) => t.kind === 'audio')
+  const s = secondsToTicks
+  const place = (name: string, at: number, video: string | null, audio: string | null, inS = 0, outS: number | null = null) => {
+    const item = byName(name)
+    if (item) projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: s(inS), sourceOut: outS === null ? null : s(outS), at: s(at), videoTrackId: video, audioTrackId: audio, mode: 'overwrite' }))
+  }
+  place('testsrc_1080p24_h264', 0, v1!.id, a1!.id, 2, 6)
+  place('testsrc_1080p24_prores', 4, v1!.id, a1!.id, 0, 6)
+  place('still_4k', 2.5, v2!.id, null)
+  place('song_120bpm', 0, null, a2!.id)
+  const prores = projectController.project!.sequence.clips.filter((c) => c.name === 'testsrc_1080p24_prores').map((c) => c.id)
+  projectController.dispatch(splitClips(prores, s(7)))
+  projectController.dispatch(addMarker(s(4)))
+  projectController.dispatch(addMarker(s(8)))
+  timelineController.zoomToFit()
+  timelineController.setPlayhead(s(3))
+  const selected = projectController.project!.sequence.clips.filter((c) => c.name === 'testsrc_1080p24_h264').map((c) => c.id)
+  timelineController.select(selected, 'replace')
+  await wait(2500)
+}
+
 /** Automated UI screenshots (npm run snapshot): set up a scene, then ask the main process to capture. */
 async function runSnapshotScenario(scenario: string): Promise<void> {
   if (scenario !== 'start') {
@@ -67,7 +99,9 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'source':
     case 'cache':
     case 'waveform':
-    case 'icons': {
+    case 'icons':
+    case 'timeline':
+    case 'drag': {
       const files = await window.ginosa.snapshot.testMedia()
       await mediaController.importPaths(files, null)
       const bin = createBin('Selects', null)
@@ -91,6 +125,22 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         workspaceController.open('source-monitor')
       }
       if (scenario === 'cache') workspaceController.open('cache-manager')
+      if (scenario === 'timeline' || scenario === 'drag') await buildSnapshotTimeline()
+      if (scenario === 'drag') {
+        // Grab the still on V2 and hold it 1.3 s later: the preview and the snap guide should show.
+        const sequence = projectController.project!.sequence
+        const still = sequence.clips.find((c) => c.name === 'still_4k')!
+        const row = layoutRows(sequence).rows.find((r) => r.track.id === still.trackId)!
+        const x = timeToX(still.start + still.duration / 2, timelineController.view)
+        const y = RULER_HEIGHT + row.top + row.height / 2 - timelineController.scrollY
+        const drag = new TimelineInteraction()
+        timelineController.deselect()
+        drag.down(new PointerEvent('pointerdown', { button: 0 }), x, y)
+        const dx = timelineController.view.pps * 1.3
+        drag.move(new PointerEvent('pointermove', { buttons: 1 }), x + dx / 2, y)
+        drag.move(new PointerEvent('pointermove', { buttons: 1 }), x + dx, y)
+        await wait(800)
+      }
       if (scenario === 'icons') {
         // Every icon state at once: hidden, locked and muted tracks, window and dock buttons.
         const tracks = projectController.project?.sequence.tracks ?? []
@@ -171,6 +221,19 @@ export function App() {
       offWorkspace()
       cancelAnimationFrame(frame)
     }
+  }, [])
+
+  // Premiere's timeline shortcuts. Panels that handle a key themselves (Media, Source
+  // Monitor) mark it handled first; text fields are left alone.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditingText() || !projectController.project || document.querySelector('.modal-backdrop')) return
+      const active = document.activeElement
+      const focus = active?.closest('.timeline-panel') ? 'timeline' : active?.closest('.source-monitor') ? 'source' : 'other'
+      if (timelineController.handleKey(event, focus)) event.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   // Menu commands.

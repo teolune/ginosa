@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEve
 import { Icon } from '../app/Icon'
 import { MediaPanel } from '../media-panel/MediaPanel'
 import { ProgramMonitor } from '../panels/ProgramMonitor'
-import { TimelinePanel } from '../panels/TimelinePanel'
+import { TimelinePanel } from '../timeline/TimelinePanel'
 import { useObservable } from '../state/observable'
 import { workspaceController } from '../state/workspace'
 import { FloatingWindow } from './FloatingWindow'

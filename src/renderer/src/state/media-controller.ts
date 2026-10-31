@@ -2,6 +2,7 @@ import { ALL_FORMATS, Input, UrlSource } from 'mediabunny'
 import { createBin, importMedia, relinkMedia } from '@engine/project/media-commands'
 import { IMPORT_EXTENSIONS, optimiseReasons, type MediaItem, type OptimiseReason } from '@engine/project/media'
 import type { Project } from '@engine/project/model'
+import type { Ticks } from '@engine/time'
 import type { FileStatus, OptimiseJob, ProbedFile } from '@shared/media-types'
 import { Observable } from './observable'
 import { projectController } from './project-controller'
@@ -66,6 +67,8 @@ export class MediaController extends Observable {
   importing: ImportProgress | null = null
   /** Item shown in the Source Monitor. */
   sourceId: string | null = null
+  /** A position the Source Monitor should jump to (bumped `version` = jump again). */
+  sourceSeek: { at: Ticks; version: number } | null = null
   /** Where Import puts new media: the bin selected in the Media panel, or the top level. */
   targetBinId: string | null = null
   /** A bin the Media panel should start renaming (set by New Bin). */
@@ -311,8 +314,10 @@ export class MediaController extends Observable {
     for (const item of this.project?.media ?? []) void this.check(item)
   }
 
-  openInSource(id: string): void {
+  /** Shows media in the Source Monitor, optionally at a time in the media (Match Frame, double-click). */
+  openInSource(id: string, at: Ticks | null = null): void {
     this.sourceId = id
+    this.sourceSeek = at === null ? null : { at, version: (this.sourceSeek?.version ?? 0) + 1 }
     this.notify()
   }
 }

@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M2 · Media and cache.** Import with bins, thumbnails and waveforms, a Source Monitor with In/Out, automatic optimised copies (ProRes, variable frame rate), relinking, and a Cache Manager that never touches your originals. Built on M1's projects, undo/redo, crash recovery and floating windows. Next: M3, the timeline.
+**M3 · Timeline.** Clips on tracks with Premiere's tools and shortcuts (move, trim, ripple, roll, razor, ripple delete, insert/overwrite), linked picture and sound, Sync Lock and Solo, snapping, markers, zoom, and a still-frame Program monitor. Built on M2's media library and cache and M1's projects, undo and crash recovery. Next: M4, playback.
 
 ## Setup (once)
 
@@ -27,7 +27,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
-| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons) |
+| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag) |
 
 ### Render harness flags
 

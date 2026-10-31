@@ -8,6 +8,7 @@ import { mediaController, type MediaRuntime } from '../state/media-controller'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
+import { timelineController } from '../timeline/timeline-controller'
 import { formatCodec, formatDuration, formatFps, formatSize } from './format'
 
 const DRAG_TYPE = 'application/x-ginosa-items'
@@ -178,7 +179,11 @@ export function MediaPanel() {
     const keysToMove = selected.includes(key) ? selected : [key]
     if (!selected.includes(key)) setSelected([key])
     event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(keysToMove))
-    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.effectAllowed = 'copyMove'
+    // The timeline can't read the drag data until the drop, so it learns what's coming here.
+    const media = projectController.project?.media ?? []
+    const items = keysToMove.filter((k) => !k.startsWith('bin:')).map((id) => media.find((m) => m.id === id)).filter((m) => m !== undefined)
+    timelineController.mediaDrag = items.length ? { items: items.map((m) => ({ mediaId: m.id, sourceIn: m.marks.in ?? 0, sourceOut: m.marks.out })) } : null
   }
 
   const acceptsDrop = (event: DragEvent) => event.dataTransfer.types.includes(DRAG_TYPE) || event.dataTransfer.types.includes('Files')
@@ -329,6 +334,7 @@ export function MediaPanel() {
                     style={{ gridTemplateColumns: columns }}
                     draggable={renaming !== key}
                     onDragStart={onDragStart(key)}
+                    onDragEnd={() => (timelineController.mediaDrag = null)}
                     {...dropProps(row.bin.id)}
                     onClick={(event) => select(key, event)}
                     onDoubleClick={() => toggle(row.bin.id)}
@@ -365,6 +371,7 @@ export function MediaPanel() {
                   style={{ gridTemplateColumns: columns }}
                   draggable={renaming !== item.id}
                   onDragStart={onDragStart(item.id)}
+                  onDragEnd={() => (timelineController.mediaDrag = null)}
                   onClick={(event) => select(item.id, event)}
                   onDoubleClick={() => openSource(item.id)}
                   onContextMenu={(event) => openMenu(event, row)}

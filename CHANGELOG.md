@@ -1,5 +1,28 @@
 # Changelog
 
+## M3 · Timeline
+
+- **Clips on tracks:**
+  - Drag in from Media or the Source Monitor (Cmd inserts), or press , / . to Insert / Overwrite from the Source Monitor at the playhead.
+  - Camera clips arrive with their sound, linked.
+  - Stills last 5 s.
+- **Premiere's tools and shortcuts:**
+  - Tools: Selection (V), Track Select Forward/Backward (A, Shift+A), Ripple Edit (B), Rolling Edit (N), Razor (C).
+  - Move, copy (Option-drag), insert-move (Cmd-drag), trim, ripple trim (Cmd-drag an edge) and roll.
+  - Add Edit (Cmd+K, Shift+Cmd+K), delete and ripple delete (Shift/Option+Delete), close gaps.
+  - Nudge (Option+arrows), link/unlink (Cmd+L), copy/cut/paste/paste insert, select all.
+- **Sync Lock and Solo** on every track, alongside eye/mute and lock. Ripple and insert edits shift sync-locked tracks Premiere-style. A ripple that would knock a sync-locked track out of sync is refused, and an insert that splits one says so.
+- **Snapping** (S) to cuts, the playhead and markers, with a guide line.
+- **Markers:** add (M), move, name, delete, next/previous.
+- **Navigation:** zoom (=, −, \, pinch, Option+scroll), trackpad scrolling, a scrollbar, frame stepping, edit-point jumps (↑/↓) and typed timecode (Premiere style: "1000", "+10").
+- **Timeline drawn on canvas:** thumbnails on video clips, waveforms on audio clips, a hatched look for locked tracks, offline clips in red, and live previews while dragging. Every preview runs the same engine function as the real edit.
+- **Program monitor still frame:** the top visible (or soloed) clip under the playhead, fitted to the frame. Match Frame (F) opens the source at that frame.
+- **Engine:** every edit is a command with a pure function behind it, frame-accurate and undoable.
+  - Removing media or a track removes its clips (with a notice).
+  - The frame rate is fixed once clips exist.
+- **Project format v3:** adds clips, markers, sync lock and solo. M2 projects upgrade automatically.
+- 129 tests (33 new timeline-engine tests, 3 new timecode tests).
+
 ## M2 · Media and cache
 
 - **Import:** Cmd+I, the Import button, or drag from Finder. Folders become bins. Duplicates are skipped, unreadable files are reported, and each import is one undo step.

@@ -1,6 +1,6 @@
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type Project, type Track } from './model'
+import { MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type Clip, type Marker, type Project, type Track } from './model'
 
 /**
  * Project file format: pretty-printed JSON with a schema version. parseProject()
@@ -49,6 +49,20 @@ function migrate(raw: Json): Json {
   // Upgrade steps, oldest first. Each one turns version n into n + 1.
   let data = raw
   if (version < 2) data = { ...data, schemaVersion: 2, media: [], bins: [] }
+  if (version < 3) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const tracks = Array.isArray(sequence['tracks']) ? sequence['tracks'] : []
+    data = {
+      ...data,
+      schemaVersion: 3,
+      sequence: {
+        ...sequence,
+        tracks: tracks.map((t) => (isObject(t) ? { ...t, syncLock: true, solo: false } : t)),
+        clips: [],
+        markers: []
+      }
+    }
+  }
   return data
 }
 
@@ -168,7 +182,40 @@ function parseTrack(value: unknown, index: number): Track {
     name: expectString(value, 'name', where),
     muted: expectBoolean(value, 'muted', where),
     locked: expectBoolean(value, 'locked', where),
-    visible: expectBoolean(value, 'visible', where)
+    visible: expectBoolean(value, 'visible', where),
+    syncLock: expectBoolean(value, 'syncLock', where),
+    solo: expectBoolean(value, 'solo', where)
+  }
+}
+
+const MAX_TICKS = Number.MAX_SAFE_INTEGER
+
+function parseClip(value: unknown, index: number): Clip {
+  const where = `sequence.clips[${index}]`
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const kind = value['kind']
+  if (kind !== 'video' && kind !== 'audio') throw new ProjectFormatError(`${where}.kind should be "video" or "audio"`)
+  const linkId = value['linkId']
+  return {
+    id: expectString(value, 'id', where),
+    trackId: expectString(value, 'trackId', where),
+    mediaId: expectString(value, 'mediaId', where),
+    kind,
+    name: expectString(value, 'name', where),
+    start: expectInteger(value, 'start', where, 0, MAX_TICKS),
+    duration: expectInteger(value, 'duration', where, 1, MAX_TICKS),
+    sourceIn: expectInteger(value, 'sourceIn', where, 0, MAX_TICKS),
+    linkId: typeof linkId === 'string' ? linkId : null
+  }
+}
+
+function parseMarker(value: unknown, index: number): Marker {
+  const where = `sequence.markers[${index}]`
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  return {
+    id: expectString(value, 'id', where),
+    time: expectInteger(value, 'time', where, 0, MAX_TICKS),
+    name: typeof value['name'] === 'string' ? value['name'] : ''
   }
 }
 
@@ -209,6 +256,20 @@ export function parseProject(input: string | unknown): Project {
   const media = mediaRaw.map(parseMediaItem)
   for (const item of media) if (item.binId && !binIds.has(item.binId)) item.binId = null
 
+  const clipsRaw = sequence['clips']
+  const markersRaw = sequence['markers']
+  if (!Array.isArray(clipsRaw)) throw new ProjectFormatError('sequence.clips should be a list')
+  if (!Array.isArray(markersRaw)) throw new ProjectFormatError('sequence.markers should be a list')
+  const trackKinds = new Map(tracks.map((t) => [t.id, t.kind]))
+  const mediaIds = new Set(media.map((m) => m.id))
+  const clips = clipsRaw.map(parseClip)
+  if (new Set(clips.map((c) => c.id)).size !== clips.length) throw new ProjectFormatError('Two clips share the same id')
+  for (const clip of clips) {
+    if (trackKinds.get(clip.trackId) !== clip.kind) throw new ProjectFormatError(`Clip "${clip.name}" is on a missing or wrong-kind track`)
+    if (!mediaIds.has(clip.mediaId)) throw new ProjectFormatError(`Clip "${clip.name}" points at media that isn't in the project`)
+  }
+  const markers = markersRaw.map(parseMarker)
+
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: expectString(data, 'id', 'project'),
@@ -223,7 +284,9 @@ export function parseProject(input: string | unknown): Project {
         frameRate: frameRate as keyof typeof FRAME_RATES,
         sampleRate: expectInteger(settings, 'sampleRate', 'sequence.settings', 8_000, 192_000)
       },
-      tracks
+      tracks,
+      clips,
+      markers
     },
     media,
     bins

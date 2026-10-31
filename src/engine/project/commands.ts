@@ -22,6 +22,8 @@ export interface Command {
   /** Consecutive commands with the same key within a short time merge into one undo step (e.g. typing a name). */
   coalesceKey?: string
   apply(draft: Draft<Project>): void
+  /** Set by apply() when the user should hear about a side effect (e.g. clips Sync Lock had to split). */
+  notice?: string
 }
 
 export class CommandError extends Error {}
@@ -59,6 +61,9 @@ export function setSequenceSettings(changes: Partial<SequenceSettings>): Command
         }
       }
       if (!(next.frameRate in FRAME_RATES)) throw new CommandError(`Unsupported frame rate ${String(next.frameRate)}`)
+      if (next.frameRate !== draft.sequence.settings.frameRate && draft.sequence.clips.length > 0) {
+        throw new CommandError('The frame rate can’t change once clips are on the timeline: every cut sits on the current frame grid')
+      }
       if (next.width % 2 !== 0 || next.height % 2 !== 0) throw new CommandError('Frame size must use even numbers (video encoders require it)')
       draft.sequence.settings = next
     }
@@ -88,6 +93,7 @@ export function removeTrack(id: string): Command {
       const sameKind = draft.sequence.tracks.filter((t) => t.kind === track.kind)
       if (sameKind.length <= 1) throw new CommandError(`A sequence needs at least one ${track.kind} track`)
       draft.sequence.tracks = draft.sequence.tracks.filter((t) => t.id !== id)
+      draft.sequence.clips = draft.sequence.clips.filter((c) => c.trackId !== id)
     }
   }
 }
@@ -103,12 +109,14 @@ export function renameTrack(id: string, name: string): Command {
   }
 }
 
-export type TrackFlag = 'muted' | 'locked' | 'visible'
+export type TrackFlag = 'muted' | 'locked' | 'visible' | 'syncLock' | 'solo'
 
 const FLAG_LABELS: Record<TrackFlag, [string, string]> = {
   muted: ['Mute Track', 'Unmute Track'],
   locked: ['Lock Track', 'Unlock Track'],
-  visible: ['Show Track', 'Hide Track']
+  visible: ['Show Track', 'Hide Track'],
+  syncLock: ['Sync Lock Track', 'Turn Off Sync Lock'],
+  solo: ['Solo Track', 'Unsolo Track']
 }
 
 export function setTrackFlag(id: string, flag: TrackFlag, value: boolean): Command {

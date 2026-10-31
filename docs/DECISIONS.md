@@ -25,6 +25,10 @@
 | 19 | Log footage support (camera conversion + `.cube` LUT per clip) moves into M4 | Proposed | Raised by M0: camera originals are log |
 | 20 | HDR clips (HLG/PQ, e.g. iPhone's normal HDR mode) stay HDR: no automatic SDR copy. They're converted to the Rec.709 sequence live on the GPU, as a per-clip input setting alongside Apple Log (M4), so grading keeps the highlights. Export stays SDR | Approved | 2026-10-31. A full HDR timeline and export was offered and not chosen |
 | 21 | Interface icons are Apple's SF Symbols, drawn by macOS at runtime; text fallback if a symbol is missing | Approved | 2026-10-31, your request |
+| 22 | Track headers: eye/mute, Solo, Sync Lock and lock. No track targeting: Insert/Overwrite go to the lowest unlocked video and audio tracks | Approved | 2026-10-31, your choice |
+| 23 | Ripple and insert edits follow Premiere's Sync Lock (on for every track by default). A ripple that would push a sync-locked track out of sync is refused; an insert that has to split clips on one says so | Approved | 2026-10-31, your choice. Turn Sync Lock off on the song track |
+| 24 | Camera clips are placed with their sound, linked (Option-click for one side, Cmd+L to unlink) | Approved | 2026-10-31 |
+| 25 | M3 Program monitor shows a still of the top visible clip under the playhead, fitted to the frame, until M4's compositor | Approved | 2026-10-31 |
 
 ## Implementation notes (engineering choices, no approval needed)
 
@@ -35,3 +39,8 @@
 - **Optimised copies** (M2): H.264 CRF 16 for 8-bit sources, HEVC Main10 via VideoToolbox for 10-bit and all HDR sources, keyframes every 0.5 s, 24-bit PCM audio, in `.mov`. Made automatically only when needed (codec not decodable by WebCodecs, variable frame rate); offered for keyframes more than 2 s apart. HDR copies keep their BT.2020 + HLG/PQ labels, stamped into the bitstream because Apple's encoder drops them. File names carry a format version (now v2), so changing the recipe never reuses stale copies.
 - **HDR to Rec.709** maths lives in `src/shared/colour/hdr-to-sdr.ts`, ready for M4: HLG inverse OETF + OOTF at 1000 nits (PQ via its EOTF), 203-nit reference white mapped to 1.0, a soft roll-off above 0.75, BT.2020→709 matrix, then BT.709 gamma, generated as a 33³ `.cube`. Until M4, the Source Monitor shows HDR clips with Chromium's own conversion.
 - **Cache** lives at `~/Movies/ginosa Cache/<project id>/<category>/` with an `index.json` naming each project. Every delete goes through `CacheService`, which checks the project ID and category, resolves real paths, stays inside the cache root and refuses symlinks. A chosen location always gets its own `ginosa Cache` subfolder.
+- **Timeline edits** (M3) live in `src/engine/timeline/`. Each edit has a pure `apply…` function used both for the live drag preview and by its command, so the preview is the edit. Every position sits on the sequence's frame grid, so the frame rate is locked once clips exist.
+- **Clips** store `start`, `duration` and `sourceIn` in ticks, plus a `linkId` shared by linked picture and sound. Splitting keeps the left half's link and gives the right halves a new shared one.
+- **Defaults** taken from Premiere: stills last 5 s; a drag overwrites and Cmd-drag inserts; Option-drag copies; picture and linked sound mirror around the middle when moved between tracks.
+- **Snapping** targets: the playhead, clip edges, markers and the sequence start, within 8 px. The playhead snaps while snapping is on, or while Shift is held.
+- **Typed timecode** reads Premiere's forms ("1:02:03:04", "1000" read right to left, "+10" relative). Display is non-drop-frame only.

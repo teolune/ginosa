@@ -8,6 +8,7 @@ import {
   frameToTicks,
   isExactFrameRate,
   nearestStandardRate,
+  parseTimecode,
   samplesToTicks,
   secondsToTicks,
   ticksPerFrame,
@@ -83,5 +84,25 @@ describe('nearestStandardRate', () => {
 
   it('rejects rates far from any standard', () => {
     expect(nearestStandardRate(17.3)).toBeNull()
+  })
+})
+
+describe('typed timecode', () => {
+  const rate = FRAME_RATES['25']
+  it('reads full, partial and digits-only timecode like Premiere', () => {
+    expect(parseTimecode('00:00:10:00', rate)).toBe(secondsToTicks(10))
+    expect(parseTimecode('1:02:03:04', rate)).toBe(frameToTicks(((1 * 60 + 2) * 60 + 3) * 25 + 4, rate))
+    expect(parseTimecode('2:00', rate)).toBe(secondsToTicks(2))
+    expect(parseTimecode('1000', rate)).toBe(secondsToTicks(10))
+    expect(parseTimecode('12', rate)).toBe(frameToTicks(12, rate))
+  })
+  it('moves relative with + and -, never before zero', () => {
+    expect(parseTimecode('+10', rate, secondsToTicks(1))).toBe(secondsToTicks(1) + frameToTicks(10, rate))
+    expect(parseTimecode('-1:00', rate, secondsToTicks(3))).toBe(secondsToTicks(2))
+    expect(parseTimecode('-5:00', rate, secondsToTicks(3))).toBe(0)
+  })
+  it('rejects text it cannot read', () => {
+    expect(parseTimecode('abc', rate)).toBeNull()
+    expect(parseTimecode('1:2:3:4:5', rate)).toBeNull()
   })
 })

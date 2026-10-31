@@ -1,0 +1,305 @@
+import type { MediaItem } from '@engine/project/media'
+import type { Clip, Marker, Sequence } from '@engine/project/model'
+import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
+import { clipEnd } from '@engine/timeline/timeline'
+import type { MediaRuntime } from '../state/media-controller'
+import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
+import type { GapSelection } from './timeline-controller'
+
+/** Everything one frame of the timeline canvas needs. */
+export interface Scene {
+  width: number
+  height: number
+  sequence: Sequence
+  rows: Rows
+  view: View
+  scrollY: number
+  fps: number
+  playhead: Ticks
+  selection: Set<string>
+  gap: GapSelection | null
+  snapLine: Ticks | null
+  razorLine: { time: Ticks; trackId: string | null } | null
+  marquee: { x0: number; y0: number; x1: number; y1: number } | null
+  media: Map<string, MediaItem>
+  runtime: (id: string) => MediaRuntime
+  image: (url: string) => HTMLImageElement | null
+  timecode: (time: Ticks) => string
+  focused: boolean
+}
+
+const COLOURS = {
+  bg: '#121316',
+  lane: '#17181c',
+  laneAlt: '#15161a',
+  divider: '#0e0f11',
+  grid: 'rgba(255,255,255,0.035)',
+  ruler: '#1a1b1f',
+  rulerText: '#8f929a',
+  tick: '#3a3d44',
+  video: '#4a69b8',
+  videoSelected: '#7095f0',
+  audio: '#2f8a62',
+  audioSelected: '#4fc48d',
+  offline: '#a33a2e',
+  clipText: '#f1f2f4',
+  waveform: 'rgba(255,255,255,0.55)',
+  playhead: '#5b8cff',
+  marker: '#3fb27f',
+  snap: '#f0c040',
+  razor: '#ff6b5b',
+  gap: 'rgba(91,140,255,0.18)',
+  locked: 'rgba(255,255,255,0.03)'
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const radius = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.arcTo(x + w, y, x + w, y + h, radius)
+  ctx.arcTo(x + w, y + h, x, y + h, radius)
+  ctx.arcTo(x, y + h, x, y, radius)
+  ctx.arcTo(x, y, x + w, y, radius)
+  ctx.closePath()
+}
+
+function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const { width, view, fps } = scene
+  ctx.fillStyle = COLOURS.ruler
+  ctx.fillRect(0, 0, width, RULER_HEIGHT)
+  const { major, minor } = rulerSteps(view.pps, fps)
+  const startSeconds = view.scroll
+  const endSeconds = view.scroll + width / view.pps
+  ctx.strokeStyle = COLOURS.tick
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let s = Math.floor(startSeconds / minor) * minor; s <= endSeconds; s += minor) {
+    const x = Math.round((s - view.scroll) * view.pps) + 0.5
+    const isMajor = Math.abs(s / major - Math.round(s / major)) < 1e-6
+    ctx.moveTo(x, RULER_HEIGHT - (isMajor ? 12 : 5))
+    ctx.lineTo(x, RULER_HEIGHT)
+  }
+  ctx.stroke()
+  ctx.fillStyle = COLOURS.rulerText
+  ctx.font = '10px "SF Mono", ui-monospace, Menlo, monospace'
+  ctx.textBaseline = 'top'
+  for (let s = Math.floor(startSeconds / major) * major; s <= endSeconds; s += major) {
+    const x = Math.round((s - view.scroll) * view.pps)
+    ctx.fillText(scene.timecode(secondsToTicks(s)), x + 3, 4)
+  }
+  // Markers
+  for (const marker of scene.sequence.markers) drawMarker(ctx, scene, marker)
+  ctx.strokeStyle = '#26282d'
+  ctx.beginPath()
+  ctx.moveTo(0, RULER_HEIGHT - 0.5)
+  ctx.lineTo(width, RULER_HEIGHT - 0.5)
+  ctx.stroke()
+}
+
+function drawMarker(ctx: CanvasRenderingContext2D, scene: Scene, marker: Marker): void {
+  const x = Math.round(timeToX(marker.time, scene.view))
+  if (x < -10 || x > scene.width + 10) return
+  ctx.fillStyle = COLOURS.marker
+  ctx.beginPath()
+  ctx.moveTo(x - 5, RULER_HEIGHT - 14)
+  ctx.lineTo(x + 5, RULER_HEIGHT - 14)
+  ctx.lineTo(x + 5, RULER_HEIGHT - 6)
+  ctx.lineTo(x, RULER_HEIGHT - 2)
+  ctx.lineTo(x - 5, RULER_HEIGHT - 6)
+  ctx.closePath()
+  ctx.fill()
+  if (marker.name && scene.view.pps > 4) {
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.fillStyle = COLOURS.marker
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText(marker.name, x + 7, RULER_HEIGHT - 6)
+  }
+}
+
+function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x: number, y: number, w: number, h: number): void {
+  const runtime = scene.runtime(clip.mediaId)
+  const wave = runtime.waveform
+  if (!wave) return
+  const { view } = scene
+  const mid = y + h / 2
+  const half = h / 2 - 2
+  ctx.fillStyle = COLOURS.waveform
+  const left = Math.max(x, 0)
+  const right = Math.min(x + w, scene.width)
+  const buckets = wave.peaks.length / 2
+  for (let px = Math.floor(left); px < right; px++) {
+    // Timeline time at this column and the next, mapped into the media.
+    const t0 = ticksToSeconds(clip.sourceIn) + (px - x) / view.pps
+    const t1 = t0 + 1 / view.pps
+    let b0 = Math.floor(t0 * wave.bucketsPerSecond)
+    const b1 = Math.max(b0 + 1, Math.floor(t1 * wave.bucketsPerSecond))
+    if (b0 >= buckets) break
+    let lo = 0
+    let hi = 0
+    for (; b0 < b1 && b0 < buckets; b0++) {
+      lo = Math.min(lo, wave.peaks[b0 * 2]!)
+      hi = Math.max(hi, wave.peaks[b0 * 2 + 1]!)
+    }
+    const top = mid - hi * half
+    const height = Math.max(1, (hi - lo) * half)
+    ctx.fillRect(px, top, 1, height)
+  }
+}
+
+function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: number, height: number): void {
+  const { view } = scene
+  const x = timeToX(clip.start, view)
+  const w = (ticksToSeconds(clip.duration)) * view.pps
+  if (x > scene.width || x + w < 0) return
+  const y = top + 2
+  const h = height - 4
+  const item = scene.media.get(clip.mediaId)
+  const runtime = scene.runtime(clip.mediaId)
+  const selected = scene.selection.has(clip.id)
+  const offline = !item || runtime.status === 'offline'
+  const base = offline ? COLOURS.offline : clip.kind === 'video' ? (selected ? COLOURS.videoSelected : COLOURS.video) : selected ? COLOURS.audioSelected : COLOURS.audio
+
+  ctx.save()
+  roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
+  ctx.fillStyle = base
+  ctx.fill()
+  ctx.clip()
+
+  if (clip.kind === 'video' && item && runtime.thumbnailUrl && w > 30) {
+    const img = scene.image(runtime.thumbnailUrl)
+    if (img) {
+      const thumbH = h - 14
+      const thumbW = Math.min(w - 4, (img.naturalWidth / Math.max(1, img.naturalHeight)) * thumbH)
+      ctx.globalAlpha = selected ? 1 : 0.9
+      ctx.drawImage(img, x + 2, y + 13, thumbW, thumbH)
+      ctx.globalAlpha = 1
+    }
+  }
+  if (clip.kind === 'audio') drawWaveform(ctx, scene, clip, x, y + 12, w, h - 12)
+
+  if (w > 24) {
+    ctx.fillStyle = COLOURS.clipText
+    ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.textBaseline = 'top'
+    const label = offline ? `${clip.name} (offline)` : clip.name
+    ctx.fillText(label, Math.max(x, 0) + 5, y + 2)
+  }
+  ctx.restore()
+
+  ctx.strokeStyle = selected ? '#ffffff' : 'rgba(0,0,0,0.35)'
+  ctx.lineWidth = selected ? 1.5 : 1
+  roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
+  ctx.stroke()
+}
+
+/** Draws the whole timeline (ruler, lanes, clips, overlays) into a canvas sized `scene.width × scene.height`. */
+export function drawTimeline(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const { width, height, rows, view, scrollY } = scene
+  ctx.fillStyle = COLOURS.bg
+  ctx.fillRect(0, 0, width, height)
+
+  // Lanes and clips, scrolled vertically, below the ruler.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, RULER_HEIGHT, width, height - RULER_HEIGHT)
+  ctx.clip()
+  ctx.translate(0, RULER_HEIGHT - scrollY)
+
+  const { major } = rulerSteps(view.pps, scene.fps)
+  rows.rows.forEach((row, i) => {
+    ctx.fillStyle = i % 2 ? COLOURS.laneAlt : COLOURS.lane
+    ctx.fillRect(0, row.top, width, row.height)
+    if (row.track.locked) {
+      ctx.fillStyle = COLOURS.locked
+      for (let x = -row.height; x < width; x += 10) {
+        ctx.beginPath()
+        ctx.moveTo(x, row.top + row.height)
+        ctx.lineTo(x + row.height, row.top)
+        ctx.lineTo(x + row.height + 4, row.top)
+        ctx.lineTo(x + 4, row.top + row.height)
+        ctx.fill()
+      }
+    }
+    ctx.fillStyle = '#202227'
+    ctx.fillRect(0, row.top + row.height - 1, width, 1)
+  })
+  ctx.fillStyle = COLOURS.divider
+  ctx.fillRect(0, rows.dividerTop, width, 6)
+  // Faint grid on major ruler steps
+  ctx.fillStyle = COLOURS.grid
+  for (let s = Math.floor(view.scroll / major) * major; s <= view.scroll + width / view.pps; s += major) {
+    ctx.fillRect(Math.round((s - view.scroll) * view.pps), 0, 1, rows.height)
+  }
+
+  if (scene.gap) {
+    const row = rows.rows.find((r) => r.track.id === scene.gap!.trackId)
+    if (row) {
+      const x0 = timeToX(scene.gap.start, view)
+      const x1 = timeToX(scene.gap.end, view)
+      ctx.fillStyle = COLOURS.gap
+      ctx.fillRect(x0, row.top + 2, x1 - x0, row.height - 4)
+    }
+  }
+
+  for (const row of rows.rows) {
+    const dim = (row.track.kind === 'video' && !row.track.visible) || (row.track.kind === 'audio' && row.track.muted)
+    ctx.globalAlpha = dim ? 0.45 : 1
+    for (const clip of scene.sequence.clips) if (clip.trackId === row.track.id) drawClip(ctx, scene, clip, row.top, row.height)
+    ctx.globalAlpha = 1
+  }
+
+  if (scene.razorLine) {
+    const x = Math.round(timeToX(scene.razorLine.time, view)) + 0.5
+    ctx.strokeStyle = COLOURS.razor
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 3])
+    ctx.beginPath()
+    const row = scene.razorLine.trackId ? rows.rows.find((r) => r.track.id === scene.razorLine!.trackId) : null
+    ctx.moveTo(x, row ? row.top : 0)
+    ctx.lineTo(x, row ? row.top + row.height : rows.height)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+  ctx.restore()
+
+  if (scene.marquee) {
+    const { x0, y0, x1, y1 } = scene.marquee
+    ctx.fillStyle = 'rgba(91,140,255,0.12)'
+    ctx.strokeStyle = 'rgba(91,140,255,0.8)'
+    ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0))
+    ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0))
+  }
+
+  drawRuler(ctx, scene)
+
+  if (scene.snapLine !== null) {
+    const x = Math.round(timeToX(scene.snapLine, view)) + 0.5
+    ctx.strokeStyle = COLOURS.snap
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x, 0)
+    ctx.lineTo(x, height)
+    ctx.stroke()
+  }
+
+  // Playhead on top of everything.
+  const px = Math.round(timeToX(scene.playhead, view)) + 0.5
+  if (px >= -8 && px <= width + 8) {
+    ctx.strokeStyle = COLOURS.playhead
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(px, RULER_HEIGHT - 8)
+    ctx.lineTo(px, height)
+    ctx.stroke()
+    ctx.fillStyle = COLOURS.playhead
+    ctx.beginPath()
+    ctx.moveTo(px - 6, RULER_HEIGHT - 14)
+    ctx.lineTo(px + 6, RULER_HEIGHT - 14)
+    ctx.lineTo(px + 6, RULER_HEIGHT - 8)
+    ctx.lineTo(px, RULER_HEIGHT - 2)
+    ctx.lineTo(px - 6, RULER_HEIGHT - 8)
+    ctx.closePath()
+    ctx.fill()
+  }
+}
+

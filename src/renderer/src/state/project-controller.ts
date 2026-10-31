@@ -160,7 +160,9 @@ export class ProjectController extends Observable {
   dispatch(command: Command): boolean {
     if (!this.history) return false
     try {
-      return this.history.dispatch(command) !== null
+      const changed = this.history.dispatch(command) !== null
+      if (changed && command.notice) this.showMessage(command.notice)
+      return changed
     } catch (error) {
       if (error instanceof CommandError) {
         this.lastError = error.message

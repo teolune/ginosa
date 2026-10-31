@@ -67,7 +67,10 @@ export function deleteBin(id: string): Command {
       findBin(draft, id)
       const doomed = new Set(binDescendants(draft.bins, id))
       draft.bins = draft.bins.filter((b) => !doomed.has(b.id))
-      draft.media = draft.media.filter((m) => !(m.binId && doomed.has(m.binId)))
+      const removed = new Set(draft.media.filter((m) => m.binId && doomed.has(m.binId)).map((m) => m.id))
+      draft.media = draft.media.filter((m) => !removed.has(m.id))
+      // Clips of removed media go too, as in Premiere.
+      draft.sequence.clips = draft.sequence.clips.filter((c) => !removed.has(c.mediaId))
     }
   }
 }
@@ -100,13 +103,18 @@ export function renameMedia(id: string, name: string): Command {
 }
 
 export function removeMedia(ids: string[]): Command {
-  return {
+  const command: Command = {
     label: ids.length === 1 ? 'Remove Media' : `Remove ${ids.length} Items`,
     apply(draft) {
       const doomed = new Set(ids)
       draft.media = draft.media.filter((m) => !doomed.has(m.id))
+      const before = draft.sequence.clips.length
+      draft.sequence.clips = draft.sequence.clips.filter((c) => !doomed.has(c.mediaId))
+      const removed = before - draft.sequence.clips.length
+      command.notice = removed > 0 ? `Also removed ${removed} clip${removed === 1 ? '' : 's'} from the timeline. Cmd+Z brings ${removed === 1 ? 'it' : 'them'} back.` : undefined
     }
   }
+  return command
 }
 
 /** Points a media item at a moved or replaced file. */

@@ -3,6 +3,8 @@ import { setMarks } from '@engine/project/media-commands'
 import { frameRateValue, type MediaItem } from '@engine/project/media'
 import { frameToTicks, nearestStandardRate, secondsToTicks, ticksToSeconds } from '@engine/time'
 import { Icon } from '../app/Icon'
+import { SOURCE_DRAG_TYPE } from '../timeline/drag-types'
+import { timelineController } from '../timeline/timeline-controller'
 import { getGpu } from '../gpu/shared'
 import { formatMediaTime } from '../media-panel/format'
 import { TestPlayer } from '../media/test-player'
@@ -108,10 +110,17 @@ export function SourceMonitorWindow() {
     if (!player || !canvasRef.current || !item || item.kind !== 'video' || !playable) return
     if (player.state.path === playable) return
     void player.open(playable, canvasRef.current).then(() => {
-      const markIn = item.marks.in
-      if (markIn !== null) void player.showFrame(Math.round(ticksToSeconds(markIn) * frameRateValue(item.info.video?.frameRate ?? null)))
+      const start = mediaController.sourceSeek?.at ?? item.marks.in
+      if (start !== null) void player.showFrame(Math.round(ticksToSeconds(start) * frameRateValue(item.info.video?.frameRate ?? null)))
     })
   }, [player, item, playable])
+
+  // Match Frame / double-click in the timeline: jump to that frame.
+  const seek = mediaController.sourceSeek
+  useEffect(() => {
+    if (!seek || !player || !item || item.kind !== 'video' || player.state.path !== playable) return
+    void player.showFrame(Math.round(ticksToSeconds(seek.at) * frameRateValue(item.info.video?.frameRate ?? null)))
+  }, [seek?.version, player, item, playable])
 
   useEffect(() => {
     if (item?.kind === 'audio' || item?.kind === 'video') mediaController.requestWaveform(item)
@@ -168,7 +177,19 @@ export function SourceMonitorWindow() {
         event.preventDefault()
       }}
     >
-      <div className="source-screen">
+      <div
+        className="source-screen"
+        draggable={item.kind !== 'image' || runtime.status !== 'offline'}
+        title="Drag into the timeline (Cmd while dropping inserts)"
+        onDragStart={(event) => {
+          event.dataTransfer.setData(SOURCE_DRAG_TYPE, item.id)
+          event.dataTransfer.effectAllowed = 'copy'
+          timelineController.mediaDrag = { items: [{ mediaId: item.id, sourceIn: item.marks.in ?? 0, sourceOut: item.marks.out }] }
+        }}
+        onDragEnd={() => {
+          timelineController.mediaDrag = null
+        }}
+      >
         <canvas ref={canvasRef} width={1920} height={1080} style={{ display: isVideo && playable ? 'block' : 'none', aspectRatio: `${item.info.video?.width ?? 16} / ${item.info.video?.height ?? 9}` }} />
         {item.kind === 'image' && runtime.status !== 'offline' && <img className="source-image" src={window.ginosa.mediaUrl(item.path)} alt={item.name} />}
         {item.kind === 'audio' && <WaveformView waveform={runtime.waveform} duration={duration} position={audioPosition} onSeek={setAudioPosition} />}

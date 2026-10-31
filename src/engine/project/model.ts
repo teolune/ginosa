@@ -1,13 +1,13 @@
-import { FRAME_RATES, type FrameRateName } from '../time'
+import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
 
 /**
- * The project document. Everything the user can undo lives here; window layouts
- * and other UI state do not. Media, bins and clips join the model in M2–M3.
+ * The project document. Everything the user can undo lives here; window layouts,
+ * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. */
-export const PROJECT_SCHEMA_VERSION = 2
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. */
+export const PROJECT_SCHEMA_VERSION = 3
 
 export type TrackKind = 'video' | 'audio'
 
@@ -19,6 +19,34 @@ export interface Track {
   muted: boolean
   locked: boolean
   visible: boolean
+  /** Ripple and insert edits elsewhere also shift this track, keeping it in sync (Premiere's sync lock). */
+  syncLock: boolean
+  /** When any track of a kind is soloed, only soloed tracks of that kind are seen or heard. */
+  solo: boolean
+}
+
+/**
+ * A piece of media on a track. Positions are integer ticks on the sequence's frame
+ * grid; `sourceIn` is where in the media file the clip starts.
+ */
+export interface Clip {
+  id: string
+  trackId: string
+  mediaId: string
+  /** Matches the kind of its track. */
+  kind: TrackKind
+  name: string
+  start: Ticks
+  duration: Ticks
+  sourceIn: Ticks
+  /** Clips sharing a link id move, trim, split and delete together (a camera clip's picture and sound). */
+  linkId: string | null
+}
+
+export interface Marker {
+  id: string
+  time: Ticks
+  name: string
 }
 
 export interface SequenceSettings {
@@ -34,6 +62,9 @@ export interface Sequence {
   settings: SequenceSettings
   /** All tracks; video and audio are told apart by `kind`. Order within a kind is V1, V2… / A1, A2… */
   tracks: Track[]
+  /** Every clip on every track, in no particular order. */
+  clips: Clip[]
+  markers: Marker[]
 }
 
 export interface Project {
@@ -68,7 +99,9 @@ export function createTrack(kind: TrackKind, index: number, createId: IdFactory 
     name: `${kind === 'video' ? 'V' : 'A'}${index + 1}`,
     muted: false,
     locked: false,
-    visible: true
+    visible: true,
+    syncLock: true,
+    solo: false
   }
 }
 
@@ -102,7 +135,9 @@ export function createProject({ name, settings, createId = defaultId, now = () =
         createTrack('audio', 0, createId),
         createTrack('audio', 1, createId),
         createTrack('audio', 2, createId)
-      ]
+      ],
+      clips: [],
+      markers: []
     },
     media: [],
     bins: []

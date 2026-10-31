@@ -21,7 +21,21 @@ export const SYMBOLS = {
   folder: 'folder.fill',
   musicNote: 'music.note',
   play: 'play.fill',
-  stop: 'stop.fill'
+  stop: 'stop.fill',
+  syncLock: 'arrow.left.arrow.right.square',
+  syncLockOn: 'arrow.left.arrow.right.square.fill',
+  solo: 's.circle',
+  soloOn: 's.circle.fill',
+  toolSelect: 'cursorarrow',
+  toolForward: 'arrow.right.to.line',
+  toolBackward: 'arrow.left.to.line',
+  toolRipple: 'arrow.right.and.line.vertical.and.arrow.left',
+  toolRoll: 'arrow.left.and.line.vertical.and.arrow.right',
+  toolRazor: 'scissors',
+  magnet: 'magnet',
+  zoomIn: 'plus.magnifyingglass',
+  zoomOut: 'minus.magnifyingglass',
+  zoomFit: 'arrow.left.and.right'
 } as const
 
 export type SymbolName = keyof typeof SYMBOLS

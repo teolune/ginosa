@@ -157,7 +157,7 @@ describe('project format v2', () => {
     delete v1.media
     delete v1.bins
     const upgraded = parseProject(v1)
-    expect(upgraded.schemaVersion).toBe(2)
+    expect(upgraded.schemaVersion).toBe(3)
     expect(upgraded.media).toEqual([])
     expect(upgraded.bins).toEqual([])
   })

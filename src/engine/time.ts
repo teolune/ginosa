@@ -79,7 +79,7 @@ export function timecodeBase(rate: FrameRate): number {
 
 /**
  * Non-drop-frame timecode HH:MM:SS:FF, counted at the nominal rate (as Premiere does
- * for 23.976 and for 29.97 NDF). Drop-frame display arrives with sequence settings in M3.
+ * for 23.976 and for 29.97 NDF). Drop-frame display isn't supported.
  */
 export function formatTimecode(ticks: Ticks, rate: FrameRate): string {
   const base = timecodeBase(rate)
@@ -91,6 +91,32 @@ export function formatTimecode(ticks: Ticks, rate: FrameRate): string {
   const hours = Math.floor(totalSeconds / 3600)
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}:${pad(frames)}`
+}
+
+/**
+ * Reads typed timecode the way Premiere does. "1:02:03:04", "2:03:04" and "1000" (read
+ * right to left as frames, seconds, minutes, hours: 00:00:10:00) are absolute;
+ * "+10" / "-1:00" move relative to `current`. Returns null if it can't be read.
+ */
+export function parseTimecode(text: string, rate: FrameRate, current: Ticks = 0): Ticks | null {
+  const input = text.trim()
+  const sign = input.startsWith('+') ? 1 : input.startsWith('-') ? -1 : 0
+  const body = sign ? input.slice(1).trim() : input
+  if (!/^[0-9]+([:;.][0-9]+)*$/.test(body)) return null
+  let fields: number[]
+  if (/[:;.]/.test(body)) fields = body.split(/[:;.]/).map(Number)
+  else if (sign) fields = [Number(body)]
+  else {
+    const digits = body.padStart(8, '0').slice(-8)
+    fields = [0, 2, 4, 6].map((i) => Number(digits.slice(i, i + 2)))
+  }
+  if (fields.length > 4) return null
+  const [frames = 0, seconds = 0, minutes = 0, hours = 0] = fields.reverse()
+  const base = timecodeBase(rate)
+  const total = ((hours * 60 + minutes) * 60 + seconds) * base + frames
+  const ticks = frameToTicks(total, rate)
+  if (sign) return Math.max(0, current + sign * ticks)
+  return ticks
 }
 
 /** Snaps a measured frame rate (e.g. 23.9760001 from a file) to the closest standard rate. */
