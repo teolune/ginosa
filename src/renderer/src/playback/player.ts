@@ -178,9 +178,13 @@ class Player extends Observable {
       return { undoMacDisplay, conversion: lut ? { kind: 'lut', lut } : { kind: 'none' } }
     }
     const colour = effectiveColour(item)
+    if ((colour === 'hlg' || colour === 'pq') && !undoMacDisplay) {
+      // Raw HLG/PQ values (the stream's tag was rewritten): ginosa's own HDR → Rec.709, computed exactly.
+      return { undoMacDisplay, conversion: { kind: 'hdr', transfer: colour } }
+    }
     if (colour === 'apple-log') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: BT2020_TO_REC709 } }
     if (colour === 'apple-log-2') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: APPLE_WIDE_GAMUT_TO_REC709 } }
-    // Rec.709 as is; HDR (HLG/PQ) has already been tone-mapped to SDR by Chromium.
+    // Rec.709 as is. HDR that couldn't be rewritten (not HEVC) has been tone-mapped by Chromium.
     return { undoMacDisplay, conversion: { kind: 'none' } }
   }
 

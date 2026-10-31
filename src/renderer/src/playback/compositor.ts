@@ -22,7 +22,7 @@ export interface CompositeLayer {
 export interface LayerColour {
   /** True when Chromium applied the Mac video display transform on import (undone here). */
   undoMacDisplay: boolean
-  conversion: { kind: 'none' } | { kind: 'apple-log'; gamut: Matrix3 } | { kind: 'lut'; lut: GpuLut }
+  conversion: { kind: 'none' } | { kind: 'apple-log'; gamut: Matrix3 } | { kind: 'lut'; lut: GpuLut } | { kind: 'hdr'; transfer: 'hlg' | 'pq' }
 }
 
 export interface GpuLut {
@@ -146,7 +146,7 @@ export class Compositor {
       data.set([
         m.a, m.b, m.c, m.d, m.e, m.f, layer.width, layer.height,
         scale, layer.opacity, layer.rotation, BLEND_MODES.findIndex((b) => b.id === layer.blend),
-        layer.colour.undoMacDisplay ? 1 : 0, conversion.kind === 'apple-log' ? 1 : conversion.kind === 'lut' ? 2 : 0, lut?.size ?? 1, 0,
+        layer.colour.undoMacDisplay ? 1 : 0, conversion.kind === 'apple-log' ? 1 : conversion.kind === 'lut' ? 2 : conversion.kind === 'hdr' ? (conversion.transfer === 'hlg' ? 3 : 4) : 0, lut?.size ?? 1, 0,
         ...(lut?.min ?? [0, 0, 0]), 0,
         ...(lut?.max ?? [1, 1, 1]), 0,
         // WGSL matrices are column-major: column j holds row-major entries j, j+3, j+6.

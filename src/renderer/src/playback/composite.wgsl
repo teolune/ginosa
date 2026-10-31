@@ -6,7 +6,7 @@ struct Layer {
   inverse0: vec4f, // a, b, c, d of the sequence-pixel -> source-pixel transform
   inverse1: vec4f, // e, f, source width, source height (as displayed)
   params: vec4f,   // output pixels per sequence pixel, opacity (0-1), rotation quarter turns, blend mode
-  colour: vec4f,   // decode (0 = values as stored, 1 = undo the Mac video display transform), conversion (0 none, 1 Apple Log, 2 LUT), LUT size, unused
+  colour: vec4f,   // decode (0 = values as stored, 1 = undo the Mac video display transform), conversion (0 none, 1 Apple Log, 2 LUT, 3 HLG, 4 PQ), LUT size, unused
   lutMin: vec4f,
   lutMax: vec4f,
   gamut0: vec4f,   // columns of the linear gamut matrix to Rec.709 (Apple Log conversions)
@@ -65,6 +65,50 @@ fn rec709Oetf(l: vec3f) -> vec3f {
   return select(1.099 * pow(l, vec3f(0.45)) - 0.099, 4.5 * l, l < vec3f(0.018));
 }
 
+// HDR (BT.2100 HLG or PQ, BT.2020) to Rec.709: the same maths as src/shared/colour/hdr-to-sdr.ts.
+const HLG_A = 0.17883277;
+const HLG_B = 0.28466892;
+const HLG_C = 0.55991073;
+
+fn hlgInverseOetf(e: vec3f) -> vec3f {
+  return select((exp((e - HLG_C) / HLG_A) + HLG_B) / 12.0, e * e / 3.0, e <= vec3f(0.5));
+}
+
+fn pqEotfNits(e: vec3f) -> vec3f {
+  let m1 = 2610.0 / 16384.0;
+  let m2 = 2523.0 / 4096.0 * 128.0;
+  let c1 = 3424.0 / 4096.0;
+  let c2 = 2413.0 / 4096.0 * 32.0;
+  let c3 = 2392.0 / 4096.0 * 32.0;
+  let p = pow(max(e, vec3f(0.0)), vec3f(1.0 / m2));
+  return 10000.0 * pow(max(p - c1, vec3f(0.0)) / (c2 - c3 * p), vec3f(1.0 / m1));
+}
+
+fn luma2020(c: vec3f) -> f32 {
+  return dot(c, vec3f(0.2627, 0.678, 0.0593));
+}
+
+fn hdrToSdr(v: vec3f, hlg: bool) -> vec3f {
+  var linear: vec3f;
+  if (hlg) {
+    let scene = hlgInverseOetf(v);
+    let gain = 1000.0 * pow(max(luma2020(scene), 1e-9), 0.2);
+    linear = scene * gain / 203.0;
+  } else {
+    linear = pqEotfNits(v) / 203.0;
+  }
+  let y = luma2020(linear);
+  var rolled = y;
+  if (y > 0.75) { rolled = 0.75 + 0.25 * (1.0 - exp(-(y - 0.75) / 0.25)); }
+  let toned = select(vec3f(0.0), linear * (rolled / y), y > 0.0);
+  let out = vec3f(
+    dot(toned, vec3f(1.6605, -0.5876, -0.0728)),
+    dot(toned, vec3f(-0.1246, 1.1329, -0.0083)),
+    dot(toned, vec3f(-0.0182, -0.1006, 1.1187))
+  );
+  return pow(clamp(out, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.4));
+}
+
 fn inputColour(stored: vec3f) -> vec3f {
   var v = stored;
   if (layer.colour.x > 0.5) { v = undoMacDisplay(v); }
@@ -76,6 +120,8 @@ fn inputColour(stored: vec3f) -> vec3f {
     let n = layer.colour.z;
     let t = clamp((v - layer.lutMin.xyz) / (layer.lutMax.xyz - layer.lutMin.xyz), vec3f(0.0), vec3f(1.0));
     v = textureSampleLevel(lut, srcSampler, t * (n - 1.0) / n + 0.5 / n, 0.0).rgb;
+  } else if (conversion == 3u || conversion == 4u) {
+    v = hdrToSdr(v, conversion == 3u);
   }
   return v;
 }

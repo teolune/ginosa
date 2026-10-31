@@ -8,6 +8,7 @@ import { runSyncTest } from '../playback/sync-test'
 import { runSpeedTest } from '../playback/speed-test'
 import { probePatches, readPixels } from '../playback/colour-probe'
 import { appleLogToRec709 } from '@engine/colour/colour'
+import { hdrToSdr } from '@shared/colour/hdr-to-sdr'
 import { effectiveColour } from '@engine/project/media'
 import { RULER_HEIGHT, layoutRows, timeToX } from '../timeline/geometry'
 import { TimelineInteraction } from '../timeline/interaction'
@@ -125,7 +126,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
   switch (scenario) {
     case 'logview': {
       // Each patch clip through the real playback path: decoder request, detection, shader.
-      const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_(applelog|applelog2|rec709)\.mov$/.test(f))
+      const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_(applelog|applelog2|rec709|hlg|pq)\.mov$/.test(f))
       await mediaController.importPaths(files, null)
       await wait(1500)
       const patches: Array<[number, number, number]> = [[0.2, 0.2, 0.2], [0.502, 0.502, 0.502], [0.6, 0.251, 0.149], [0.149, 0.451, 0.702], [0.949, 0.949, 0.949]]
@@ -137,7 +138,9 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         await wait(1200)
         const got = player.lastStill ? await readPixels(player.lastStill, [192, 576, 960, 1344, 1728].map((x) => [x, 540] as [number, number])) : []
         const colour = effectiveColour(item)
-        const expected = patches.map((p) => (colour === 'apple-log' ? appleLogToRec709(p, 'bt2020') : colour === 'apple-log-2' ? appleLogToRec709(p, 'apple-wide-gamut') : p).map((v) => Math.round(v * 1000) / 1000))
+        const convert = (p: [number, number, number]) =>
+          colour === 'apple-log' ? appleLogToRec709(p, 'bt2020') : colour === 'apple-log-2' ? appleLogToRec709(p, 'apple-wide-gamut') : colour === 'hlg' || colour === 'pq' ? hdrToSdr(p, colour) : p
+        const expected = patches.map((p) => convert(p).map((v) => Math.round(v * 1000) / 1000))
         const worst = Math.max(...got.flatMap((g, i) => g.map((v, c) => Math.abs(v - expected[i]![c]!))))
         report[item.name] = { detected: colour, worstError: Math.round(worst * 1000) / 1000, expected, got }
       }

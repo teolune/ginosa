@@ -1,5 +1,12 @@
 # Changelog
 
+## M4 · Playback (part 3, in progress)
+
+- **HDR on ginosa's own maths** (decision 20): iPhone HLG and HDR10/PQ HEVC clips are converted to Rec.709 on the GPU with ginosa's HDR→SDR maths, not Chromium's tone-mapping. ginosa rewrites the stream's transfer tag as the file is read, so the raw values arrive.
+- **Colour check** now covers HLG and PQ (`npm run snapshot -- --scenario logview`).
+- **Your LUTs:** all 57 in `Reference Materials` load (17 log→Rec.709, 40 looks).
+- 181 tests.
+
 ## M4 · Playback (part 2)
 
 - **Speed/Duration** (⌘R): speed %, duration (linked), Reverse Speed, and ripple that shifts later clips and sync-locked tracks. Linked picture and sound change together. Clips show [200%], [-100%] or [Hold].

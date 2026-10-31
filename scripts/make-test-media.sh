@@ -66,7 +66,7 @@ if has hevc_videotoolbox; then
   # Five patches with known RGB: grey 0.2, grey 0.5, (0.6, 0.25, 0.15), (0.15, 0.45, 0.7), white 0.95,
   # stored as 10-bit BT.2020 Y'CbCr and tagged several ways, to test how Chromium hands each to the GPU.
   patches="color=c=0x333333:s=256x720:r=25:d=2[a];color=c=0x808080:s=256x720:r=25:d=2[b];color=c=0x994026:s=256x720:r=25:d=2[c];color=c=0x2673B3:s=256x720:r=25:d=2[d];color=c=0xF2F2F2:s=256x720:r=25:d=2[e];[a][b][c][d][e]hstack=5,format=gbrp,scale=out_color_matrix=bt2020:out_range=tv,format=p010le"
-  for tag in "applelog:9:2" "applelog2:2:2" "hlg:9:18" "srgbtagged:1:13"; do
+  for tag in "applelog:9:2" "applelog2:2:2" "hlg:9:18" "pq:9:16" "srgbtagged:1:13"; do
     name=${tag%%:*}; rest=${tag#*:}; prim=${rest%%:*}; trc=${rest#*:}
     echo "Colour patches tagged like $name (primaries $prim, transfer $trc, BT.2020 matrix)"
     ffmpeg -hide_banner -loglevel error -y -f lavfi -i "nullsrc=s=16x16:d=2" -filter_complex "$patches" \
