@@ -115,7 +115,12 @@ select.input { padding-right: 4px; }
 .monitor-canvas { width: 100%; height: 100%; display: block; }
 .monitor-message { position: absolute; left: 0; right: 0; text-align: center; color: var(--text-muted); }
 .monitor-note { font-weight: 400; }
-.transport { height: 34px; flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1px solid var(--border); }
+.transport { height: 36px; flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 0 10px; border-top: 1px solid var(--border); }
+.transport .timecode { justify-self: start; }
+.transport-buttons { display: flex; align-items: center; gap: 4px; }
+.transport-play .icon { font-size: 15px; }
+.transport-right { justify-self: end; display: flex; align-items: center; gap: 6px; }
+.monitor-stats { position: absolute; top: 8px; left: 8px; padding: 6px 8px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 11px; line-height: 1.5; color: #e3e4e7; pointer-events: none; }
 .timecode { font-size: 13px; color: var(--text); letter-spacing: 0.04em; }
 
 /* ---- Timeline ---- */
@@ -346,3 +351,21 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .toggle, .window-button, .icon-button, .twisty { display: inline-flex; align-items: center; justify-content: center; }
 /* Icon toggles share one width so track-header columns line up whatever the symbol's shape. */
 .toggle:has(> .icon) { width: 28px; padding: 0; }
+
+/* ---- Effect Controls ---- */
+.effect-controls { padding: 6px 0 12px; font-size: 12px; }
+.fx-clip { display: flex; flex-direction: column; gap: 2px; padding: 4px 12px 8px; border-bottom: 1px solid var(--border); }
+.fx-clip-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-section { border-bottom: 1px solid var(--border); }
+.fx-section-head { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px 0 6px; }
+.fx-title { font-weight: 600; }
+.fx-body { padding: 0 10px 8px 26px; display: flex; flex-direction: column; gap: 3px; }
+.fx-row { display: grid; grid-template-columns: 96px 1fr; align-items: center; min-height: 24px; }
+.fx-label { color: var(--text-muted); }
+.fx-values { display: flex; align-items: center; gap: 12px; }
+.scrub { color: var(--accent); cursor: ew-resize; padding: 1px 2px; border-radius: 3px; border-bottom: 1px dotted rgba(91,140,255,0.45); }
+.scrub:hover { background: var(--accent-soft); }
+.scrub.disabled { color: var(--text-muted); cursor: default; border-bottom-color: transparent; }
+.scrub-unit { color: var(--text-muted); margin-left: 2px; }
+.scrub-input { width: 72px; }
+.fx-note { padding: 10px 12px 0; margin: 0; }

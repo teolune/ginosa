@@ -4,7 +4,7 @@ import { secondsToTicks } from '../time'
 import { CommandError } from './commands'
 import { createBin, deleteBin, importMedia, moveToBin, relinkMedia, removeMedia, setMarks } from './media-commands'
 import { optimiseReasons, type MediaInfo, type MediaItem } from './media'
-import { createProject } from './model'
+import { PROJECT_SCHEMA_VERSION, createProject } from './model'
 import { parseProject, serializeProject } from './serialize'
 
 let counter = 0
@@ -157,7 +157,7 @@ describe('project format v2', () => {
     delete v1.media
     delete v1.bins
     const upgraded = parseProject(v1)
-    expect(upgraded.schemaVersion).toBe(3)
+    expect(upgraded.schemaVersion).toBe(PROJECT_SCHEMA_VERSION)
     expect(upgraded.media).toEqual([])
     expect(upgraded.bins).toEqual([])
   })

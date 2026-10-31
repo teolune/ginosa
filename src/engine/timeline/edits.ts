@@ -3,6 +3,7 @@ import { CommandError, type Command } from '../project/commands'
 import type { MediaItem } from '../project/media'
 import { defaultId, type Clip, type IdFactory, type Project, type Sequence, type TrackKind } from '../project/model'
 import { secondsToTicks, type Ticks } from '../time'
+import { defaultMotion } from './motion'
 import {
   DEFAULT_STILL_SECONDS,
   EditContext,
@@ -93,7 +94,22 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
   return parts.map(([kind, trackId]) => {
     const track = findTrack(sequence, trackId)
     if (track.kind !== kind) throw new CommandError(`${track.name} is not ${kind === 'video' ? 'a video' : 'an audio'} track`)
-    return { id: newId(), trackId, mediaId: item.id, kind, name: item.name, start, duration, sourceIn, linkId }
+    return {
+      id: newId(),
+      trackId,
+      mediaId: item.id,
+      kind,
+      name: item.name,
+      start,
+      duration,
+      sourceIn,
+      linkId,
+      // New clips are set to frame size (decision 26).
+      motion: defaultMotion(item, sequence.settings),
+      opacity: 100,
+      blendMode: 'normal' as const,
+      volume: 0
+    }
   })
 }
 
@@ -154,7 +170,7 @@ export function applyMove(sequence: Sequence, request: MoveRequest, ctx: EditCon
       linkId = linkMap.get(linkId) ?? ctx.newId()
       linkMap.set(clip.linkId!, linkId)
     }
-    moved.push({ ...clip, id: request.copy ? ctx.newId() : clip.id, trackId: to.id, start, linkId })
+    moved.push({ ...clip, motion: { ...clip.motion }, id: request.copy ? ctx.newId() : clip.id, trackId: to.id, start, linkId })
   }
   if (!request.copy) {
     const ids = new Set(request.clipIds)
@@ -498,6 +514,10 @@ export interface ClipboardClip {
   duration: Ticks
   sourceIn: Ticks
   linkKey: string | null
+  motion: Clip['motion']
+  opacity: number
+  blendMode: Clip['blendMode']
+  volume: number
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -512,7 +532,11 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     offset: c.start - first,
     duration: c.duration,
     sourceIn: c.sourceIn,
-    linkKey: c.linkId
+    linkKey: c.linkId,
+    motion: { ...c.motion },
+    opacity: c.opacity,
+    blendMode: c.blendMode,
+    volume: c.volume
   }))
 }
 
@@ -528,7 +552,21 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       linkId = links.get(c.linkKey) ?? ctx.newId()
       links.set(c.linkKey, linkId)
     }
-    return { id: ctx.newId(), trackId: c.trackId, mediaId: c.mediaId, kind: c.kind, name: c.name, start: start + c.offset, duration: c.duration, sourceIn: c.sourceIn, linkId }
+    return {
+      id: ctx.newId(),
+      trackId: c.trackId,
+      mediaId: c.mediaId,
+      kind: c.kind,
+      name: c.name,
+      start: start + c.offset,
+      duration: c.duration,
+      sourceIn: c.sourceIn,
+      linkId,
+      motion: { ...c.motion },
+      opacity: c.opacity,
+      blendMode: c.blendMode,
+      volume: c.volume
+    }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]
   if (mode === 'insert') {
@@ -584,5 +622,70 @@ export function removeMarkers(ids: string[]): TimelineCommand {
   return timelineCommand(ids.length === 1 ? 'Delete Marker' : 'Delete Markers', (draft) => {
     const doomed = new Set(ids)
     draft.sequence.markers = draft.sequence.markers.filter((m) => !doomed.has(m.id))
+  })
+}
+
+// ---- Clip properties (Effect Controls) ---------------------------------------------
+
+export interface ClipPropertyChanges {
+  motion?: Partial<Clip['motion']>
+  opacity?: number
+  blendMode?: Clip['blendMode']
+  volume?: number
+}
+
+const PROPERTY_LABELS: Record<string, string> = {
+  positionX: 'Position',
+  positionY: 'Position',
+  scale: 'Scale',
+  scaleWidth: 'Scale Width',
+  rotation: 'Rotation',
+  anchorX: 'Anchor Point',
+  anchorY: 'Anchor Point',
+  opacity: 'Opacity',
+  blendMode: 'Blend Mode',
+  volume: 'Volume'
+}
+
+export const MAX_VOLUME_DB = 15
+export const MIN_VOLUME_DB = -96
+
+/**
+ * Changes Motion, Opacity, blend mode or Volume on clips. Dragging a value sends many
+ * of these; they merge into one undo step.
+ */
+export function setClipProperties(clipIds: string[], changes: ClipPropertyChanges): TimelineCommand {
+  const keys = [...Object.keys(changes.motion ?? {}), ...Object.keys(changes).filter((k) => k !== 'motion')]
+  const names = [...new Set(keys.map((k) => PROPERTY_LABELS[k] ?? k))]
+  const command = timelineCommand(names.length === 1 ? `Change ${names[0]}` : 'Change Clip Properties', (draft) => {
+    for (const id of clipIds) {
+      const clip = findClip(draft.sequence, id)
+      assertUnlocked(findTrack(draft.sequence, clip.trackId))
+      if (changes.motion) {
+        for (const [key, value] of Object.entries(changes.motion) as Array<[keyof Clip['motion'], number]>) {
+          if (!Number.isFinite(value)) throw new CommandError(`${PROPERTY_LABELS[key]} needs a number`)
+          clip.motion[key] = value
+        }
+      }
+      if (changes.opacity !== undefined) clip.opacity = Math.min(100, Math.max(0, changes.opacity))
+      if (changes.blendMode !== undefined) clip.blendMode = changes.blendMode
+      if (changes.volume !== undefined) clip.volume = Math.min(MAX_VOLUME_DB, Math.max(MIN_VOLUME_DB, changes.volume))
+    }
+  })
+  command.coalesceKey = `clip-props:${[...clipIds].sort().join(',')}:${keys.sort().join(',')}`
+  return command
+}
+
+/** Right-click › Set to Frame Size, or reset Motion entirely. */
+export function resetMotion(clipIds: string[], mode: 'frame-size' | 'reset'): TimelineCommand {
+  return timelineCommand(mode === 'frame-size' ? 'Set to Frame Size' : 'Reset Motion', (draft) => {
+    for (const id of clipIds) {
+      const clip = findClip(draft.sequence, id)
+      if (clip.kind !== 'video') continue
+      assertUnlocked(findTrack(draft.sequence, clip.trackId))
+      const fresh = defaultMotion(draft.media.find((m) => m.id === clip.mediaId), draft.sequence.settings)
+      if (mode === 'frame-size') clip.motion.scale = fresh.scale
+      else clip.motion = fresh
+    }
   })
 }

@@ -29,6 +29,9 @@
 | 23 | Ripple and insert edits follow Premiere's Sync Lock (on for every track by default). A ripple that would push a sync-locked track out of sync is refused; an insert that has to split clips on one says so | Approved | 2026-10-31, your choice. Turn Sync Lock off on the song track |
 | 24 | Camera clips are placed with their sound, linked (Option-click for one side, Cmd+L to unlink) | Approved | 2026-10-31 |
 | 25 | M3 Program monitor shows a still of the top visible clip under the playhead, fitted to the frame, until M4's compositor | Approved | 2026-10-31 |
+| 26 | New clips are Set to Frame Size (fitted, Scale shows e.g. 50%), keeping full source resolution for punch-ins | Approved | 2026-10-31, your choice |
+| 27 | Opacity, blend modes and (in part 2) dissolves composite on display (gamma-encoded) values, matching Photoshop's formulas. Effects that need linear light convert for themselves (plan: each effect declares its colour space) | Proposed | Raised by M4. A linear-light compositing option could be added later |
+| 28 | Shuttle (J, and L above 1×) plays picture only, no sound | Proposed | Raised by M4. Pitched or scrubbed shuttle audio could come later |
 
 ## Implementation notes (engineering choices, no approval needed)
 
@@ -44,3 +47,6 @@
 - **Defaults** taken from Premiere: stills last 5 s; a drag overwrites and Cmd-drag inserts; Option-drag copies; picture and linked sound mirror around the middle when moved between tracks.
 - **Snapping** targets: the playhead, clip edges, markers and the sequence start, within 8 px. The playhead snaps while snapping is on, or while Shift is held.
 - **Typed timecode** reads Premiere's forms ("1:02:03:04", "1000" read right to left, "+10" relative). Display is non-drop-frame only.
+- **Playback clock** (M4): Web Audio's clock minus its reported output latency is the master; the picture follows a smoothed version of it (re-locked if the two ever differ by 50 ms) and never steps backwards. `getOutputTimestamp()` proved unreliable here, so it isn't used.
+- **Media time 0** is the file's first timestamp, but never below 0. AAC audio often starts a few ms early (encoder priming), and anchoring on that put every video frame one frame late; the sync test caught it.
+- **Compositor**: each layer is one full-frame pass that reads the layers below and writes into the other of two `rgba16float` textures. Video frames arrive as external textures (no copies); stills are uploaded once.

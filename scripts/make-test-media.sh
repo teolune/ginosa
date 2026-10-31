@@ -51,6 +51,12 @@ echo "Song: 20 s, kick-like hits at 120 BPM (for waveform and, later, beat-detec
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.8*sin(2*PI*55*t)*exp(-14*mod(t\,0.5))+0.15*sin(2*PI*880*t)*exp(-40*mod(t+0.25\,0.5))':sample_rate=48000:duration=20" \
   -c:a pcm_s24le "$out/song_120bpm.wav"
 
+echo "Sync clip: a white frame and a 1 kHz beep at every whole second, 25 fps (for the playback sync test)"
+ffmpeg -hide_banner -loglevel error -y \
+  -f lavfi -i "color=c=black:s=1280x720:r=25:d=10,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='eq(mod(n\,25)\,0)'" \
+  -f lavfi -i "aevalsrc=exprs='if(lt(mod(t\,1)\,0.04)\,0.8*sin(2*PI*1000*t)\,0)':sample_rate=48000:duration=10" \
+  -c:v libx264 -pix_fmt yuv420p -g 25 -c:a aac -b:a 192k -shortest -movflags +faststart "$out/sync_flash_beep.mp4"
+
 echo "4K still image"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
 

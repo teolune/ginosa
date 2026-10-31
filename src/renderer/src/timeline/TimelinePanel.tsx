@@ -4,7 +4,7 @@ import { addTrack, CommandError, removeTrack, renameTrack, setTrackFlag, type Co
 import type { MediaItem } from '@engine/project/media'
 import { frameRateOf, type Sequence, type Track } from '@engine/project/model'
 import { frameRateValue, parseTimecode, ticksToSeconds, type Ticks } from '@engine/time'
-import { applyPlace, removeMarkers, renameMarker, rippleDeleteClips, deleteClips, rippleDeleteGap, type EditMode } from '@engine/timeline/edits'
+import { applyPlace, removeMarkers, renameMarker, resetMotion, rippleDeleteClips, deleteClips, rippleDeleteGap, type EditMode } from '@engine/timeline/edits'
 import { snapTargets, snapTime } from '@engine/timeline/snapping'
 import { EditContext, clipEnd, sequenceEnd, toFrame, trackIndex, tracksOf } from '@engine/timeline/timeline'
 import { CommitInput } from '../app/CommitInput'
@@ -68,7 +68,7 @@ function TrackHeader({ track, row, onMenu }: { track: Track; row: Row; onMenu(ev
       )}
       <button
         className={`toggle ${track.solo ? 'on warn' : ''}`}
-        title={track.solo ? 'Unsolo' : isVideo ? 'Solo: see only soloed video tracks' : 'Solo: hear only soloed audio tracks (playback arrives in M4)'}
+        title={track.solo ? 'Unsolo' : isVideo ? 'Solo: see only soloed video tracks' : 'Solo: hear only soloed audio tracks'}
         onClick={() => dispatch(setTrackFlag(track.id, 'solo', !track.solo))}
       >
         <Icon name={track.solo ? 'soloOn' : 'solo'} fallback="S" />
@@ -342,6 +342,8 @@ export function TimelinePanel() {
         { label: 'Add Edit at Playhead', onSelect: () => tl.splitAtPlayhead(false) },
         { label: linked ? 'Unlink' : 'Link', disabled: !linked && ids.length < 2, onSelect: () => tl.toggleLink() },
         { label: 'Match Frame', onSelect: () => tl.matchFrame() },
+        { label: 'Set to Frame Size', onSelect: () => tl.run(resetMotion(ids, 'frame-size')) },
+        { label: 'Reset Motion', onSelect: () => tl.run(resetMotion(ids, 'reset')) },
         'separator',
         { label: 'Delete', danger: true, onSelect: () => tl.run(deleteClips(ids)) },
         { label: 'Ripple Delete', danger: true, onSelect: () => tl.run(rippleDeleteClips(ids)) }

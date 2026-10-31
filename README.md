@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M3 · Timeline.** Clips on tracks with Premiere's tools and shortcuts (move, trim, ripple, roll, razor, ripple delete, insert/overwrite), linked picture and sound, Sync Lock and Solo, snapping, markers, zoom, and a still-frame Program monitor. Built on M2's media library and cache and M1's projects, undo and crash recovery. Next: M4, playback.
+**M4 · Playback (part 1).** Timeline playback with sound (Space, J/K/L), a WebGPU compositor with Motion, opacity and blend modes, Effect Controls, playback resolution, a timing overlay and an automated A/V sync test. Built on M3's timeline, M2's media library and M1's projects. Next: M4 part 2 (cross-dissolves, speed/reverse/freeze, Apple Log and HDR conversion with LUTs).
 
 ## Setup (once)
 
@@ -27,7 +27,8 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
-| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag) |
+| `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
+| `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |
 
 ### Render harness flags
 

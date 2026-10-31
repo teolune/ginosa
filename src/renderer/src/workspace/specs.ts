@@ -23,6 +23,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: true
   },
   {
+    id: 'effect-controls',
+    title: 'Effect Controls',
+    shortcut: 'Alt+7',
+    defaultRect: { x: 640, y: 60, w: 340, h: 520 },
+    minSize: { w: 260, h: 200 },
+    dockable: true,
+    defaultOpen: true,
+    defaultDocked: true
+  },
+  {
     id: 'diagnostics',
     title: 'Diagnostics',
     shortcut: 'Alt+3',

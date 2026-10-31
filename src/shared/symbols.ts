@@ -35,7 +35,10 @@ export const SYMBOLS = {
   magnet: 'magnet',
   zoomIn: 'plus.magnifyingglass',
   zoomOut: 'minus.magnifyingglass',
-  zoomFit: 'arrow.left.and.right'
+  zoomFit: 'arrow.left.and.right',
+  stepBack: 'backward.frame.fill',
+  stepForward: 'forward.frame.fill',
+  gauge: 'gauge.with.dots.needle.50percent'
 } as const
 
 export type SymbolName = keyof typeof SYMBOLS

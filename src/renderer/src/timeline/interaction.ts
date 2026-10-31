@@ -182,6 +182,7 @@ export class TimelineInteraction {
         return
       }
       this.drag = { type: 'playhead' }
+      if (tl.transport?.playing) tl.transport.stop()
       tl.setPlayhead(this.snapped(hit.time, new Set(), event.shiftKey), false)
       return
     }

@@ -74,6 +74,8 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
       nodeIntegration: false,
       backgroundThrottling: !snapshot,
+      // An editor plays sound when you press Play; no extra click needed (and none in automated runs).
+      autoplayPolicy: 'no-user-gesture-required',
       additionalArguments: snapshot ? [`--ginosa-snapshot=${snapshot.scenario}`] : []
     }
   })
@@ -268,6 +270,15 @@ function registerIpc(): void {
 
   ipcMain.handle('snapshot:simulateCrash', async () => {
     if (snapshot) await projects.simulateCrash()
+  })
+
+  ipcMain.handle('snapshot:report', async (_event, report: unknown) => {
+    if (!snapshot) return
+    const path = snapshot.out.replace(/\.png$/, '.json')
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${JSON.stringify(report, null, 2)}\n`)
+    console.log(`[snapshot] report -> ${path}`)
+    console.log(JSON.stringify(report))
   })
 
   ipcMain.handle('snapshot:ready', async (event) => {

@@ -1,5 +1,24 @@
 # Changelog
 
+## M4 · Playback (part 1)
+
+- **Playback with sound:** Space plays and stops; J/K/L shuttle (L up to 8×, J reverse).
+  - Web Audio is the master clock, and the picture always shows the frame for the moment being heard.
+  - Decoders start before the clock does, so playback begins without a drop.
+  - Mute, solo and Volume apply live; edits made during playback carry on playing.
+- **GPU compositor (WebGPU)** in 16-bit float, shared by the paused frame and playback (and export in M5):
+  - Motion: position, scale, Scale Width, rotation, anchor; soft edges.
+  - Opacity and 13 Photoshop/Premiere blend modes, on display values.
+  - Stills, and rotation metadata.
+- **New clips are Set to Frame Size** (4K in a 1080p timeline arrives at 50%), Premiere style. M3 projects keep their fitted look.
+- **Effect Controls window** (⌥7, docked by default):
+  - Motion, Opacity + Blend Mode and Volume (dB), with Premiere-style scrubbable numbers (Shift faster, Option finer, click to type).
+  - Each drag is one undo step, with reset buttons and Set to Frame Size.
+- **Program monitor:** transport buttons, playback resolution (Full, 1/2, 1/4), and a timing overlay (fps, dropped frames, render time, A/V offset).
+- **Sync test** (`npm run sync-test`): plays a flash-and-beep clip and writes `renders/sync/sync.json`. It measures A/V offset per frame, checks every frame by reading the composite back, and reports clock drift and dropped frames. Measured: 0 dropped, 0 wrong frames, 95% within 28 ms.
+- **Project format v4:** Motion, opacity, blend mode and volume on every clip.
+- 135 tests.
+
 ## M3 · Timeline
 
 - **Clips on tracks:**

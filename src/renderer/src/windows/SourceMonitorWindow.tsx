@@ -249,7 +249,7 @@ export function SourceMonitorWindow() {
       <div className="source-footer muted small">
         <span className="item-name">{item.name}</span>
         <span>{runtime.optimisedPath ? 'Playing the optimised copy' : ''}</span>
-        <span>{item.kind === 'image' ? '' : 'Audio playback arrives in M4'}</span>
+        <span>{item.kind === 'image' ? '' : 'Sound in the Source Monitor arrives in M4 part 2'}</span>
       </div>
     </div>
   )

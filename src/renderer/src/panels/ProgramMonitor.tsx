@@ -1,61 +1,89 @@
-import { useEffect, useRef, useState } from 'react'
-import { mediaController } from '../state/media-controller'
+import { useEffect, useRef } from 'react'
+import { Icon } from '../app/Icon'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
-import { FramePreview, type PreviewStatus } from '../timeline/frame-preview'
+import { player, type PlaybackResolution } from '../playback/player'
 import { timelineController } from '../timeline/timeline-controller'
 
-/** The program monitor: in M3 a still of the frame under the playhead. Playback arrives in M4. */
+const RESOLUTIONS: Array<{ value: PlaybackResolution; label: string }> = [
+  { value: 1, label: 'Full' },
+  { value: 0.5, label: '1/2' },
+  { value: 0.25, label: '1/4' }
+]
+
+/** The program monitor: the composited sequence at the playhead, and timeline playback. */
 export function ProgramMonitor() {
   useObservable(projectController)
   useObservable(timelineController)
-  useObservable(mediaController)
+  useObservable(player)
   const project = projectController.project
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const previewRef = useRef<FramePreview | null>(null)
-  const [status, setStatus] = useState<PreviewStatus>({ kind: 'empty' })
-  const settings = project?.sequence.settings
-  const sequence = project?.sequence
-  const playhead = timelineController.playhead
 
   useEffect(() => {
-    if (!canvasRef.current) return
-    const preview = new FramePreview(canvasRef.current)
-    previewRef.current = preview
-    return () => {
-      preview.dispose()
-      previewRef.current = null
-    }
-  }, [project?.id, settings?.width, settings?.height])
+    const canvas = canvasRef.current
+    if (!canvas) return
+    void player.attach(canvas)
+    return () => player.detach(canvas)
+  }, [project?.id])
 
-  // Redraw when the playhead, the edit, or a clip's media (optimised copy, relink) changes.
-  const mediaVersion = mediaController.getVersion()
-  useEffect(() => {
-    if (!project || !previewRef.current) return
-    // While a trim or move is being dragged, show the edit as it would be.
-    previewRef.current.show(timelineController.sequence ?? project.sequence, project.media, playhead, setStatus)
-  }, [sequence, timelineController.preview, playhead, mediaVersion, project?.media])
-
-  if (!project || !settings) return null
+  if (!project) return null
+  const settings = project.sequence.settings
+  const stats = player.stats
   return (
     <section className="panel monitor-panel">
       <header className="panel-header">
         <span>Program: {project.sequence.name}</span>
-        <span className="muted small monitor-note">Frame preview: top clip, fitted. Playback and effects arrive in M4</span>
         <span className="spacer" />
         <span className="mono muted">
           {settings.width} × {settings.height} · {settings.frameRate} fps
         </span>
       </header>
-      <div className="monitor-area">
+      <div className="monitor-area" onDoubleClick={() => player.toggleStats()}>
         <div className="monitor-frame" style={{ aspectRatio: `${settings.width} / ${settings.height}` }}>
           <canvas ref={canvasRef} className="monitor-canvas" width={settings.width} height={settings.height} />
-          {status.kind === 'message' && <span className="monitor-message small">{status.text}</span>}
+          {player.message && <span className="monitor-message small">{player.message}</span>}
+          {player.showStats && (
+            <div className="monitor-stats mono">
+              <div>{player.playing ? `${stats.fps.toFixed(1)} fps` : 'paused'}</div>
+              <div>dropped {stats.dropped}</div>
+              <div>render {stats.renderMs.toFixed(1)} ms</div>
+              <div>A/V {stats.lagMs >= 0 ? '+' : ''}{stats.lagMs.toFixed(0)} ms</div>
+              <div>{player.resolution === 1 ? 'Full' : player.resolution === 0.5 ? '1/2' : '1/4'} resolution</div>
+            </div>
+          )}
         </div>
       </div>
       <footer className="transport">
-        <span className="mono timecode">{timelineController.timecode(playhead)}</span>
-        {status.kind === 'frame' && <span className="muted small">{status.clip.name}</span>}
+        <span className="mono timecode">{timelineController.timecode(timelineController.playhead)}</span>
+        <span className="transport-buttons">
+          <button className="tool-button" title="Back one frame (←)" onClick={() => timelineController.stepFrames(-1)}>
+            <Icon name="stepBack" fallback="◀︎" />
+          </button>
+          <button className="tool-button transport-play" title={player.playing ? 'Stop (Space)' : 'Play (Space). J/K/L shuttle'} onClick={() => player.toggle()}>
+            <Icon name={player.playing ? 'stop' : 'play'} fallback={player.playing ? 'Stop' : 'Play'} />
+          </button>
+          <button className="tool-button" title="Forward one frame (→)" onClick={() => timelineController.stepFrames(1)}>
+            <Icon name="stepForward" fallback="▶︎" />
+          </button>
+          {player.playing && player.rate !== 1 && <span className="mono small muted">{player.rate > 0 ? `${player.rate}×` : `${player.rate}×`}</span>}
+        </span>
+        <span className="transport-right">
+          <select
+            className="input compact"
+            title="Playback resolution: lower is lighter on the GPU"
+            value={player.resolution}
+            onChange={(event) => player.setResolution(Number(event.target.value) as PlaybackResolution)}
+          >
+            {RESOLUTIONS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <button className={`tool-button ${player.showStats ? 'active' : ''}`} title="Timing overlay: fps, dropped frames, render time, A/V offset" onClick={() => player.toggleStats()}>
+            <Icon name="gauge" fallback="fps" />
+          </button>
+        </span>
       </footer>
     </section>
   )

@@ -6,8 +6,8 @@ import type { Bin, MediaItem } from './media'
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. */
-export const PROJECT_SCHEMA_VERSION = 3
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. */
+export const PROJECT_SCHEMA_VERSION = 4
 
 export type TrackKind = 'video' | 'audio'
 
@@ -23,6 +23,40 @@ export interface Track {
   syncLock: boolean
   /** When any track of a kind is soloed, only soloed tracks of that kind are seen or heard. */
   solo: boolean
+}
+
+/** Photoshop/Premiere blend modes, applied to display (gamma-encoded) values. */
+export const BLEND_MODES = [
+  { id: 'normal', label: 'Normal' },
+  { id: 'darken', label: 'Darken' },
+  { id: 'multiply', label: 'Multiply' },
+  { id: 'color-burn', label: 'Color Burn' },
+  { id: 'lighten', label: 'Lighten' },
+  { id: 'screen', label: 'Screen' },
+  { id: 'color-dodge', label: 'Color Dodge' },
+  { id: 'add', label: 'Linear Dodge (Add)' },
+  { id: 'overlay', label: 'Overlay' },
+  { id: 'soft-light', label: 'Soft Light' },
+  { id: 'hard-light', label: 'Hard Light' },
+  { id: 'difference', label: 'Difference' },
+  { id: 'exclusion', label: 'Exclusion' }
+] as const
+
+export type BlendMode = (typeof BLEND_MODES)[number]['id']
+
+/**
+ * Premiere's Motion. Position is in sequence pixels, anchor in source pixels (both the
+ * centre by default). Scale is a percentage of the source's native size; Scale Width
+ * stretches horizontally on top of it (100 = no stretch). Rotation is in degrees, clockwise.
+ */
+export interface Motion {
+  positionX: number
+  positionY: number
+  scale: number
+  scaleWidth: number
+  rotation: number
+  anchorX: number
+  anchorY: number
 }
 
 /**
@@ -41,6 +75,12 @@ export interface Clip {
   sourceIn: Ticks
   /** Clips sharing a link id move, trim, split and delete together (a camera clip's picture and sound). */
   linkId: string | null
+  /** Video clips: transform, opacity (0–100) and blend mode. */
+  motion: Motion
+  opacity: number
+  blendMode: BlendMode
+  /** Audio clips: gain in dB (0 = unchanged). */
+  volume: number
 }
 
 export interface Marker {

@@ -21,7 +21,8 @@
     "doctor": "bash scripts/doctor.sh",
     "test-media": "bash scripts/make-test-media.sh",
     "agent": "node scripts/agent-runner.mjs",
-    "snapshot": "electron-vite build && electron . --snapshot"
+    "snapshot": "electron-vite build && electron . --snapshot",
+    "sync-test": "electron-vite build && electron . --snapshot --scenario sync --out renders/sync/sync.png"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

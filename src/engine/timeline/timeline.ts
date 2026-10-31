@@ -115,6 +115,7 @@ export function splitClip(sequence: Sequence, clip: Clip, at: Ticks, ctx: EditCo
   const offset = at - clip.start
   const right: Clip = {
     ...clip,
+    motion: { ...clip.motion },
     id: ctx.newId(),
     start: at,
     duration: clip.duration - offset,

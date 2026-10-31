@@ -1,6 +1,7 @@
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type Clip, type Marker, type Project, type Track } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track } from './model'
+import { defaultMotion } from '../timeline/motion'
 
 /**
  * Project file format: pretty-printed JSON with a schema version. parseProject()
@@ -60,6 +61,31 @@ function migrate(raw: Json): Json {
         tracks: tracks.map((t) => (isObject(t) ? { ...t, syncLock: true, solo: false } : t)),
         clips: [],
         markers: []
+      }
+    }
+  }
+  if (version < 4) {
+    // M3 showed clips fitted to the frame; keep that look as their Motion.
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const settings = (isObject(sequence['settings']) ? sequence['settings'] : {}) as unknown as SequenceSettings
+    const media = Array.isArray(data['media']) ? data['media'] : []
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    data = {
+      ...data,
+      schemaVersion: 4,
+      sequence: {
+        ...sequence,
+        clips: clips.map((c) => {
+          if (!isObject(c)) return c
+          const item = media.find((m) => isObject(m) && m['id'] === c['mediaId'])
+          let motion: Motion
+          try {
+            motion = defaultMotion(isObject(item) ? parseMediaItem(item, 0) : undefined, settings)
+          } catch {
+            motion = defaultMotion(undefined, settings)
+          }
+          return { ...c, motion, opacity: 100, blendMode: 'normal', volume: 0 }
+        })
       }
     }
   }
@@ -190,6 +216,30 @@ function parseTrack(value: unknown, index: number): Track {
 
 const MAX_TICKS = Number.MAX_SAFE_INTEGER
 
+function expectNumber(object: Json, key: string, where: string): number {
+  const value = object[key]
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new ProjectFormatError(`${where}.${key} should be a number`)
+  return value
+}
+
+function parseMotion(value: unknown, where: string): Motion {
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  return {
+    positionX: expectNumber(value, 'positionX', where),
+    positionY: expectNumber(value, 'positionY', where),
+    scale: expectNumber(value, 'scale', where),
+    scaleWidth: expectNumber(value, 'scaleWidth', where),
+    rotation: expectNumber(value, 'rotation', where),
+    anchorX: expectNumber(value, 'anchorX', where),
+    anchorY: expectNumber(value, 'anchorY', where)
+  }
+}
+
+function parseBlendMode(value: unknown, where: string): BlendMode {
+  if (!BLEND_MODES.some((m) => m.id === value)) throw new ProjectFormatError(`${where} is not a blend mode`)
+  return value as BlendMode
+}
+
 function parseClip(value: unknown, index: number): Clip {
   const where = `sequence.clips[${index}]`
   if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
@@ -205,7 +255,11 @@ function parseClip(value: unknown, index: number): Clip {
     start: expectInteger(value, 'start', where, 0, MAX_TICKS),
     duration: expectInteger(value, 'duration', where, 1, MAX_TICKS),
     sourceIn: expectInteger(value, 'sourceIn', where, 0, MAX_TICKS),
-    linkId: typeof linkId === 'string' ? linkId : null
+    linkId: typeof linkId === 'string' ? linkId : null,
+    motion: parseMotion(value['motion'], `${where}.motion`),
+    opacity: Math.min(100, Math.max(0, expectNumber(value, 'opacity', where))),
+    blendMode: parseBlendMode(value['blendMode'], `${where}.blendMode`),
+    volume: expectNumber(value, 'volume', where)
   }
 }
 

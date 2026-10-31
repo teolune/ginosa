@@ -214,5 +214,7 @@ export interface GinosaBridge {
     /** Files in the repo's media/test folder (snapshot runs only). */
     testMedia(): Promise<string[]>
     ready(): Promise<void>
+    /** Saves a JSON report next to the screenshot (renders/ui/<scenario>.json). */
+    report(data: unknown): Promise<void>
   }
 }

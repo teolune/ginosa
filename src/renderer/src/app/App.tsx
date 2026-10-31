@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
-import { addMarker, placeMedia, splitClips } from '@engine/timeline/edits'
+import { addMarker, placeMedia, setClipProperties, splitClips } from '@engine/timeline/edits'
+import { player } from '../playback/player'
+import { runSyncTest } from '../playback/sync-test'
 import { RULER_HEIGHT, layoutRows, timeToX } from '../timeline/geometry'
 import { TimelineInteraction } from '../timeline/interaction'
 import type { MenuCommand, MenuState } from '@shared/ipc'
@@ -101,8 +103,12 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'waveform':
     case 'icons':
     case 'timeline':
-    case 'drag': {
-      const files = await window.ginosa.snapshot.testMedia()
+    case 'drag':
+    case 'composite':
+    case 'playback':
+    case 'sync': {
+      const all = await window.ginosa.snapshot.testMedia()
+      const files = scenario === 'sync' ? all.filter((f) => f.endsWith('sync_flash_beep.mp4')) : all.filter((f) => !f.endsWith('sync_flash_beep.mp4'))
       await mediaController.importPaths(files, null)
       const bin = createBin('Selects', null)
       projectController.dispatch(bin)
@@ -125,7 +131,36 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         workspaceController.open('source-monitor')
       }
       if (scenario === 'cache') workspaceController.open('cache-manager')
-      if (scenario === 'timeline' || scenario === 'drag') await buildSnapshotTimeline()
+      if (scenario === 'timeline' || scenario === 'drag' || scenario === 'composite' || scenario === 'playback') await buildSnapshotTimeline()
+      if (scenario === 'composite') {
+        // Motion, opacity and a blend mode on the still over V1.
+        const still = projectController.project!.sequence.clips.find((c) => c.name === 'still_4k')!
+        projectController.dispatch(setClipProperties([still.id], { motion: { scale: 22, scaleWidth: 160, rotation: 12, positionX: 1350, positionY: 380 }, opacity: 85, blendMode: 'difference' }))
+        const linkedSound = projectController.project!.sequence.clips.find((c) => c.kind === 'audio' && c.name === 'song_120bpm')!
+        projectController.dispatch(setClipProperties([linkedSound.id], { volume: -4.5 }))
+        timelineController.select([still.id, linkedSound.id], 'replace')
+        workspaceController.focus('effect-controls')
+        await wait(1500)
+      }
+      if (scenario === 'playback') {
+        player.toggleStats()
+        await player.play(1, 0)
+        await wait(4000)
+        await window.ginosa.snapshot.report({ stats: player.stats, playing: player.playing, debug: player.debug })
+      }
+      if (scenario === 'sync') {
+        const sync = projectController.project!.media[0]
+        if (sync) {
+          const tracks = projectController.project!.sequence.tracks
+          projectController.dispatch(placeMedia({ mediaId: sync.id, sourceIn: 0, sourceOut: null, at: 0, videoTrackId: tracks.find((t) => t.kind === 'video')!.id, audioTrackId: tracks.find((t) => t.kind === 'audio')!.id, mode: 'overwrite' }))
+          await wait(1000)
+          player.toggleStats()
+          const report = await runSyncTest(6, secondsToTicks(1))
+          await window.ginosa.snapshot.report(report)
+          await player.play(1, secondsToTicks(2))
+          await wait(1500)
+        }
+      }
       if (scenario === 'drag') {
         // Grab the still on V2 and hold it 1.3 s later: the preview and the snap guide should show.
         const sequence = projectController.project!.sequence

@@ -41,6 +41,14 @@ export interface GapSelection {
   end: Ticks
 }
 
+/** Playback controls, provided by the player (kept separate to avoid an import cycle). */
+export interface Transport {
+  playing: boolean
+  toggle(): void
+  shuttle(direction: 1 | -1 | 0): void
+  stop(): void
+}
+
 /** Things dragged into the timeline from the Media panel or the Source Monitor. */
 export interface MediaDrag {
   items: Array<{ mediaId: string; sourceIn: Ticks; sourceOut: Ticks | null }>
@@ -68,6 +76,7 @@ class TimelineController extends Observable {
   marquee: { x0: number; y0: number; x1: number; y1: number } | null = null
   clipboard: ClipboardClip[] = []
   mediaDrag: MediaDrag | null = null
+  transport: Transport | null = null
   private projectId: string | null = null
 
   constructor() {
@@ -306,6 +315,12 @@ class TimelineController extends Observable {
 
   // ---- Playhead, zoom and scroll ---------------------------------------------------
 
+  /** Moving the playhead by hand stops playback first, as in Premiere. */
+  movePlayhead(time: Ticks): void {
+    if (this.transport?.playing) this.transport.stop()
+    this.setPlayhead(time)
+  }
+
   setPlayhead(time: Ticks, reveal = true): void {
     const sequence = this.committed
     const frame = this.frame()
@@ -315,6 +330,7 @@ class TimelineController extends Observable {
   }
 
   stepFrames(frames: number): void {
+    if (this.transport?.playing) this.transport.stop()
     this.setPlayhead(this.playhead + frames * this.frame())
   }
 
@@ -324,18 +340,18 @@ class TimelineController extends Observable {
     if (!sequence) return
     const points = [...editPoints(sequence), ...sequence.markers.map((m) => m.time)]
     const target = direction > 0 ? points.filter((p) => p > this.playhead).sort((a, b) => a - b)[0] : points.filter((p) => p < this.playhead).sort((a, b) => b - a)[0]
-    if (target !== undefined) this.setPlayhead(target)
+    if (target !== undefined) this.movePlayhead(target)
   }
 
   gotoMarker(direction: 1 | -1): void {
     const markers = this.committed?.markers ?? []
     const target = direction > 0 ? markers.find((m) => m.time > this.playhead) : [...markers].reverse().find((m) => m.time < this.playhead)
-    if (target) this.setPlayhead(target.time)
+    if (target) this.movePlayhead(target.time)
   }
 
   gotoEnd(end: boolean): void {
     const sequence = this.committed
-    this.setPlayhead(end && sequence ? sequenceEnd(sequence) : 0)
+    this.movePlayhead(end && sequence ? sequenceEnd(sequence) : 0)
   }
 
   /** Scrolls just enough to show `time`. */
@@ -416,6 +432,17 @@ class TimelineController extends Observable {
       this.editFromSource(key === ',' ? 'insert' : 'overwrite')
       return true
     }
+    // Transport: Space plays/stops; J/K/L shuttle (L again = faster). Not in the Source Monitor, which has its own.
+    if (focus !== 'source' && plain && this.transport) {
+      if (key === ' ' && !event.shiftKey) {
+        this.transport.toggle()
+        return true
+      }
+      if (!event.shiftKey && (lower === 'j' || lower === 'k' || lower === 'l')) {
+        this.transport.shuttle(lower === 'l' ? 1 : lower === 'j' ? -1 : 0)
+        return true
+      }
+    }
     if (focus !== 'timeline') return false
 
     const shift = event.shiftKey
@@ -475,15 +502,6 @@ class TimelineController extends Observable {
         return true
       case 'Escape':
         this.deselect()
-        return true
-      case ' ':
-      case 'j':
-      case 'J':
-      case 'k':
-      case 'K':
-      case 'l':
-      case 'L':
-        projectController.showMessage('Timeline playback (Space, J, K, L) arrives in M4. Use the arrow keys to step for now.')
         return true
     }
     if (lower === 'm') {
