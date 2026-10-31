@@ -17,8 +17,8 @@ open renders/ui/cache.png
 npm run dev
 ```
 
-- [ ] `npm run check` ends with **Tests 92 passed (92)**.
-  - New in M2: tests that run the real FFmpeg on short generated clips. They cover reading file details; detecting variable frame rate, HDR, 10-bit and far-apart keyframes; thumbnails; waveforms; making real optimised copies (ProRes, variable frame rate, HLG HDR); relinking; and the cache's delete guards.
+- [ ] `npm run check` ends with **Tests 93 passed (93)**.
+  - New in M2: tests that run the real FFmpeg on short generated clips. They cover reading file details; detecting variable frame rate, HDR, 10-bit and far-apart keyframes; thumbnails; waveforms; making real optimised copies (ProRes, variable frame rate, and an HLG clip that must stay HDR); relinking; and the cache's delete guards.
   - The run takes a few seconds longer than M1 because it actually encodes video.
 - [ ] `npm run test-media` finishes without errors.
   - `media/test/` now holds 7 files.
@@ -107,7 +107,8 @@ Copies are made automatically only when the editor can't work with a file as it 
 
 - a codec the Mac can't decode in the app (ProRes, for example)
 - a variable frame rate (phone screen recordings, some phone clips)
-- HDR (HLG or PQ), converted to normal Rec.709
+
+HDR clips never get a copy just for being HDR. They stay HDR, and if one needs a copy for another reason, the copy stays HDR too.
 
 Hover over a pill to see the exact reason.
 
@@ -116,7 +117,9 @@ Hover over a pill to see the exact reason.
 - [ ] Import a few of your real clips, including some Apple Log ones.
   - Log clips look flat and grey. That's correct: the log conversion and your LUTs arrive in M4.
 - [ ] If a clip is ProRes, a copy starts automatically. 4K ProRes takes a while. The percentage keeps moving, and you can keep working.
-- [ ] Clips shot in the iPhone's normal HDR mode get a copy converted to standard (SDR) colour. See *Decisions to check* below.
+- [ ] Clips shot in the iPhone's normal HDR mode import with no copy. The Codec column shows **HEVC 10-bit HLG**.
+  - Until M4, the Source Monitor shows them with Chromium's own HDR-to-SDR conversion, so treat their look as approximate.
+  - M4 converts them on the GPU as a per-clip setting, next to Apple Log.
 
 ## Source Monitor (⌥5)
 

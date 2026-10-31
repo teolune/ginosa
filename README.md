@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M2 · Media and cache.** Import with bins, thumbnails and waveforms, a Source Monitor with In/Out, automatic optimised copies (ProRes, variable frame rate, HDR), relinking, and a Cache Manager that never touches your originals. Built on M1's projects, undo/redo, crash recovery and floating windows. Next: M3, the timeline.
+**M2 · Media and cache.** Import with bins, thumbnails and waveforms, a Source Monitor with In/Out, automatic optimised copies (ProRes, variable frame rate), relinking, and a Cache Manager that never touches your originals. Built on M1's projects, undo/redo, crash recovery and floating windows. Next: M3, the timeline.
 
 ## Setup (once)
 

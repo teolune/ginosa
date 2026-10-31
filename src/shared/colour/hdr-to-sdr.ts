@@ -1,8 +1,8 @@
 /**
  * HDR (BT.2100 HLG or PQ, BT.2020 primaries) to SDR Rec.709 conversion, generated
- * as a 3D LUT (.cube). Used for optimised copies (FFmpeg's lut3d filter) because
- * this Mac's FFmpeg has no zscale; the same maths will serve the GPU colour
- * pipeline in M4.
+ * as a 3D LUT (.cube). Not used in M2: HDR clips stay HDR (decision 20). M4's GPU
+ * colour pipeline uses this as the default input conversion for HDR clips, loaded
+ * as a 3D texture like any other LUT.
  *
  * Steps: decode to display light (HLG: inverse OETF + OOTF at 1000 nits; PQ: EOTF),
  * scale so HDR reference white (203 nits) = 1.0, compress highlights above 0.75

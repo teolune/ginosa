@@ -89,12 +89,11 @@ export const AUDIO_EXTENSIONS = ['wav', 'aif', 'aiff', 'mp3', 'm4a', 'aac', 'fla
 export const IMPORT_EXTENSIONS = [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, ...IMAGE_EXTENSIONS]
 
 /** Reasons a file gets an optimised copy instead of being decoded directly. */
-export type OptimiseReason = 'codec' | 'vfr' | 'hdr' | 'long-gop'
+export type OptimiseReason = 'codec' | 'vfr' | 'long-gop'
 
 export const OPTIMISE_REASON_TEXT: Record<OptimiseReason, string> = {
   codec: "WebCodecs can't decode this codec on this Mac",
   vfr: 'Variable frame rate (converted to constant)',
-  hdr: 'HDR (converted to Rec.709 SDR)',
   'long-gop': 'Keyframes far apart (slow scrubbing)'
 }
 
@@ -104,6 +103,8 @@ export const LONG_GOP_SECONDS = 2
 /**
  * Which optimisations a file needs. `decodable` comes from the renderer's WebCodecs
  * check. Long-GOP files are only flagged: copying them is offered, not automatic.
+ * HDR alone never needs a copy: HDR clips are used as they are and converted to the
+ * sequence's colour space on the GPU (decision 20).
  */
 export function optimiseReasons(info: MediaInfo, decodable: boolean): { required: OptimiseReason[]; suggested: OptimiseReason[] } {
   const required: OptimiseReason[] = []
@@ -112,7 +113,6 @@ export function optimiseReasons(info: MediaInfo, decodable: boolean): { required
   if (!video) return { required, suggested }
   if (!decodable) required.push('codec')
   if (video.variableFrameRate) required.push('vfr')
-  if (video.hdr) required.push('hdr')
   if (video.keyframeInterval !== null && video.keyframeInterval > LONG_GOP_SECONDS && required.length === 0) suggested.push('long-gop')
   return { required, suggested }
 }

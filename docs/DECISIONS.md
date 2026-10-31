@@ -23,7 +23,7 @@
 | 17 | Effects build order as listed in the plan's milestones | Proposed | |
 | 18 | App name: **ginosa** | Approved | 2026-10-30 |
 | 19 | Log footage support (camera conversion + `.cube` LUT per clip) moves into M4 | Proposed | Raised by M0: camera originals are log |
-| 20 | HDR sources (HLG/PQ, e.g. iPhone's normal HDR mode) get an automatic Rec.709 SDR optimised copy; editing and export stay Rec.709 | Proposed | Raised by M2. Apple Log isn't tagged as HDR, so log clips are untouched by this |
+| 20 | HDR clips (HLG/PQ, e.g. iPhone's normal HDR mode) stay HDR: no automatic SDR copy. They're converted to the Rec.709 sequence live on the GPU, as a per-clip input setting alongside Apple Log (M4), so grading keeps the highlights. Export stays SDR | Approved | 2026-10-31. A full HDR timeline and export was offered and not chosen |
 
 ## Implementation notes (engineering choices, no approval needed)
 
@@ -31,6 +31,6 @@
 - **Local media** is served to the renderer through a read-only `ginosa-media://` protocol with HTTP range support. Mediabunny reads files in pieces rather than loading them whole.
 - **M0 UI** is plain DOM on purpose. It is a diagnostics shell, replaced by the real workspace in M1.
 - **Media files** are identified by a fingerprint: size, modification time, and a SHA-1 of the first and last MiB. A file that changes size shows as *Changed*; a missing one shows as *Offline*.
-- **Optimised copies** (M2): H.264 CRF 16 for 8-bit sources, HEVC Main10 via VideoToolbox for 10-bit, keyframes every 0.5 s, 24-bit PCM audio, in `.mov`. Made automatically only when needed (codec not decodable by WebCodecs, variable frame rate, HDR); offered for keyframes more than 2 s apart. File names carry a format version, so changing the recipe never reuses stale copies.
-- **HDR to SDR** uses a generated 33³ `.cube`: HLG inverse OETF + OOTF at 1000 nits (PQ via its EOTF), 203-nit reference white mapped to 1.0, a soft roll-off above 0.75, BT.2020→709 matrix, then BT.709 gamma. Homebrew FFmpeg has no zscale or libplacebo, so this is applied with `lut3d`.
+- **Optimised copies** (M2): H.264 CRF 16 for 8-bit sources, HEVC Main10 via VideoToolbox for 10-bit and all HDR sources, keyframes every 0.5 s, 24-bit PCM audio, in `.mov`. Made automatically only when needed (codec not decodable by WebCodecs, variable frame rate); offered for keyframes more than 2 s apart. HDR copies keep their BT.2020 + HLG/PQ labels, stamped into the bitstream because Apple's encoder drops them. File names carry a format version (now v2), so changing the recipe never reuses stale copies.
+- **HDR to Rec.709** maths lives in `src/shared/colour/hdr-to-sdr.ts`, ready for M4: HLG inverse OETF + OOTF at 1000 nits (PQ via its EOTF), 203-nit reference white mapped to 1.0, a soft roll-off above 0.75, BT.2020→709 matrix, then BT.709 gamma, generated as a 33³ `.cube`. Until M4, the Source Monitor shows HDR clips with Chromium's own conversion.
 - **Cache** lives at `~/Movies/ginosa Cache/<project id>/<category>/` with an `index.json` naming each project. Every delete goes through `CacheService`, which checks the project ID and category, resolves real paths, stays inside the cache root and refuses symlinks. A chosen location always gets its own `ginosa Cache` subfolder.

@@ -11,9 +11,9 @@
   - Right-click menus, plus status pills for offline, changed, copying and optimised items.
 - **Thumbnails and waveforms:** made by FFmpeg and stored in the cache. Waveforms keep 100 min/max peaks per second.
 - **Source Monitor (⌥5):** plays video (from the optimised copy when there is one), steps frames, and shows waveforms for audio. In and Out marks (I/O) are saved with the project and undoable.
-- **Optimised copies:** made automatically when a file can't be decoded here (ProRes), has a variable frame rate, or is HDR. Offered, not forced, when keyframes are far apart.
+- **Optimised copies:** made automatically when a file can't be decoded here (ProRes) or has a variable frame rate. Offered, not forced, when keyframes are far apart.
   - 8-bit sources become H.264 and 10-bit sources become HEVC 10-bit (VideoToolbox), with keyframes every half second. Audio becomes 24-bit PCM.
-  - HDR (HLG/PQ) is converted to Rec.709 with a generated tone-mapping LUT and tagged as Rec.709.
+  - HDR clips (HLG/PQ) are kept as HDR, with no automatic SDR copy (decision 20). When one needs a copy for another reason, the copy stays 10-bit HDR with its colour labels.
   - Copies are made one at a time, with progress shown and Cancel available. Partial files are removed if a copy fails or is cancelled.
 - **Relink:** offline files show a pill. Locate a single file, or pick a folder and ginosa finds every missing file inside it by name and size.
 - **Cache Manager (⌥6):**
@@ -22,7 +22,7 @@
   - The cache location can be changed.
   - Deletion is guarded: project-ID and category checks, real-path containment, and symlinks are refused. Originals are opened read-only and never touched.
 - **Project format v2:** adds media and bins. v1 projects upgrade automatically.
-- 92 unit and integration tests. The media tests run the real FFmpeg on generated clips.
+- 93 unit and integration tests. The media tests run the real FFmpeg on generated clips.
 
 ## M1 · Workspace and project
 

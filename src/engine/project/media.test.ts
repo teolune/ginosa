@@ -125,12 +125,18 @@ describe('media library', () => {
 })
 
 describe('optimised copies', () => {
-  it('requires a copy for undecodable, variable-rate or HDR video', () => {
+  it('requires a copy for undecodable or variable-rate video', () => {
     expect(optimiseReasons(videoInfo, false).required).toEqual(['codec'])
     const vfr = structuredClone(videoInfo)
     vfr.video!.variableFrameRate = true
-    vfr.video!.hdr = 'hlg'
-    expect(optimiseReasons(vfr, true).required).toEqual(['vfr', 'hdr'])
+    expect(optimiseReasons(vfr, true).required).toEqual(['vfr'])
+  })
+
+  it('keeps HDR clips as they are: HDR alone never needs a copy', () => {
+    const hlg = structuredClone(videoInfo)
+    hlg.video!.hdr = 'hlg'
+    hlg.video!.bitDepth = 10
+    expect(optimiseReasons(hlg, true)).toEqual({ required: [], suggested: [] })
   })
 
   it('only suggests a copy for long keyframe intervals', () => {

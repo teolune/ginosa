@@ -1,9 +1,8 @@
-import { rename, stat, writeFile } from 'node:fs/promises'
+import { rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { frameRateValue, type MediaFingerprint, type MediaInfo, type OptimiseReason } from '../../engine/project/media'
 import type { OptimiseJob, OptimiseRequest } from '../../shared/media-types'
 import { FRAME_RATES, nearestStandardRate } from '../../engine/time'
-import { hdrToSdrCube } from '../../shared/colour/hdr-to-sdr'
 import type { CacheService } from '../cache/cache-service'
 import { runTool } from './ffmpeg'
 import { cacheFileName } from './generate'
@@ -13,6 +12,8 @@ import { cacheFileName } from './generate'
  * written to the cache. One copy at a time, with progress and cancel.
  *   8-bit sources  -> H.264 High, keyframe every half second
  *   10-bit sources -> HEVC Main 10 (hardware encoder), so log footage keeps its precision
+ * HDR (HLG/PQ) stays HDR: 10-bit, with its BT.2020 + HLG/PQ labels kept, so nothing
+ * is lost before grading. Conversion to the sequence's colour space happens on the GPU.
  * Audio is copied as uncompressed 24-bit PCM. Originals are only read.
  */
 
@@ -27,47 +28,37 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** Bump whenever the conversion changes, so copies made by older code are regenerated. */
-export const OPTIMISE_VERSION = 1
+export const OPTIMISE_VERSION = 2
 
 export function optimisedFileName(mediaId: string, fingerprint: MediaFingerprint): string {
   return cacheFileName(mediaId, fingerprint, `v${OPTIMISE_VERSION}.mov`)
 }
 
+/** H.265 colour codes (ITU-T H.273) for the HDR labels a copy must keep. */
+const HDR_CODES = { hlg: { trc: 'arib-std-b67', code: 18 }, pq: { trc: 'smpte2084', code: 16 } } as const
+
 /** FFmpeg arguments for one optimised copy (exported for tests). */
-export function buildOptimiseArgs(input: string, output: string, info: MediaInfo, reasons: OptimiseReason[], lutPath: string | null): string[] {
+export function buildOptimiseArgs(input: string, output: string, info: MediaInfo, reasons: OptimiseReason[]): string[] {
   const video = info.video
   if (!video) throw new Error('Only video files get optimised copies')
-  const tenBit = (video.bitDepth ?? 8) > 8
+  const hdr = video.hdr
+  const tenBit = (video.bitDepth ?? 8) > 8 || hdr !== null
   const fps = frameRateValue(video.frameRate) || 25
   const standard = nearestStandardRate(fps, 0.02)
   const rate = standard ?? FRAME_RATES['25']
   const gop = Math.max(1, Math.round(fps / 2))
   const pixelFormat = tenBit ? 'p010le' : 'yuv420p'
 
-  const filters: string[] = []
-  if (reasons.includes('hdr') && lutPath) {
-    const range = video.colour.range ?? 'tv'
-    filters.push(
-      `scale=in_color_matrix=bt2020:in_range=${range}:out_range=pc`,
-      'format=gbrp16le',
-      `lut3d=file='${lutPath.replace(/'/g, "'\\''")}':interp=tetrahedral`,
-      'scale=out_color_matrix=bt709:out_range=tv',
-      // The frames still say HLG/PQ; relabel them so the encoder writes Rec.709.
-      'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
-    )
-  }
-  filters.push(`format=${pixelFormat}`)
-
   const codec = tenBit
     ? ['-c:v', 'hevc_videotoolbox', '-profile:v', 'main10', '-q:v', '70', '-tag:v', 'hvc1']
     : ['-c:v', 'libx264', '-preset', 'fast', '-crf', '16', '-profile:v', 'high']
   const timing = reasons.includes('vfr') ? ['-fps_mode', 'cfr', '-r', `${rate.num}/${rate.den}`] : []
-  const metadataFilter = tenBit ? 'hevc_metadata' : 'h264_metadata'
-  const colourTags = reasons.includes('hdr')
+  // Apple's HEVC encoder drops the primaries and transfer labels, so HDR copies get
+  // them stamped back into the bitstream; otherwise the copy would read as SDR.
+  const colourTags = hdr
     ? [
-        '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
-        // Belt and braces: stamp Rec.709 (code 1) into the bitstream itself.
-        '-bsf:v', `${metadataFilter}=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1`
+        '-color_primaries', 'bt2020', '-color_trc', HDR_CODES[hdr].trc, '-colorspace', 'bt2020nc', '-color_range', video.colour.range === 'pc' ? 'pc' : 'tv',
+        '-bsf:v', `hevc_metadata=colour_primaries=9:transfer_characteristics=${HDR_CODES[hdr].code}:matrix_coefficients=9`
       ]
     : []
   const audio = info.audio ? ['-map', '0:a:0', '-c:a', 'pcm_s24le'] : ['-an']
@@ -76,7 +67,7 @@ export function buildOptimiseArgs(input: string, output: string, info: MediaInfo
     '-hide_banner', '-nostdin', '-y', '-v', 'error', '-nostats', '-progress', 'pipe:1',
     '-i', input,
     '-map', '0:v:0', ...audio,
-    '-vf', filters.join(','),
+    '-vf', `format=${pixelFormat}`,
     ...codec, '-g', String(gop), ...timing, ...colourTags,
     '-f', 'mov', output
   ]
@@ -155,12 +146,7 @@ export class OptimiseQueue {
     const output = join(dir, optimisedFileName(request.mediaId, request.fingerprint))
     const partial = `${output}.partial.mov`
     try {
-      let lutPath: string | null = null
-      if (request.reasons.includes('hdr') && request.info.video?.hdr) {
-        lutPath = join(dir, `hdr-${request.info.video.hdr}-to-sdr.cube`)
-        if (!(await exists(lutPath))) await writeFile(lutPath, hdrToSdrCube(request.info.video.hdr))
-      }
-      const args = buildOptimiseArgs(request.path, partial, request.info, request.reasons, lutPath)
+      const args = buildOptimiseArgs(request.path, partial, request.info, request.reasons)
       const totalUs = Math.max(1, request.info.durationSeconds * 1_000_000)
       let lastSent = 0
       const result = await runTool('ffmpeg', args, {

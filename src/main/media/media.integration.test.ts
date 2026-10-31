@@ -2,7 +2,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { optimiseReasons } from '../../engine/project/media'
+import { optimiseReasons, type OptimiseReason } from '../../engine/project/media'
 import { CacheService } from '../cache/cache-service'
 import { findTool, runTool } from './ffmpeg'
 import { ensureThumbnail, ensureWaveform } from './generate'
@@ -117,13 +117,16 @@ describe.skipIf(!available)('media pipeline with real FFmpeg', () => {
     expect(peaks.getFloat32(8 + 100 * 8 + 4, true)).toBeCloseTo(0.125, 2) // FFmpeg's sine source peaks at 1/8
   })
 
-  it('makes playable optimised copies for ProRes, variable-rate and HDR sources', async () => {
+  it('makes playable optimised copies for ProRes and variable-rate sources, and keeps HDR as HDR', async () => {
     const updates: OptimiseJob[] = []
     const queue = new OptimiseQueue(cache, (job) => updates.push(job))
     for (const key of ['prores', 'vfr', 'hlg'] as const) {
       const file = await probeOk(files[key]!)
       const decodable = key !== 'prores'
-      const reasons = optimiseReasons(file.info, decodable).required
+      const needs = optimiseReasons(file.info, decodable)
+      if (key === 'hlg') expect(needs).toEqual({ required: [], suggested: [] })
+      // HDR needs no copy by itself; copy it anyway (as for a ProRes HLG clip) to check it stays HDR.
+      const reasons: OptimiseReason[] = key === 'hlg' ? ['long-gop'] : needs.required
       expect(reasons.length).toBeGreaterThan(0)
       const job = await optimise(queue, file, reasons, updates)
       expect(job.status, job.error ?? '').toBe('done')
@@ -132,8 +135,9 @@ describe.skipIf(!available)('media pipeline with real FFmpeg', () => {
       expect(copy.info.video?.variableFrameRate).toBe(false)
       expect(copy.info.video?.keyframeInterval ?? 99).toBeLessThanOrEqual(1)
       if (key === 'hlg') {
-        expect(copy.info.video?.hdr).toBeNull()
-        expect(copy.info.video?.colour.transfer).toBe('bt709')
+        expect(copy.info.video?.hdr).toBe('hlg')
+        expect(copy.info.video?.colour.primaries).toBe('bt2020')
+        expect(copy.info.video?.colour.transfer).toBe('arib-std-b67')
         expect(copy.info.video?.bitDepth).toBe(10)
       }
       if (key === 'prores') expect(copy.info.audio?.codec).toBe('pcm_s24le')
