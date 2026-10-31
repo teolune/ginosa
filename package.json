@@ -23,7 +23,8 @@
     "agent": "node scripts/agent-runner.mjs",
     "snapshot": "electron-vite build && electron . --snapshot",
     "sync-test": "electron-vite build && electron . --snapshot --scenario sync --out renders/sync/sync.png",
-    "speed-test": "electron-vite build && electron . --snapshot --scenario speed --out renders/speed/speed.png"
+    "speed-test": "electron-vite build && electron . --snapshot --scenario speed --out renders/speed/speed.png",
+    "export-test": "electron-vite build && electron . --snapshot --scenario exportsync --out renders/export/sync.png && electron . --snapshot --scenario exportcolour --out renders/export/colour.png && electron . --snapshot --scenario exportspeed --out renders/export/speed.png"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

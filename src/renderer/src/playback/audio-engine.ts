@@ -13,17 +13,30 @@ const PREPARE = 2.5
 /** Playback starts this long after Play, so the first sounds are scheduled in time. */
 const START_DELAY = 0.12
 
-/** Feeds one clip's sound into Web Audio, a little ahead of time. */
-class ClipFeeder {
+/** What a ClipFeeder schedules into: the live engine, or the offline export mixdown. */
+export interface MixTarget {
+  readonly ctx: BaseAudioContext
+  /** Timeline time the mix starts at. */
+  readonly startTime: Ticks
+  /** Context time at which timeline time `time` plays. */
+  ctxTimeOf(time: Ticks): number
+  trackGain(trackId: string): GainNode
+  noteScheduled(at: number, mediaSeconds: number, segment: AudioSegment): void
+}
+
+/** Feeds one clip's sound into Web Audio, a little ahead of time (or all at once, offline). */
+export class ClipFeeder {
   private iterator: AsyncGenerator<WrappedAudioBuffer, void, unknown> | null = null
   private pending: WrappedAudioBuffer | null = null
   private done = false
   private busy = false
   private readonly gain: GainNode
   readonly sources = new Set<AudioBufferSourceNode>()
+  /** Why decoding stopped early, if it did (export fails rather than leaving a silent gap). */
+  error: string | null = null
 
   constructor(
-    private readonly engine: AudioEngine,
+    private readonly engine: MixTarget,
     readonly segment: AudioSegment,
     private readonly path: string
   ) {
@@ -87,7 +100,8 @@ class ClipFeeder {
       }
     } catch (error) {
       this.done = true
-      console.warn('Audio decode stopped:', (error as Error).message)
+      this.error = (error as Error).message
+      console.warn('Audio decode stopped:', this.error)
     } finally {
       this.busy = false
     }
@@ -131,7 +145,7 @@ export interface ScheduledSound {
  * The master clock. Sound is scheduled ahead on the AudioContext; the picture asks
  * what time is being heard right now and shows that frame, so they can't drift.
  */
-export class AudioEngine {
+export class AudioEngine implements MixTarget {
   readonly ctx: AudioContext
   private readonly master: GainNode
   private readonly tracks = new Map<string, GainNode>()

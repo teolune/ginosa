@@ -1,4 +1,4 @@
-import { app, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import type { MenuCommand, MenuState } from '@shared/ipc'
 
 /** Native macOS menu bar. Items send MenuCommands to the renderer, which owns the app state. */
@@ -63,6 +63,8 @@ export class AppMenu {
           { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save' }) },
           { label: 'Save As…', accelerator: 'Shift+CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save-as' }) },
           { type: 'separator' },
+          { label: 'Export…', accelerator: 'CmdOrCtrl+M', enabled: s.hasProject, click: () => this.send({ type: 'export' }) },
+          { type: 'separator' },
           { label: 'Show Project in Finder', enabled: s.hasProject, click: () => this.send({ type: 'reveal-project' }) },
           { label: 'Close Project', enabled: s.hasProject, click: () => this.send({ type: 'close-project' }) }
         ]
@@ -119,7 +121,8 @@ export class AppMenu {
             ]
           },
           { type: 'separator' },
-          { role: 'minimize' },
+          // ⌘M is Export, as in Premiere; Minimize keeps its menu item without the shortcut.
+          { label: 'Minimize', click: () => BrowserWindow.getFocusedWindow()?.minimize() },
           { role: 'zoom' }
         ]
       },

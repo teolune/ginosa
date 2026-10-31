@@ -5,7 +5,9 @@ import { secondsToTicks } from '@engine/time'
 import { addCrossDissolveAt, addFrameHold, addMarker, placeMedia, setClipProperties, setClipSpeed, splitClips } from '@engine/timeline/edits'
 import { player } from '../playback/player'
 import { runSyncTest } from '../playback/sync-test'
-import { runSpeedTest } from '../playback/speed-test'
+import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
+import { exportColourTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
+import { exporter } from '../playback/exporter'
 import { sourcePlayer } from '../playback/source-player'
 import { openMedia } from '../playback/sources'
 import { probePatches, readPixels } from '../playback/colour-probe'
@@ -81,25 +83,8 @@ async function buildSnapshotTimeline(): Promise<void> {
 
 /** The speed/reverse/hold/dissolve timeline from speed-test.ts, played and checked frame by frame. */
 async function runSpeedScenario(dialog: boolean): Promise<void> {
-  const project = projectController.project
-  const item = project?.media.find((m) => m.name === 'framecode_h264')
-  if (!project || !item) return
-  const v1 = project.sequence.tracks.find((t) => t.kind === 'video')!.id
+  if (!buildSpeedTimeline()) return
   const s = secondsToTicks
-  const place = (at: number, inS: number, outS: number) => {
-    projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: s(inS), sourceOut: s(outS), at: s(at), videoTrackId: v1, audioTrackId: null, mode: 'overwrite' }))
-    const clips = projectController.project!.sequence.clips
-    return clips.find((c) => c.trackId === v1 && c.start === s(at))!.id
-  }
-  const media = () => projectController.project!.media
-  place(0, 0, 2)
-  projectController.dispatch(setClipSpeed({ clipIds: [place(2, 2, 4)], speed: 1, reverse: true, ripple: false }, media()))
-  projectController.dispatch(setClipSpeed({ clipIds: [place(4, 4, 8)], speed: 2, reverse: false, ripple: false }, media()))
-  projectController.dispatch(addFrameHold([place(6, 9, 10)], s(6)))
-  // 4 s of media at 200% reversed fills 7–9 s; the next clip starts at 9 s.
-  projectController.dispatch(setClipSpeed({ clipIds: [place(7, 8, 12)], speed: 2, reverse: true, ripple: false }, media()))
-  place(9, 0, 2)
-  projectController.dispatch(addCrossDissolveAt(v1, s(9), s(1)))
   timelineController.zoomToFit()
   workspaceController.focus('program-monitor')
   await wait(1500)
@@ -126,6 +111,20 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'exportsync':
+    case 'exportcolour':
+    case 'exportspeed': {
+      const pattern = scenario === 'exportsync' ? /sync_flash_beep\.mp4$/ : scenario === 'exportcolour' ? /patches_(rec709|applelog)\.mov$/ : /framecode_h264\.mp4$/
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => pattern.test(f)), null)
+      await wait(1500)
+      try {
+        const report = scenario === 'exportsync' ? await exportSyncTest() : scenario === 'exportcolour' ? await exportColourTest() : await exportSpeedTest(buildSpeedTimeline)
+        await window.ginosa.snapshot.report(report)
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      break
+    }
     case 'footage':
     case 'footage2': {
       // Your Apple Log clips through ginosa: probe, detection, decoding, conversion, playback speed.
@@ -163,6 +162,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(7500)
       report.playback = { stats: player.stats, debug: player.debug }
       player.stop()
+      // Export speed on your footage: 8 s of 4K Apple Log → 1080p, H.264 and ProRes 422 HQ.
+      for (const format of ['h264', 'prores-422hq'] as const) {
+        const path = (await window.ginosa.snapshot.exportPath(`footage-${format}.${format === 'h264' ? 'mp4' : 'mov'}`))!
+        await exporter.run(projectController.project!, { format, container: format === 'h264' ? 'mp4' : 'mov', bitrateMbps: 40, keyframeSeconds: 1 }, path)
+        const done = exporter.state
+        report[`export-${format}`] = done.kind === 'done' ? { fps: Math.round(done.fps * 10) / 10, seconds: Math.round(done.seconds * 10) / 10, size: done.result.size, tags: done.result.info?.video?.colour } : done
+      }
       // A converted frame in the Source Monitor: Apple Log 1, or Apple Log 2 with --scenario footage2.
       const shown = projectController.project!.media[scenario === 'footage2' ? 1 : 0]
       timelineController.setPlayhead(secondsToTicks(6))
@@ -264,6 +270,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'drag':
     case 'composite':
     case 'playback':
+    case 'exportui':
     case 'sync':
     case 'speed':
     case 'speeddialog': {
@@ -293,7 +300,16 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         workspaceController.open('source-monitor')
       }
       if (scenario === 'cache') workspaceController.open('cache-manager')
-      if (scenario === 'timeline' || scenario === 'drag' || scenario === 'composite' || scenario === 'playback') await buildSnapshotTimeline()
+      if (scenario === 'timeline' || scenario === 'drag' || scenario === 'composite' || scenario === 'playback' || scenario === 'exportui') await buildSnapshotTimeline()
+      if (scenario === 'exportui') {
+        // The Export window after a real export of the snapshot timeline.
+        workspaceController.open('export')
+        await wait(500)
+        const path = (await window.ginosa.snapshot.exportPath('ui.mp4'))!
+        await exporter.run(projectController.project!, { format: 'h264', container: 'mp4', bitrateMbps: 40, keyframeSeconds: 1 }, path)
+        await window.ginosa.snapshot.report(exporter.state)
+        await wait(800)
+      }
       if (scenario === 'composite') {
         // Motion, opacity and a blend mode on the still over V1.
         const still = projectController.project!.sequence.clips.find((c) => c.name === 'still_4k')!
@@ -456,6 +472,8 @@ export function App() {
           return projectController.newProject()
         case 'import':
           return mediaController.chooseAndImport(mediaController.targetBinId)
+        case 'export':
+          return workspaceController.open('export')
         case 'new-bin':
           return mediaController.newBin()
         case 'open-project':

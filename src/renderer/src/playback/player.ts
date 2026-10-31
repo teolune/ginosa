@@ -2,10 +2,6 @@ import type { MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
 import { frameRateValue, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
-import { inverseMotion, sourceSize } from '@engine/timeline/motion'
-import { APPLE_WIDE_GAMUT_TO_REC709, BT2020_TO_REC709 } from '@engine/colour/colour'
-import { parseCube, sampleCube, type CubeLut } from '@engine/colour/cube'
-import { effectiveColour } from '@engine/project/media'
 import { sourceTimeAt, videoLayersAt, visibleFrom, type VideoLayer } from '@engine/timeline/render-plan'
 import { mediaLength, sequenceEnd } from '@engine/timeline/timeline'
 import type { VideoSample } from 'mediabunny'
@@ -15,7 +11,8 @@ import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { AudioEngine } from './audio-engine'
-import { Compositor, type CompositeLayer, type GpuLut, type LayerColour } from './compositor'
+import { Compositor, type CompositeLayer } from './compositor'
+import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
 
@@ -80,7 +77,7 @@ export class Player extends Observable {
   private context: GPUCanvasContext | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
   private streams = new Map<string, FrameSource>()
-  private stillTextures = new Map<string, GPUTexture>()
+  private layers: LayerBuilder | null = null
   private frameHandle = 0
   private wallStart = 0
   private startTime: Ticks = 0
@@ -109,7 +106,17 @@ export class Player extends Observable {
   async attach(canvas: HTMLCanvasElement): Promise<void> {
     const gpu = await getGpu()
     this.device = gpu.device
-    this.compositor ??= new Compositor(gpu.device)
+    if (!this.compositor) {
+      this.compositor = new Compositor(gpu.device)
+      this.layers = new LayerBuilder(
+        this.compositor,
+        () => this.requestStill(),
+        (message) => {
+          this.message = message
+          this.notify()
+        }
+      )
+    }
     this.canvas = canvas
     this.context = canvas.getContext('webgpu')
     this.format = navigator.gpu.getPreferredCanvasFormat()
@@ -156,81 +163,6 @@ export class Player extends Observable {
     return mediaController.playablePath(item)
   }
 
-  private stillTexture(path: string, bitmap: ImageBitmap): GPUTexture {
-    let texture = this.stillTextures.get(path)
-    if (!texture) {
-      texture = this.compositor!.imageTexture(bitmap)
-      this.stillTextures.set(path, texture)
-    }
-    return texture
-  }
-
-  private compositeLayer(layer: VideoLayer, source: CompositeLayer['source'], sequence: Sequence): CompositeLayer | null {
-    const inverse = inverseMotion(layer.clip.motion)
-    if (!inverse) return null
-    const size = sourceSize(layer.item, sequence.settings)
-    const rotation = Math.round(((layer.item.info.video?.rotation ?? 0) % 360) / 90)
-    return {
-      source,
-      inverse,
-      width: size.width,
-      height: size.height,
-      rotation: (rotation + 4) % 4,
-      opacity: (layer.clip.opacity / 100) * layer.weight,
-      blend: layer.clip.blendMode,
-      colour: this.layerColour(layer.item, source)
-    }
-  }
-
-  // ---- Colour ------------------------------------------------------------------------
-
-  private luts = new Map<string, GpuLut | 'loading' | 'failed'>()
-
-  /** How this layer's pixels become working values: undo Chromium's display step, then the file's conversion. */
-  private layerColour(item: MediaItem, source: CompositeLayer['source']): LayerColour {
-    // Our decoder request (sRGB transfer) arrives untouched; anything else got the Mac video display transform.
-    const undoMacDisplay = source.kind === 'image' || source.frame.colorSpace.transfer !== 'iec61966-2-1'
-    if (item.colour.lut) {
-      const lut = this.lut(item.colour.lut.file)
-      return { undoMacDisplay, conversion: lut ? { kind: 'lut', lut } : { kind: 'none' } }
-    }
-    const colour = effectiveColour(item)
-    if ((colour === 'hlg' || colour === 'pq') && !undoMacDisplay) {
-      // Raw HLG/PQ values (the stream's tag was rewritten): ginosa's own HDR → Rec.709, computed exactly.
-      return { undoMacDisplay, conversion: { kind: 'hdr', transfer: colour } }
-    }
-    if (colour === 'apple-log') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: BT2020_TO_REC709 } }
-    if (colour === 'apple-log-2') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: APPLE_WIDE_GAMUT_TO_REC709 } }
-    // Rec.709 as is. HDR that couldn't be rewritten (not HEVC) has been tone-mapped by Chromium.
-    return { undoMacDisplay, conversion: { kind: 'none' } }
-  }
-
-  private lut(file: string): GpuLut | null {
-    const projectPath = projectController.path
-    if (!projectPath || !this.compositor) return null
-    const key = `${projectPath}::${file}`
-    const entry = this.luts.get(key)
-    if (entry && entry !== 'loading' && entry !== 'failed') return entry
-    if (!entry) {
-      this.luts.set(key, 'loading')
-      window.ginosa.media
-        .readLut(projectPath, file)
-        .then((text) => {
-          const cube = parseCube(text)
-          const rgb = cube.kind === '3d' ? cube.data : expand1d(cube)
-          const size = cube.kind === '3d' ? cube.size : 33
-          this.luts.set(key, this.compositor!.lutTexture(size, rgb, cube.domainMin, cube.domainMax))
-          this.requestStill()
-        })
-        .catch((error: Error) => {
-          this.luts.set(key, 'failed')
-          this.message = `Input LUT ${file}: ${error.message}`
-          this.notify()
-        })
-    }
-    return null
-  }
-
   // ---- Still frame (paused) --------------------------------------------------------
 
   /** Renders the frame under the playhead. Requests made while busy collapse into one. */
@@ -267,7 +199,7 @@ export class Player extends Observable {
       }
       try {
         if (layer.item.kind === 'image') {
-          prepared.push({ layer, source: { kind: 'image', texture: this.stillTexture(path, await openStill(path)) } })
+          prepared.push({ layer, source: { kind: 'image', texture: this.layers!.stillTexture(path, await openStill(path)) } })
         } else {
           const media = await openMedia(path)
           const sample = media.videoSink ? await media.videoSink.getSample(media.origin + ticksToSeconds(layer.sourceTime) + 1e-6) : null
@@ -285,7 +217,7 @@ export class Player extends Observable {
     }
     const scale = this.prepareTarget(sequence)
     const composite = prepared.flatMap((p) => {
-      const layer = p.source ? this.compositeLayer(p.layer, p.source, sequence) : null
+      const layer = p.source ? this.layers!.build(p.layer, p.source, sequence) : null
       return layer ? [layer] : []
     })
     const result = this.compositor.render(composite, scale)
@@ -458,11 +390,11 @@ export class Player extends Observable {
       const path = this.path(layer.item)
       if (!path) continue
       if (layer.item.kind === 'image') {
-        const texture = this.stillTextures.get(path)
+        const texture = this.layers!.loadedStill(path)
         if (texture) {
-          const c = this.compositeLayer(layer, { kind: 'image', texture }, sequence)
+          const c = this.layers!.build(layer, { kind: 'image', texture }, sequence)
           if (c) composite.push(c)
-        } else void openStill(path).then((bitmap) => this.stillTexture(path, bitmap))
+        } else void openStill(path).then((bitmap) => this.layers!.stillTexture(path, bitmap))
         continue
       }
       if (this.rate < 0) continue // reverse shows the still-render path below
@@ -475,7 +407,7 @@ export class Player extends Observable {
       }
       const videoFrame = sample.toVideoFrame()
       frames.push(videoFrame)
-      const c = this.compositeLayer(layer, { kind: 'video', frame: videoFrame }, sequence)
+      const c = this.layers!.build(layer, { kind: 'video', frame: videoFrame }, sequence)
       if (c) composite.push(c)
     }
     if (this.rate < 0) {
@@ -555,23 +487,6 @@ export class Player extends Observable {
       })
     return placeholder
   }
-}
-
-/** A 1D LUT as a 33³ cube, so the shader only needs one kind. */
-function expand1d(lut: CubeLut): Float32Array {
-  const n = 33
-  const out = new Float32Array(n * n * n * 3)
-  for (let b = 0; b < n; b++)
-    for (let g = 0; g < n; g++)
-      for (let r = 0; r < n; r++) {
-        const at = (b * n * n + g * n + r) * 3
-        const span = (i: number) => lut.domainMin[i]! + ((lut.domainMax[i]! - lut.domainMin[i]!) * [r, g, b][i]!) / (n - 1)
-        const value = sampleCube(lut, [span(0), span(1), span(2)])
-        out[at] = value[0]
-        out[at + 1] = value[1]
-        out[at + 2] = value[2]
-      }
-  return out
 }
 
 /** The Program monitor: plays the timeline. */

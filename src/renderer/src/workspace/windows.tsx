@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { CacheManagerWindow } from '../windows/CacheManagerWindow'
 import { DiagnosticsWindow } from '../windows/DiagnosticsWindow'
 import { EffectControlsWindow } from '../windows/EffectControlsWindow'
+import { ExportWindow } from '../windows/ExportWindow'
 import { HistoryWindow } from '../windows/HistoryWindow'
 import { PlaybackTestWindow } from '../windows/PlaybackTestWindow'
 import { ProjectSettingsWindow } from '../windows/ProjectSettingsWindow'
@@ -20,6 +21,8 @@ export function renderWindow(id: string): ReactNode {
       return <EffectControlsWindow />
     case 'source-monitor':
       return <SourceMonitorWindow />
+    case 'export':
+      return <ExportWindow />
     case 'cache-manager':
       return <CacheManagerWindow />
     case 'playback-test':

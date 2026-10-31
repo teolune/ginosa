@@ -76,6 +76,15 @@ const bridge: GinosaBridge = {
     onJobUpdate: (listener: (job: OptimiseJob) => void) => listen('media:jobUpdate', listener),
     pathForFile: (file: File) => webUtils.getPathForFile(file)
   },
+  export: {
+    chooseFile: (suggestedName, extension) => ipcRenderer.invoke('export:chooseFile', suggestedName, extension),
+    begin: (request) => ipcRenderer.invoke('export:begin', request),
+    audio: (id, samples) => ipcRenderer.invoke('export:audio', id, samples),
+    startVideo: (id) => ipcRenderer.invoke('export:startVideo', id),
+    frame: (id, bytes) => ipcRenderer.invoke('export:frame', id, bytes),
+    finish: (id) => ipcRenderer.invoke('export:finish', id),
+    cancel: (id) => ipcRenderer.invoke('export:cancel', id)
+  },
   cache: {
     registerProject: (projectId, name, path) => ipcRenderer.invoke('cache:registerProject', projectId, name, path),
     usage: () => ipcRenderer.invoke('cache:usage'),
@@ -92,6 +101,8 @@ const bridge: GinosaBridge = {
     simulateCrash: () => ipcRenderer.invoke('snapshot:simulateCrash'),
     testMedia: () => ipcRenderer.invoke('snapshot:testMedia'),
     referenceClips: () => ipcRenderer.invoke('snapshot:referenceClips'),
+    analyseExport: (path, xs) => ipcRenderer.invoke('snapshot:analyseExport', path, xs),
+    exportPath: (name) => ipcRenderer.invoke('snapshot:exportPath', name),
     ready: () => ipcRenderer.invoke('snapshot:ready'),
     report: (data) => ipcRenderer.invoke('snapshot:report', data)
   }

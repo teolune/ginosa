@@ -3,7 +3,9 @@
  * Keep this file free of Node or DOM imports so every side can use it.
  */
 
-import type { MediaFingerprint } from '../engine/project/media'
+import type { MediaFingerprint, MediaInfo } from '../engine/project/media'
+import type { ExportSettings } from '../engine/export/export-settings'
+import type { FrameRate } from '../engine/time'
 import type {
   CacheCategory,
   CacheProjectUsage,
@@ -14,6 +16,36 @@ import type {
   ProbeResult
 } from './media-types'
 import type { SymbolSet } from './symbols'
+
+export interface ExportBegin {
+  settings: ExportSettings
+  width: number
+  height: number
+  rate: FrameRate
+  /** Sample frames of the mixed-down sound that will follow. */
+  audioFrames: number
+  sampleRate: number
+  output: string
+}
+
+export interface ExportAnalysis {
+  width: number
+  height: number
+  fps: number
+  videoStart: number
+  audioStart: number
+  rows: number[][][]
+  onsets: number[]
+  tags: { primaries: string | null; transfer: string | null; matrix: string | null; range: string | null }
+}
+
+export interface ExportResult {
+  path: string
+  size: number
+  frames: number
+  /** The finished file as ffprobe reads it (codec, colour tags, duration). */
+  info: MediaInfo | null
+}
 
 /** Custom URL scheme that streams local media files (read-only, with HTTP range support). */
 export const MEDIA_SCHEME = 'ginosa-media'
@@ -105,6 +137,7 @@ export interface JournalEntry {
 export type MenuCommand =
   | { type: 'new-project' }
   | { type: 'import' }
+  | { type: 'export' }
   | { type: 'new-bin' }
   | { type: 'open-project' }
   | { type: 'open-recent'; path: string }
@@ -199,6 +232,15 @@ export interface GinosaBridge {
     /** Path of a file dropped from Finder. */
     pathForFile(file: File): string
   }
+  export: {
+    chooseFile(suggestedName: string, extension: string): Promise<string | null>
+    begin(request: ExportBegin): Promise<string>
+    audio(id: string, samples: Uint8Array): Promise<void>
+    startVideo(id: string): Promise<void>
+    frame(id: string, bytes: Uint8Array): Promise<void>
+    finish(id: string): Promise<ExportResult>
+    cancel(id: string): Promise<void>
+  }
   cache: {
     registerProject(projectId: string, name: string, path: string): Promise<void>
     usage(): Promise<{ root: string; projects: CacheProjectUsage[] }>
@@ -218,6 +260,9 @@ export interface GinosaBridge {
     /** Files in the repo's media/test folder (snapshot runs only). */
     testMedia(): Promise<string[]>
     referenceClips(): Promise<string[]>
+    analyseExport(path: string, xs: number[]): Promise<ExportAnalysis | null>
+    /** renders/export/<name> (snapshot mode only). */
+    exportPath(name: string): Promise<string | null>
     ready(): Promise<void>
     /** Saves a JSON report next to the screenshot (renders/ui/<scenario>.json). */
     report(data: unknown): Promise<void>

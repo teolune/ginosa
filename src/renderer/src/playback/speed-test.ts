@@ -1,4 +1,6 @@
-import { FRAME_RATES, ticksPerFrame, type Ticks } from '@engine/time'
+import { FRAME_RATES, secondsToTicks, ticksPerFrame, type Ticks } from '@engine/time'
+import { addCrossDissolveAt, addFrameHold, placeMedia, setClipSpeed } from '@engine/timeline/edits'
+import { projectController } from '../state/project-controller'
 import { getGpu } from '../gpu/shared'
 import { player } from './player'
 
@@ -35,7 +37,7 @@ function halfToFloat(h: number): number {
   return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024)
 }
 
-const REGIONS: Array<{ name: string; from: number; to: number; expected: (j: number) => number }> = [
+export const REGIONS: Array<{ name: string; from: number; to: number; expected: (j: number) => number }> = [
   { name: 'forwards', from: 0, to: 50, expected: (j) => j },
   { name: 'reversed', from: 50, to: 100, expected: (j) => 149 - j },
   { name: '200%', from: 100, to: 150, expected: (j) => 100 + 2 * (j - 100) },
@@ -112,3 +114,28 @@ export async function runSpeedTest(width: number): Promise<SpeedReport> {
   if (presented < 275 * 0.9) reasons.push(`only ${presented} of 275 frames were presented`)
   return { verdict: reasons.length === 0 ? 'pass' : 'fail', reasons, presented, regions, dissolve, dropped }
 }
+
+/** The speed-test timeline: forwards, reversed, 200%, hold, reversed 200%, cross-dissolve (see speed-test.ts). */
+export function buildSpeedTimeline(): boolean {
+  const project = projectController.project
+  const item = project?.media.find((m) => m.name === 'framecode_h264')
+  if (!project || !item) return false
+  const v1 = project.sequence.tracks.find((t) => t.kind === 'video')!.id
+  const s = secondsToTicks
+  const place = (at: number, inS: number, outS: number) => {
+    projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: s(inS), sourceOut: s(outS), at: s(at), videoTrackId: v1, audioTrackId: null, mode: 'overwrite' }))
+    const clips = projectController.project!.sequence.clips
+    return clips.find((c) => c.trackId === v1 && c.start === s(at))!.id
+  }
+  const media = () => projectController.project!.media
+  place(0, 0, 2)
+  projectController.dispatch(setClipSpeed({ clipIds: [place(2, 2, 4)], speed: 1, reverse: true, ripple: false }, media()))
+  projectController.dispatch(setClipSpeed({ clipIds: [place(4, 4, 8)], speed: 2, reverse: false, ripple: false }, media()))
+  projectController.dispatch(addFrameHold([place(6, 9, 10)], s(6)))
+  // 4 s of media at 200% reversed fills 7–9 s; the next clip starts at 9 s.
+  projectController.dispatch(setClipSpeed({ clipIds: [place(7, 8, 12)], speed: 2, reverse: true, ripple: false }, media()))
+  place(9, 0, 2)
+  projectController.dispatch(addCrossDissolveAt(v1, s(9), s(1)))
+  return true
+}
+

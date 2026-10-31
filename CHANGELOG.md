@@ -1,5 +1,19 @@
 # Changelog
 
+## M5 · Export
+
+- **Export window** (⌘M, or File → Export…), like Premiere's Export Settings:
+  - H.264, HEVC, HEVC 10-bit (MP4 or MOV), ProRes 422 HQ, ProRes 4444 (MOV)
+  - bitrate with a suggestion for your sequence's size and rate, keyframe interval, size estimate
+  - progress with fps and time left; Cancel; Show in Finder
+  - exports a snapshot of the edit, so you can keep working meanwhile
+- **Same picture as playback:** frames come from the same compositor (Motion, blends, dissolves, speed/reverse/holds, Apple Log/HDR/LUT colour), converted to Rec.709 Y′CbCr on the GPU with dither, 8-bit or 10-bit.
+- **Hardware encoding** for H.264/HEVC (VideoToolbox), ProRes via FFmpeg, **Rec.709 colour tags** in the stream and the container so QuickTime shows it as ginosa does.
+- **Sound mixdown** by the same mixer as playback (volume, mute, solo, speed). AAC 320 kbit/s, or 24-bit PCM with ProRes.
+- **Safe writes:** a cancelled or failed export leaves no file and never replaces an existing one.
+- **Export tests** (`npm run export-test`) read the files back: sync within 0.02 ms, colour within one code step in every format, every frame of speed/reverse/dissolve exact.
+- 190 tests.
+
 ## M4 · Playback (part 3)
 
 - **HDR on ginosa's own maths** (decision 20): iPhone HLG and HDR10/PQ HEVC clips are converted to Rec.709 on the GPU with ginosa's HDR→SDR maths, not Chromium's tone-mapping. ginosa rewrites the stream's transfer tag as the file is read, so the raw values arrive.

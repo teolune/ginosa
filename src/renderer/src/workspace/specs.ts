@@ -63,6 +63,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'export',
+    title: 'Export',
+    shortcut: 'Alt+8',
+    defaultRect: { x: 380, y: 60, w: 440, h: 560 },
+    minSize: { w: 380, h: 420 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'playback-test',
     title: 'Playback Test (M0)',
     shortcut: 'Alt+4',

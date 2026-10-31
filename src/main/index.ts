@@ -1,11 +1,13 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { HarnessJob, HarnessReport, JournalEntry, MenuState, UnsavedChoice } from '@shared/ipc'
 import { PROJECT_EXTENSION } from '@shared/ipc'
 import { handleMediaProtocol, registerMediaSchemePrivileges } from './media-protocol'
 import { isHarnessRun, parseHarnessArgs, writeHarnessFile, type HarnessOptions } from './harness'
+import { analyseExport } from './export/analyse'
+import { registerExportIpc } from './export/export-service'
 import { registerMediaIpc } from './media/media-ipc'
 import { AppMenu } from './menu'
 import { normaliseProjectPath, ProjectService, RecentProjects } from './project-service'
@@ -276,6 +278,15 @@ function registerIpc(): void {
     return (await readdir(dir).catch(() => [] as string[])).filter((f) => /\.(mov|mp4)$/i.test(f)).sort().map((f) => join(dir, f))
   })
 
+  ipcMain.handle('snapshot:analyseExport', async (_event, path: string, xs: number[]) => (snapshot ? analyseExport(path, xs) : null))
+
+  ipcMain.handle('snapshot:exportPath', async (_event, name: string) => {
+    if (!snapshot) return null
+    const dir = join(process.cwd(), 'renders', 'export')
+    await mkdir(dir, { recursive: true })
+    return join(dir, basename(name))
+  })
+
   ipcMain.handle('snapshot:simulateCrash', async () => {
     if (snapshot) await projects.simulateCrash()
   })
@@ -328,6 +339,7 @@ app.whenReady().then(async () => {
   handleMediaProtocol()
   registerIpc()
   // Snapshots use a throwaway cache, like their throwaway settings folder.
+  registerExportIpc()
   await registerMediaIpc(() => mainWindow, snapshotMode ? { cacheRoot: join(app.getPath('userData'), 'ginosa Cache') } : {})
 
   if (harnessMode) {

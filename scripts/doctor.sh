@@ -32,7 +32,7 @@ if command -v npm >/dev/null 2>&1; then ok "npm $(npm --version)"; else bad "npm
 if command -v ffmpeg >/dev/null 2>&1; then
   ok "FFmpeg $(ffmpeg -hide_banner -version | head -1 | awk '{print $3}')"
   encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null)"
-  for enc in libx264 h264_videotoolbox hevc_videotoolbox prores_ks prores_videotoolbox aac; do
+  for enc in libx264 h264_videotoolbox hevc_videotoolbox prores_ks prores_videotoolbox aac aac_at pcm_s24le; do
     if grep -q " $enc " <<<"$encoders"; then info "encoder $enc: yes"; else info "encoder $enc: no"; fi
   done
   filters="$(ffmpeg -hide_banner -filters 2>/dev/null)"
