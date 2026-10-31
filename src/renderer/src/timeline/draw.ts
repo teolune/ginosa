@@ -18,6 +18,8 @@ export interface Scene {
   fps: number
   playhead: Ticks
   selection: Set<string>
+  /** The clip an effect is being dragged onto. */
+  dropTarget: string | null
   transition: { clipId: string; end: 'in' | 'out' } | null
   gap: GapSelection | null
   snapLine: Ticks | null
@@ -53,6 +55,9 @@ const COLOURS = {
   gap: 'rgba(91,140,255,0.18)',
   locked: 'rgba(255,255,255,0.03)',
   transition: 'rgba(214,220,235,0.82)',
+  adjustment: '#6c5a9c',
+  adjustmentSelected: '#9a84d6',
+  fxBadge: '#a07cff',
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22'
 }
@@ -169,8 +174,20 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
   const item = scene.media.get(clip.mediaId)
   const runtime = scene.runtime(clip.mediaId)
   const selected = scene.selection.has(clip.id)
-  const offline = !item || runtime.status === 'offline'
-  const base = offline ? COLOURS.offline : clip.kind === 'video' ? (selected ? COLOURS.videoSelected : COLOURS.video) : selected ? COLOURS.audioSelected : COLOURS.audio
+  const offline = !clip.adjustment && (!item || runtime.status === 'offline')
+  const base = clip.adjustment
+    ? selected
+      ? COLOURS.adjustmentSelected
+      : COLOURS.adjustment
+    : offline
+      ? COLOURS.offline
+      : clip.kind === 'video'
+        ? selected
+          ? COLOURS.videoSelected
+          : COLOURS.video
+        : selected
+          ? COLOURS.audioSelected
+          : COLOURS.audio
 
   ctx.save()
   roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
@@ -198,8 +215,21 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
     const silent = clip.kind === 'audio' && (clip.reverse || clip.speed === 0) ? ' (silent)' : ''
     // The speed badge sits at the right of the label strip so it stays visible on short clips.
     const badge = offline ? '' : (speedBadge(clip) + silent).trim()
-    const left = Math.max(x, 0) + 5
+    let left = Math.max(x, 0) + 5
     const right = Math.min(x + w, scene.width) - 5
+    // Premiere's fx badge: this clip has effects (dimmed when they're all switched off).
+    if (clip.effects.length > 0 && right - left > 40) {
+      const on = clip.effects.some((e) => e.enabled)
+      ctx.fillStyle = on ? COLOURS.fxBadge : 'rgba(255,255,255,0.18)'
+      roundRect(ctx, left - 1, y + 1.5, 15, 11, 2)
+      ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '700 8.5px -apple-system, BlinkMacSystemFont, sans-serif'
+      ctx.fillText('fx', left + 2, y + 3)
+      ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, sans-serif'
+      ctx.fillStyle = COLOURS.clipText
+      left += 18
+    }
     let badgeWidth = 0
     if (badge) {
       badgeWidth = ctx.measureText(badge).width + 6
@@ -222,8 +252,8 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
   }
   ctx.restore()
 
-  ctx.strokeStyle = selected ? '#ffffff' : 'rgba(0,0,0,0.35)'
-  ctx.lineWidth = selected ? 1.5 : 1
+  ctx.strokeStyle = scene.dropTarget === clip.id ? COLOURS.fxBadge : selected ? '#ffffff' : 'rgba(0,0,0,0.35)'
+  ctx.lineWidth = scene.dropTarget === clip.id ? 2.5 : selected ? 1.5 : 1
   roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
   ctx.stroke()
 }

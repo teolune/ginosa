@@ -1,5 +1,10 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
+import type { EffectInstance, ParamSpec, ParamValue } from '@engine/effects/types'
+import { addEffect, moveEffect, removeEffects, resetEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
+import { effectById } from '../../../effects/registry'
+import { PromptDialog, type PromptRequest } from '../app/Dialogs'
+import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, STACK_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
 import { defaultMotion } from '@engine/timeline/motion'
 import { COLOUR_LABELS, effectiveColour } from '@engine/project/media'
@@ -119,6 +124,223 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+/** Blend modes in Photoshop's menu order, grouped. */
+export function BlendSelect({ value, onChange, disabled, label }: { value: BlendMode; onChange(mode: BlendMode): void; disabled?: boolean; label: string }) {
+  return (
+    <select className="input compact" aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as BlendMode)}>
+      {BLEND_MENU.map((mode, index) =>
+        mode === '-' ? (
+          <option key={`sep-${index}`} disabled>
+            ──────────
+          </option>
+        ) : (
+          <option key={mode} value={mode}>
+            {BLEND_MODES.find((m) => m.id === mode)!.label}
+          </option>
+        )
+      )}
+    </select>
+  )
+}
+
+/** One generated control, from the effect's manifest. */
+function ParamControl({ spec, value, onChange, disabled }: { spec: ParamSpec; value: ParamValue | undefined; onChange(value: ParamValue): void; disabled: boolean }) {
+  switch (spec.type) {
+    case 'number': {
+      const range = spec.max - spec.min
+      return (
+        <ScrubNumber label={spec.label} value={Number(value ?? spec.default)} min={spec.min} max={spec.max} step={range > 1000 ? 1 : range > 10 ? 0.5 : 0.01} decimals={spec.decimals ?? 1} unit={spec.unit} onChange={onChange} disabled={disabled} />
+      )
+    }
+    case 'angle':
+      return <ScrubNumber label={spec.label} value={Number(value ?? spec.default)} step={0.5} unit="°" onChange={onChange} disabled={disabled} />
+    case 'choice':
+      return (
+        <select className="input compact" aria-label={spec.label} value={String(value ?? spec.default)} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+          {spec.options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )
+    case 'toggle':
+      return <input type="checkbox" aria-label={spec.label} checked={Boolean(value ?? spec.default)} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+    case 'point': {
+      const point = (Array.isArray(value) ? value : [0, 0]) as [number, number]
+      return (
+        <>
+          <ScrubNumber label={`${spec.label} X`} value={point[0]} onChange={(x) => onChange([x, point[1]])} disabled={disabled} />
+          <ScrubNumber label={`${spec.label} Y`} value={point[1]} onChange={(y) => onChange([point[0], y])} disabled={disabled} />
+        </>
+      )
+    }
+  }
+}
+
+function dragKind(event: DragEvent): 'stack' | 'effect' | 'preset' | null {
+  const types = event.dataTransfer.types
+  if (types.includes(STACK_DRAG_TYPE)) return 'stack'
+  if (types.includes(EFFECT_DRAG_TYPE)) return 'effect'
+  if (types.includes(PRESET_DRAG_TYPE)) return 'preset'
+  return null
+}
+
+/** One effect in a stack: header (drag to reorder, on/off, reset, remove) and its controls. */
+function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; effect: EffectInstance; index: number; locked: boolean; onDropAt(event: DragEvent, index: number): void }) {
+  const [open, setOpen] = useState(true)
+  const [dropSide, setDropSide] = useState<'above' | 'below' | null>(null)
+  const manifest = effectById(effect.effectId)
+  const selected = effectsController.selected.has(effect.id)
+  const change = (changes: Parameters<typeof setEffectValues>[2]) => projectController.dispatch(setEffectValues(clip.id, effect.id, changes))
+  return (
+    <section
+      className={`fx-section fx-effect ${selected ? 'selected' : ''} ${effect.enabled ? '' : 'off'} ${dropSide ? `drop-${dropSide}` : ''}`}
+      onDragOver={(event) => {
+        if (locked || !dragKind(event)) return
+        event.preventDefault()
+        const rect = event.currentTarget.getBoundingClientRect()
+        setDropSide(event.clientY < rect.top + rect.height / 2 ? 'above' : 'below')
+      }}
+      onDragLeave={() => setDropSide(null)}
+      onDrop={(event) => {
+        const side = dropSide
+        setDropSide(null)
+        if (!side) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDropAt(event, side === 'above' ? index : index + 1)
+      }}
+    >
+      <header
+        className="fx-section-head"
+        onClick={(event) => effectsController.select([effect.id], event.shiftKey || event.metaKey ? 'toggle' : 'replace')}
+      >
+        <span
+          className="fx-grip"
+          title="Drag to reorder"
+          draggable={!locked}
+          onDragStart={(event) => {
+            event.dataTransfer.setData(STACK_DRAG_TYPE, effect.id)
+            event.dataTransfer.effectAllowed = 'move'
+          }}
+        >
+          ⋮⋮
+        </span>
+        <button
+          className={`fx-toggle ${effect.enabled ? 'on' : ''}`}
+          title={effect.enabled ? 'Turn this effect off' : 'Turn this effect on'}
+          aria-pressed={effect.enabled}
+          disabled={locked}
+          onClick={(event) => {
+            event.stopPropagation()
+            projectController.dispatch(setEffectEnabled(clip.id, effect.id, !effect.enabled))
+          }}
+        >
+          fx
+        </button>
+        <button className="twisty" onClick={(event) => (event.stopPropagation(), setOpen(!open))} aria-expanded={open}>
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} fallback={open ? '▾' : '▸'} />
+        </button>
+        <span className="fx-title">{manifest ? manifest.name : `Missing effect: ${effect.effectId}`}</span>
+        <span className="spacer" />
+        {manifest && (
+          <button className="button compact" disabled={locked} title={`Reset ${manifest.name}`} onClick={(event) => (event.stopPropagation(), projectController.dispatch(resetEffect(clip.id, effect.id)))}>
+            Reset
+          </button>
+        )}
+        <button className="button compact" disabled={locked} title="Remove this effect" onClick={(event) => (event.stopPropagation(), projectController.dispatch(removeEffects(clip.id, [effect.id])))}>
+          ✕
+        </button>
+      </header>
+      {open && (
+        <div className="fx-body">
+          {!manifest && <p className="muted small">This effect isn’t in this version of ginosa, so the picture passes through it unchanged. It’s kept in the project.</p>}
+          {manifest && (
+            <>
+              <Row label="Mix">
+                <ScrubNumber label="Mix" value={effect.mix} min={0} max={100} step={0.5} unit="%" onChange={(mix) => change({ mix })} disabled={locked} />
+              </Row>
+              <Row label="Blend Mode">
+                <BlendSelect label="Effect blend mode" value={effect.blendMode} disabled={locked} onChange={(blendMode) => change({ blendMode })} />
+              </Row>
+              {manifest.params.map((spec) => (
+                <div key={spec.id} title={spec.help}>
+                  <Row label={spec.label}>
+                    <ParamControl spec={spec} value={effect.params[spec.id]} disabled={locked} onChange={(value) => change({ params: { [spec.id]: value } })} />
+                  </Row>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** A clip's (or adjustment layer's) effects, top to bottom, with drop targets for the Effects Library. */
+function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: boolean; selectedClipIds: string[] }) {
+  useObservable(effectsController)
+  const [prompt, setPrompt] = useState<PromptRequest | null>(null)
+  useEffect(() => {
+    // Selection belongs to the clip shown; switching clips clears it.
+    effectsController.select([], 'replace')
+  }, [clip.id])
+  const dropAt = (event: DragEvent, index: number) => {
+    const kind = dragKind(event)
+    if (kind === 'stack') {
+      const id = event.dataTransfer.getData(STACK_DRAG_TYPE)
+      const from = clip.effects.findIndex((e) => e.id === id)
+      if (from >= 0) projectController.dispatch(moveEffect(clip.id, id, from < index ? index - 1 : index))
+    } else if (kind === 'effect') projectController.dispatch(addEffect([clip.id], event.dataTransfer.getData(EFFECT_DRAG_TYPE), index))
+    else if (kind === 'preset') effectsController.applyPreset(event.dataTransfer.getData(PRESET_DRAG_TYPE), [clip.id])
+  }
+  const savePreset = () =>
+    setPrompt({
+      title: 'Save Effect Preset',
+      label: effectsController.selected.size > 0 ? `Name for the ${effectsController.selected.size} selected effect${effectsController.selected.size === 1 ? '' : 's'}` : 'Name for the whole stack',
+      initial: effectsController.selected.size === 1 ? (effectById(clip.effects.find((e) => effectsController.selected.has(e.id))?.effectId ?? '')?.name ?? 'Preset') : `${clip.name} effects`,
+      confirm: 'Save',
+      resolve: (name) => {
+        setPrompt(null)
+        if (name) void effectsController.savePreset(name, clip.id).catch((error: Error) => projectController.showMessage(error.message))
+      }
+    })
+  return (
+    <div
+      className="fx-stack"
+      onDragOver={(event) => {
+        if (!locked && dragKind(event)) event.preventDefault()
+      }}
+      onDrop={(event) => {
+        if (locked || !dragKind(event)) return
+        event.preventDefault()
+        dropAt(event, clip.effects.length)
+      }}
+    >
+      <div className="fx-stack-head">
+        <span className="fx-title">Effects</span>
+        <span className="spacer" />
+        <button className="button compact" disabled={clip.effects.length === 0} title="Copy the selected effects (or all) — ⌘C" onClick={() => effectsController.copy(clip.id)}>
+          Copy
+        </button>
+        <button className="button compact" disabled={!effectsController.clipboard || locked} title="Paste effects onto the selected clips — ⌘V" onClick={() => effectsController.paste(selectedClipIds)}>
+          Paste
+        </button>
+        <button className="button compact" disabled={clip.effects.length === 0} onClick={savePreset}>
+          Save Preset…
+        </button>
+      </div>
+      {clip.effects.map((effect, index) => (
+        <EffectBlock key={effect.id} clip={clip} effect={effect} index={index} locked={locked} onDropAt={dropAt} />
+      ))}
+      {clip.effects.length === 0 && <p className="muted small fx-drop-hint">Drag an effect here from the Effects Library (⌥9), or onto the clip in the timeline.</p>}
+      <PromptDialog request={prompt} />
+    </div>
+  )
+}
+
 /** Premiere's Effect Controls for the selected clip: Motion, Opacity and blend mode, Volume. */
 export function EffectControlsWindow() {
   useObservable(projectController)
@@ -127,13 +349,14 @@ export function EffectControlsWindow() {
   if (!project) return null
   const selected = project.sequence.clips.filter((c) => timelineController.selection.has(c.id))
   const video = selected.find((c) => c.kind === 'video')
+  const adjustment = video?.adjustment ? video : null
   const audio = selected.find((c) => c.kind === 'audio')
   const locked = (clip: Clip) => project.sequence.tracks.find((t) => t.id === clip.trackId)?.locked ?? false
 
   if (!video && !audio) {
     return (
       <div className="empty-state">
-        <p className="muted">Select a clip in the timeline to adjust its Motion, Opacity and Volume.</p>
+        <p className="muted">Select a clip or adjustment layer in the timeline to adjust its Motion, Opacity, Volume and effects.</p>
       </div>
     )
   }
@@ -141,21 +364,36 @@ export function EffectControlsWindow() {
   const set = (clip: Clip, changes: ClipPropertyChanges) => projectController.dispatch(setClipProperties([clip.id], changes))
   const setMotion = (clip: Clip, changes: Partial<Motion>) => set(clip, { motion: changes })
   const item = video ? project.media.find((m) => m.id === video.mediaId) : undefined
-  const fresh = video ? defaultMotion(item, project.sequence.settings) : null
+  const fresh = video && !adjustment ? defaultMotion(item, project.sequence.settings) : null
+  const selectedVideoIds = selected.filter((c) => c.kind === 'video').map((c) => c.id)
 
   return (
-    <div className="effect-controls">
+    <div
+      className="effect-controls"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (!video || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
+        const cmd = event.metaKey || event.ctrlKey
+        if (cmd && event.key.toLowerCase() === 'c') effectsController.copy(video.id)
+        else if (cmd && event.key.toLowerCase() === 'v') effectsController.paste(selectedVideoIds)
+        else if ((event.key === 'Delete' || event.key === 'Backspace') && effectsController.selected.size > 0) {
+          projectController.dispatch(removeEffects(video.id, [...effectsController.selected]))
+        } else return
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+    >
       <div className="fx-clip">
         <span className="fx-clip-name">{video?.name ?? audio?.name}</span>
         {selected.length > 2 && <span className="muted small">and {selected.length - 1} more selected; showing one</span>}
       </div>
-      {video && item && item.kind === 'video' && (
+      {video && !adjustment && item && item.kind === 'video' && (
         <div className="fx-source-colour muted small">
           Source colour: <strong>{item.colour.lut ? `Input LUT ${item.colour.lut.name}` : COLOUR_LABELS[effectiveColour(item)]}</strong>
           {item.colour.input === 'auto' && !item.colour.lut ? ' (detected)' : ''} · right-click the file in Media to change
         </div>
       )}
-      {video && (video.speed !== 1 || video.reverse) && (
+      {video && !adjustment && (video.speed !== 1 || video.reverse) && (
         <div className="fx-source-colour muted small">
           Speed: <strong>{video.speed === 0 ? 'Frame Hold' : `${video.reverse ? '-' : ''}${Math.round(video.speed * 1000) / 10}%`}</strong> · ⌘R to change
         </div>
@@ -189,17 +427,22 @@ export function EffectControlsWindow() {
               <ScrubNumber label="Opacity" value={video.opacity} min={0} max={100} step={0.5} unit="%" onChange={(v) => set(video, { opacity: v })} disabled={locked(video)} />
             </Row>
             <Row label="Blend Mode">
-              <select className="input compact" value={video.blendMode} disabled={locked(video)} onChange={(event) => set(video, { blendMode: event.target.value as BlendMode })}>
-                {BLEND_MODES.map((mode) => (
-                  <option key={mode.id} value={mode.id}>
-                    {mode.label}
-                  </option>
-                ))}
-              </select>
+<BlendSelect label="Blend mode" value={video.blendMode} disabled={locked(video)} onChange={(blendMode) => set(video, { blendMode })} />
             </Row>
           </Section>
         </>
       )}
+      {adjustment && (
+        <Section title="Opacity" onReset={locked(adjustment) ? undefined : () => set(adjustment, { opacity: 100, blendMode: 'normal' })}>
+          <Row label="Opacity">
+            <ScrubNumber label="Opacity" value={adjustment.opacity} min={0} max={100} step={0.5} unit="%" onChange={(v) => set(adjustment, { opacity: v })} disabled={locked(adjustment)} />
+          </Row>
+          <Row label="Blend Mode">
+            <BlendSelect label="Blend mode" value={adjustment.blendMode} disabled={locked(adjustment)} onChange={(blendMode) => set(adjustment, { blendMode })} />
+          </Row>
+        </Section>
+      )}
+      {video && <EffectStack clip={video} locked={locked(video)} selectedClipIds={selectedVideoIds} />}
       {audio && (
         <Section title="Volume" onReset={locked(audio) ? undefined : () => set(audio, { volume: 0 })}>
           <Row label="Level">
@@ -207,7 +450,7 @@ export function EffectControlsWindow() {
           </Row>
         </Section>
       )}
-      <p className="muted small fx-note">Keyframes for these arrive in M7; more effects in M6.</p>
+      <p className="muted small fx-note">Keyframes arrive in M7.</p>
     </div>
   )
 }

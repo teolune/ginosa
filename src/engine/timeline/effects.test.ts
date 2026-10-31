@@ -5,6 +5,7 @@ import blendWgsl from '../../renderer/src/playback/blend.wgsl?raw'
 import { blendRgb } from '../effects/blend'
 import { fromOklab, toDisplay, toLinear, toOklab } from '../effects/colour-spaces'
 import { defaultParams, sanitiseParams, upgradeInstance } from '../effects/params'
+import { parsePresets, rescaleEffects } from '../effects/presets'
 import type { EffectManifest } from '../effects/types'
 import { History } from '../history'
 import { importMedia } from '../project/media-commands'
@@ -247,5 +248,31 @@ describe('reference maths', () => {
     // Luminosity keeps the colour of what's beneath and takes the lightness of what's blended.
     const lumMode = blendRgb(d, s2, 'luminosity')
     expect(0.3 * lumMode[0] + 0.59 * lumMode[1] + 0.11 * lumMode[2]).toBeCloseTo(0.5, 6)
+  })
+})
+
+describe('presets', () => {
+  it('round-trip through the library format, skipping damaged entries', () => {
+    const t = setup()
+    t.run(addEffect([t.clip().id], 'transform', null, ids))
+    const preset = { id: 'p1', name: 'Tilt', effects: t.clip().effects, size: { width: 3840, height: 2160 }, createdAt: '2026-10-31' }
+    const parsed = parsePresets(JSON.parse(JSON.stringify({ version: 1, presets: [preset, { id: 'bad' }, { id: 'p2', name: 'Empty', effects: [], size: { width: 1, height: 1 } }] })))
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]).toEqual(preset)
+    expect(parsePresets(null)).toEqual([])
+  })
+
+  it('scale positions to the clip they are applied to', () => {
+    const t = setup()
+    // A 1080p clip next to the 4K one.
+    const hd = media('hd', 1920, 1080)
+    t.history.dispatch(importMedia([hd]))
+    t.run(placeMedia({ mediaId: hd.id, sourceIn: 0, sourceOut: s(2), at: s(10), videoTrackId: t.V1, audioTrackId: null, mode: 'overwrite' }, ids))
+    t.run(addEffect([t.clip().id], 'transform', null, ids))
+    t.run(setEffectValues(t.clip().id, t.clip().effects[0]!.id, { params: { position: [2880, 540] } }))
+    const hdClip = () => t.history.state.sequence.clips.find((c) => c.mediaId === hd.id)!
+    t.run(pasteEffects([hdClip().id], t.clip().effects, 'Apply Preset', ids, { width: 3840, height: 2160 }))
+    expect(hdClip().effects[0]!.params['position']).toEqual([1440, 270])
+    expect(rescaleEffects(t.clip().effects, { width: 100, height: 100 }, { width: 100, height: 100 })[0]!.params['position']).toEqual([2880, 540])
   })
 })

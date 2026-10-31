@@ -440,6 +440,12 @@ export class TimelineInteraction {
   doubleClick(x: number, y: number): void {
     const hit = hitTest(x, y)
     if (hit.kind !== 'clip') return
+    if (hit.clip.adjustment) {
+      // An adjustment layer has no source: show its effects instead.
+      tl.select([hit.clip.id], 'replace')
+      workspaceController.focus('effect-controls')
+      return
+    }
     mediaController.openInSource(hit.clip.mediaId, hit.clip.sourceIn + Math.max(0, hit.time - hit.clip.start))
     workspaceController.open('source-monitor')
   }

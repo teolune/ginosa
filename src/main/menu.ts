@@ -59,6 +59,7 @@ export class AppMenu {
           { type: 'separator' },
           { label: 'Import…', accelerator: 'CmdOrCtrl+I', enabled: s.hasProject, click: () => this.send({ type: 'import' }) },
           { label: 'New Bin', accelerator: 'CmdOrCtrl+B', enabled: s.hasProject, click: () => this.send({ type: 'new-bin' }) },
+          { label: 'New Adjustment Layer', enabled: s.hasProject, click: () => this.send({ type: 'new-adjustment-layer' }) },
           { type: 'separator' },
           { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save' }) },
           { label: 'Save As…', accelerator: 'Shift+CmdOrCtrl+S', enabled: s.hasProject, click: () => this.send({ type: 'save-as' }) },

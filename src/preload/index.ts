@@ -76,6 +76,10 @@ const bridge: GinosaBridge = {
     onJobUpdate: (listener: (job: OptimiseJob) => void) => listen('media:jobUpdate', listener),
     pathForFile: (file: File) => webUtils.getPathForFile(file)
   },
+  presets: {
+    read: () => ipcRenderer.invoke('presets:read'),
+    write: (data) => ipcRenderer.invoke('presets:write', data)
+  },
   export: {
     chooseFile: (suggestedName, extension) => ipcRenderer.invoke('export:chooseFile', suggestedName, extension),
     begin: (request) => ipcRenderer.invoke('export:begin', request),

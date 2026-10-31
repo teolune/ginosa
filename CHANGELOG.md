@@ -1,5 +1,30 @@
 # Changelog
 
+## M6 · Effects pipeline
+
+- **Effects are modules:**
+  - Each lives in its own folder `src/effects/<name>/`: a manifest, WGSL and tests. ginosa finds it automatically.
+  - Each declares its parameters, the colour space it works in (display, linear light or OKLab) and a version, so old projects upgrade.
+- **Effect stacks on clips** run on the clip's own pixels before its Motion.
+- **Adjustment layers** apply their effects to everything beneath, with Opacity and a blend mode.
+  - Create one with **+ Adjustment** in the timeline, File → New Adjustment Layer, or right-click a video track.
+  - Edit it like a clip.
+- **Every effect gets** on/off, **Mix** and **Blend Mode**: all 24 Photoshop modes, now also for clips and adjustment layers.
+- **Effect Controls is generated from each effect's manifest**, with drag-to-reorder, on/off, Reset and remove. ⌘C / ⌘V / Delete work on selected effects.
+- **Effects Library** (⌥9): search, drag onto clips or into Effect Controls, double-click to apply.
+- **Presets:** save one effect or a stack, shared by every project. Positions scale to the clip.
+- **Invert:**
+  - Amount
+  - Channel: RGB, R, G, B, Luminance only, Hue only, Chroma only
+  - Space: display or linear light
+- **Transform:** Motion's controls, plus Edges (transparent, repeat, mirror, tile) and Sampling (smooth, sharp, nearest).
+- **Same in export:** export uses the same pipeline, so files include effects.
+- **Tests:**
+  - 68 GPU-vs-CPU checks (worst 0.003)
+  - the done-when export test: Invert on an adjustment layer over five clips, reordered, toggled and faded; the file matches the maths within 0.0025
+- **Project format v6.**
+- 209 tests.
+
 ## M5 · Export
 
 - **Export window** (⌘M, or File → Export…), like Premiere's Export Settings:

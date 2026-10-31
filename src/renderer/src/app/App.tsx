@@ -6,8 +6,9 @@ import { addCrossDissolveAt, addFrameHold, addMarker, placeMedia, setClipPropert
 import { player } from '../playback/player'
 import { runSyncTest } from '../playback/sync-test'
 import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
-import { exportColourTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
+import { exportColourTest, exportEffectsTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
 import { exporter } from '../playback/exporter'
+import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { sourcePlayer } from '../playback/source-player'
 import { openMedia } from '../playback/sources'
@@ -114,12 +115,33 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
   switch (scenario) {
     case 'exportsync':
     case 'exportcolour':
-    case 'exportspeed': {
-      const pattern = scenario === 'exportsync' ? /sync_flash_beep\.mp4$/ : scenario === 'exportcolour' ? /patches_(rec709|applelog)\.mov$/ : /framecode_h264\.mp4$/
+    case 'exportspeed':
+    case 'exporteffects': {
+      const pattern =
+        scenario === 'exportsync'
+          ? /sync_flash_beep\.mp4$/
+          : scenario === 'exportcolour'
+            ? /patches_(rec709|applelog)\.mov$/
+            : scenario === 'exportspeed'
+              ? /framecode_h264\.mp4$/
+              : /patches_(rec709|applelog|applelog2)\.mov$|sync_flash_beep\.mp4$|framecode_h264\.mp4$/
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => pattern.test(f)), null)
       await wait(1500)
       try {
-        const report = scenario === 'exportsync' ? await exportSyncTest() : scenario === 'exportcolour' ? await exportColourTest() : await exportSpeedTest(buildSpeedTimeline)
+        const report =
+          scenario === 'exportsync'
+            ? await exportSyncTest()
+            : scenario === 'exportcolour'
+              ? await exportColourTest()
+              : scenario === 'exportspeed'
+                ? await exportSpeedTest(buildSpeedTimeline)
+                : await exportEffectsTest()
+        if (scenario === 'exporteffects') {
+          workspaceController.open('effects-library')
+          workspaceController.focus('effects-library')
+          timelineController.zoomToFit()
+          await wait(800)
+        }
         await window.ginosa.snapshot.report(report)
       } catch (error) {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
@@ -276,6 +298,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'composite':
     case 'playback':
     case 'exportui':
+    case 'effectsui':
     case 'sync':
     case 'speed':
     case 'speeddialog': {
@@ -305,7 +328,25 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         workspaceController.open('source-monitor')
       }
       if (scenario === 'cache') workspaceController.open('cache-manager')
-      if (scenario === 'timeline' || scenario === 'drag' || scenario === 'composite' || scenario === 'playback' || scenario === 'exportui') await buildSnapshotTimeline()
+      if (scenario === 'timeline' || scenario === 'drag' || scenario === 'composite' || scenario === 'playback' || scenario === 'exportui' || scenario === 'effectsui') await buildSnapshotTimeline()
+      if (scenario === 'effectsui') {
+        // An adjustment layer over V1 with Invert (luminance) and Transform; Invert on a clip too.
+        const seq = projectController.project!.sequence
+        const v1clip = seq.clips.find((c) => c.name === 'testsrc_1080p24_h264' && c.kind === 'video')!
+        projectController.dispatch(addEffect([v1clip.id], 'invert'))
+        timelineController.setPlayhead(secondsToTicks(5))
+        timelineController.newAdjustmentLayer()
+        const layer = projectController.project!.sequence.clips.find((c) => c.adjustment)!
+        projectController.dispatch(addEffect([layer.id], 'invert'))
+        projectController.dispatch(addEffect([layer.id], 'transform'))
+        const [inv, tr] = projectController.project!.sequence.clips.find((c) => c.adjustment)!.effects
+        projectController.dispatch(setEffectValues(layer.id, inv!.id, { params: { channel: 'luminance', amount: 80 } }))
+        projectController.dispatch(setEffectValues(layer.id, tr!.id, { params: { scale: 70, rotation: 8, edges: 'mirror' } }))
+        timelineController.select([layer.id], 'replace')
+        workspaceController.open('effects-library')
+        workspaceController.focus('effect-controls')
+        await wait(1500)
+      }
       if (scenario === 'exportui') {
         // The Export window after a real export of the snapshot timeline.
         workspaceController.open('export')
@@ -479,6 +520,8 @@ export function App() {
           return mediaController.chooseAndImport(mediaController.targetBinId)
         case 'export':
           return workspaceController.open('export')
+        case 'new-adjustment-layer':
+          return timelineController.newAdjustmentLayer()
         case 'new-bin':
           return mediaController.newBin()
         case 'open-project':

@@ -278,6 +278,11 @@ function registerIpc(): void {
     return (await readdir(dir).catch(() => [] as string[])).filter((f) => /\.(mov|mp4)$/i.test(f)).sort().map((f) => join(dir, f))
   })
 
+  // The effect preset library (validated in the renderer; see engine/effects/presets.ts).
+  const presets = new JsonFile(join(app.getPath('userData'), 'effect-presets.json'))
+  ipcMain.handle('presets:read', () => presets.read())
+  ipcMain.handle('presets:write', (_event, data: unknown) => presets.write(data))
+
   ipcMain.handle('snapshot:analyseExport', async (_event, path: string, xs: number[]) => (snapshot ? analyseExport(path, xs) : null))
 
   ipcMain.handle('snapshot:exportPath', async (_event, name: string) => {

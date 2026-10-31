@@ -63,6 +63,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'effects-library',
+    title: 'Effects',
+    shortcut: 'Alt+9',
+    defaultRect: { x: 60, y: 80, w: 300, h: 460 },
+    minSize: { w: 220, h: 220 },
+    dockable: true,
+    defaultOpen: true,
+    defaultDocked: true
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

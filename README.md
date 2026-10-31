@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M5 · Export.** H.264, HEVC (8/10-bit) and ProRes 422 HQ / 4444 export with the timeline's sound, through the same compositor as playback, with Rec.709 tags and dither. Automated tests read exported files back for sync, colour and every frame. Built on M4's playback (sound, compositor, speed/reverse/dissolves, Apple Log/HDR/LUT colour, Source Monitor), M3's timeline, M2's media library and M1's projects. Stage 1 (the core editor) is complete. Next: M6 (effects infrastructure).
+**M6 · Effects pipeline.** Effect stacks on clips, adjustment layers, Effect Controls generated from each effect's manifest, the Effects Library (⌥9), presets, copy/paste, 24 Photoshop blend modes, and the first effects, Invert and Transform, in playback and export. Built on M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M7 (keyframes).
 
 ## Setup (once)
 
@@ -29,6 +29,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
 | `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
 | `npm run speed-test` | Plays speed, reverse, hold and dissolve clips and checks every frame; writes `renders/speed/speed.json` |
+| `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |
 | `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |
 

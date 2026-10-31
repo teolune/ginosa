@@ -1,4 +1,5 @@
-import type { Command } from '@engine/project/commands'
+import { addTrack, type Command } from '@engine/project/commands'
+import { addAdjustmentLayer } from '@engine/timeline/effect-edits'
 import type { Clip, Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
 import { formatTimecode, secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
@@ -24,7 +25,7 @@ import {
   type EditMode,
   type TransitionEnd
 } from '@engine/timeline/edits'
-import { clipEnd, editPoints, findTrack, frameTicks, sequenceEnd, toFrame, topVideoClipAt, withLinked } from '@engine/timeline/timeline'
+import { DEFAULT_STILL_SECONDS, clipEnd, editPoints, findTrack, frameTicks, sequenceEnd, toFrame, topVideoClipAt, withLinked } from '@engine/timeline/timeline'
 import { mediaController } from '../state/media-controller'
 import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -72,6 +73,8 @@ class TimelineController extends Observable {
   selection = new Set<string>()
   /** A selected transition (clicking one selects it; Delete removes it). */
   transition: { clipId: string; end: TransitionEnd } | null = null
+  /** The clip an effect from the Effects Library is being dragged over. */
+  effectDropTarget: string | null = null
   /** Clips the Speed/Duration dialog is open for. */
   speedDialog: string[] | null = null
   gap: GapSelection | null = null
@@ -266,7 +269,7 @@ class TimelineController extends Observable {
   matchFrame(): void {
     const sequence = this.committed
     if (!sequence) return
-    const under = (c: Clip) => c.start <= this.playhead && clipEnd(c) > this.playhead
+    const under = (c: Clip) => !c.adjustment && c.start <= this.playhead && clipEnd(c) > this.playhead
     const clip = sequence.clips.find((c) => this.selection.has(c.id) && under(c)) ?? topVideoClipAt(sequence, this.playhead) ?? sequence.clips.find(under)
     if (!clip) {
       projectController.showMessage('No clip under the playhead')
@@ -320,6 +323,33 @@ class TimelineController extends Observable {
       if (clip) ids = [clip.id]
     }
     this.run(addFrameHold(ids, this.playhead))
+  }
+
+  /**
+   * A new adjustment layer (5 s, Premiere's default still length). With no track given: at
+   * the playhead, on the lowest free video track above the clips there (adding a track if
+   * none is free).
+   */
+  newAdjustmentLayer(trackId?: string, at?: Ticks): void {
+    const sequence = this.committed
+    if (!sequence) return
+    const start = at ?? this.playhead
+    const duration = secondsToTicks(DEFAULT_STILL_SECONDS)
+    let target = trackId
+    if (!target) {
+      const video = sequence.tracks.filter((t) => t.kind === 'video')
+      const occupied = (id: string) => sequence.clips.some((c) => c.trackId === id && c.start < start + duration && clipEnd(c) > start)
+      const topUsed = video.reduce((top, t, i) => (sequence.clips.some((c) => c.trackId === t.id && c.start <= start && clipEnd(c) > start) ? i : top), -1)
+      target = video.slice(topUsed + 1).find((t) => !t.locked && !occupied(t.id))?.id
+      if (!target) {
+        this.run(addTrack('video'))
+        target = this.committed!.tracks.filter((t) => t.kind === 'video').at(-1)!.id
+      }
+    }
+    if (this.run(addAdjustmentLayer({ trackId: target, start, duration }))) {
+      const created = this.committed!.clips.find((c) => c.adjustment && c.trackId === target && c.start === toFrame(start, this.frame()))
+      if (created) this.select([created.id], 'replace')
+    }
   }
 
   /** Cmd+R: Speed/Duration for the selected clips. */

@@ -294,7 +294,8 @@ export function topVideoClipAt(sequence: Sequence, time: Ticks): Clip | null {
   const soloed = video.some((t) => t.solo)
   for (const track of [...video].reverse()) {
     if (!track.visible || (soloed && !track.solo)) continue
-    const clip = sequence.clips.find((c) => c.trackId === track.id && c.start <= time && clipEnd(c) > time)
+    // Adjustment layers have no picture of their own.
+    const clip = sequence.clips.find((c) => c.trackId === track.id && !c.adjustment && c.start <= time && clipEnd(c) > time)
     if (clip) return clip
   }
   return null

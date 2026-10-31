@@ -138,6 +138,7 @@ export type MenuCommand =
   | { type: 'new-project' }
   | { type: 'import' }
   | { type: 'export' }
+  | { type: 'new-adjustment-layer' }
   | { type: 'new-bin' }
   | { type: 'open-project' }
   | { type: 'open-recent'; path: string }
@@ -231,6 +232,10 @@ export interface GinosaBridge {
     onJobUpdate(listener: (job: OptimiseJob) => void): () => void
     /** Path of a file dropped from Finder. */
     pathForFile(file: File): string
+  }
+  presets: {
+    read(): Promise<unknown>
+    write(data: unknown): Promise<void>
   }
   export: {
     chooseFile(suggestedName: string, extension: string): Promise<string | null>

@@ -2,7 +2,9 @@ import { appleLogToRec709 } from '@engine/colour/colour'
 import type { ExportFormat, ExportSettings } from '@engine/export/export-settings'
 import { effectiveColour } from '@engine/project/media'
 import { secondsToTicks } from '@engine/time'
-import { placeMedia } from '@engine/timeline/edits'
+import { placeMedia, setClipProperties, trimClips } from '@engine/timeline/edits'
+import { addEffect, moveEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
+import { invertReference } from '../../../effects/invert/reference'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { readPixels } from './colour-probe'
@@ -126,4 +128,77 @@ export async function exportSpeedTest(build: () => boolean) {
     results[format] = { frames: a.rows.length, regions, dissolveMixed: mixed, exportFps: out.fps, seconds: Math.round(out.seconds * 10) / 10, size: out.result.size }
   }
   return { verdict: reasons.length ? 'fail' : 'pass', reasons, ...results }
+}
+
+/**
+ * M6 "done when": Invert on an adjustment layer over five clips, reordered and toggled,
+ * exports correctly. Each state is checked twice against the CPU maths applied to what the
+ * five clips show without the layer: in the preview, and in the exported file.
+ */
+export async function exportEffectsTest() {
+  const project = projectController.project!
+  const v1 = project.sequence.tracks.filter((t) => t.kind === 'video')[0]!.id
+  const v2 = project.sequence.tracks.filter((t) => t.kind === 'video')[1]!.id
+  const names = ['patches_rec709', 'patches_applelog', 'patches_applelog2', 'sync_flash_beep', 'framecode_h264']
+  names.forEach((name, i) => {
+    const item = project.media.find((m) => m.name === name)
+    if (!item) throw new Error(`${name} is missing (npm run test-media)`)
+    projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: 0, sourceOut: secondsToTicks(1), at: secondsToTicks(i), videoTrackId: v1, audioTrackId: null, mode: 'overwrite' }))
+  })
+  const xs = [192, 576, 960, 1344, 1728]
+  const frames = names.map((_, i) => i * 25 + 12)
+  const readFrame = async (f: number) => {
+    timelineController.setPlayhead(secondsToTicks(f / 25))
+    await wait(900)
+    return player.lastStill ? await readPixels(player.lastStill, xs.map((x) => [x, 540] as [number, number])) : []
+  }
+  const underneath: number[][][] = []
+  for (const f of frames) underneath.push(await readFrame(f))
+
+  timelineController.newAdjustmentLayer(v2, 0)
+  const layerId = projectController.project!.sequence.clips.find((c) => c.adjustment)!.id
+  projectController.dispatch(trimClips({ clipIds: [layerId], edge: 'out', delta: secondsToTicks(5) - projectController.project!.sequence.clips.find((c) => c.id === layerId)!.duration }))
+  projectController.dispatch(addEffect([layerId], 'invert'))
+  projectController.dispatch(addEffect([layerId], 'invert'))
+  const layer = () => projectController.project!.sequence.clips.find((c) => c.id === layerId)!
+  const [first, second] = layer().effects.map((e) => e.id) as [string, string]
+  projectController.dispatch(setEffectValues(layerId, first, { params: { channel: 'red' } }))
+  projectController.dispatch(setEffectValues(layerId, second, { params: { channel: 'luminance' } }))
+
+  // The stack as the CPU sees it, top to bottom.
+  const expectedFor = () =>
+    underneath.map((points) =>
+      points.map((p) =>
+        layer().effects.reduce<[number, number, number]>((c, e) => (e.enabled ? invertReference(c, { amount: Number(e.params['amount']), channel: String(e.params['channel']), space: String(e.params['space']) }) : c), [p[0]!, p[1]!, p[2]!])
+      )
+    )
+  const states: Array<{ name: string; prepare: () => void }> = [
+    { name: 'red → luminance', prepare: () => undefined },
+    { name: 'reordered: luminance → red', prepare: () => projectController.dispatch(moveEffect(layerId, second, 0)) },
+    { name: 'toggled: red off', prepare: () => projectController.dispatch(setEffectEnabled(layerId, first, false)) },
+    { name: 'layer at 50% opacity', prepare: () => projectController.dispatch(setClipProperties([layerId], { opacity: 50 })) }
+  ]
+  const reasons: string[] = []
+  const results: Record<string, unknown> = {}
+  for (const state of states) {
+    state.prepare()
+    let expected = expectedFor()
+    if (layer().opacity !== 100) {
+      const t = layer().opacity / 100
+      expected = expected.map((points, fi) => points.map((c, xi) => c.map((v, k) => underneath[fi]![xi]![k]! + (v - underneath[fi]![xi]![k]!) * t) as [number, number, number]))
+    }
+    const preview: number[][][] = []
+    for (const f of frames) preview.push(await readFrame(f))
+    const out = await exportTo(`effects-${states.indexOf(state)}.mov`, settingsFor('hevc10'))
+    const a = (await window.ginosa.snapshot.analyseExport(out.path, xs))!
+    const exported = frames.map((f) => a.rows[f]!)
+    const error = (got: number[][][]) => Math.max(...got.flatMap((points, fi) => points.flatMap((p, xi) => p.map((v, k) => Math.abs(v - expected[fi]![xi]![k]!)))))
+    const previewError = error(preview)
+    const exportError = error(exported)
+    // The preview is 16-bit float; the file is 10-bit, so allow a couple of its steps.
+    if (!(previewError <= 0.004)) reasons.push(`${state.name}: preview off by ${previewError.toFixed(4)}`)
+    if (!(exportError <= 0.006)) reasons.push(`${state.name}: export off by ${exportError.toFixed(4)}`)
+    results[state.name] = { stack: layer().effects.map((e) => `${e.params['channel']}${e.enabled ? '' : ' (off)'}`), opacity: layer().opacity, previewError: Math.round(previewError * 10000) / 10000, exportError: Math.round(exportError * 10000) / 10000, exportFps: out.fps }
+  }
+  return { verdict: reasons.length ? 'fail' : 'pass', reasons, clips: names, results }
 }

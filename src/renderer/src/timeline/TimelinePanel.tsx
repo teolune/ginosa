@@ -16,6 +16,8 @@ import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { drawTimeline } from './draw'
 import { MEDIA_DRAG_TYPE, SOURCE_DRAG_TYPE } from './drag-types'
+import { addEffect, removeEffects } from '@engine/timeline/effect-edits'
+import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { RULER_HEIGHT, SNAP_PIXELS, layoutRows, pixelsToTicks, rowAt, xToTime, type Row } from './geometry'
 import { TimelineInteraction, hitTest, type Hit } from './interaction'
 import { SpeedDialog } from './SpeedDialog'
@@ -215,6 +217,7 @@ export function TimelinePanel() {
       fps: frameRateValue(frameRateOf(sequence.settings)),
       playhead: tl.playhead,
       selection: tl.selection,
+      dropTarget: tl.effectDropTarget,
       transition: tl.transition,
       gap: tl.gap,
       snapLine: tl.snapLine,
@@ -278,9 +281,44 @@ export function TimelinePanel() {
     }
     return { row, at: Math.max(0, at), mode: (event.metaKey ? 'insert' : 'overwrite') as EditMode }
   }
+  // Effects and presets from the Effects Library, dropped onto a clip or adjustment layer.
+  const effectDropClip = (event: DragEvent): string | null => {
+    const types = event.dataTransfer.types
+    if (!types.includes(EFFECT_DRAG_TYPE) && !types.includes(PRESET_DRAG_TYPE)) return null
+    const { x, y } = point(event)
+    const hit = hitTest(x, y)
+    return hit.kind === 'clip' && hit.clip.kind === 'video' && !hit.row.track.locked ? hit.clip.id : null
+  }
+  const onEffectDragOver = (event: DragEvent): boolean => {
+    const types = event.dataTransfer.types
+    if (!types.includes(EFFECT_DRAG_TYPE) && !types.includes(PRESET_DRAG_TYPE)) return false
+    const target = effectDropClip(event)
+    if (target) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    if (tl.effectDropTarget !== target) {
+      tl.effectDropTarget = target
+      tl.changed()
+    }
+    return true
+  }
+  const onEffectDrop = (event: DragEvent): boolean => {
+    const target = effectDropClip(event)
+    tl.effectDropTarget = null
+    tl.changed()
+    if (!target) return false
+    event.preventDefault()
+    // Dropped onto a selected clip: all the selected video clips get it, as in Premiere.
+    const ids = tl.selection.has(target) ? project.sequence.clips.filter((c) => c.kind === 'video' && tl.selection.has(c.id)).map((c) => c.id) : [target]
+    if (event.dataTransfer.types.includes(EFFECT_DRAG_TYPE)) tl.run(addEffect(ids, event.dataTransfer.getData(EFFECT_DRAG_TYPE)))
+    else effectsController.applyPreset(event.dataTransfer.getData(PRESET_DRAG_TYPE), ids)
+    return true
+  }
   const acceptsDrop = (event: DragEvent) =>
     tl.mediaDrag !== null && (event.dataTransfer.types.includes(MEDIA_DRAG_TYPE) || event.dataTransfer.types.includes(SOURCE_DRAG_TYPE))
   const onDragOver = (event: DragEvent) => {
+    if (onEffectDragOver(event)) return
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
@@ -301,6 +339,7 @@ export function TimelinePanel() {
     tl.changed()
   }
   const onDrop = (event: DragEvent) => {
+    if (onEffectDrop(event)) return
     if (!acceptsDrop(event)) return
     event.preventDefault()
     const info = dropInfo(event)
@@ -343,14 +382,27 @@ export function TimelinePanel() {
         'separator',
         { label: 'Add Edit at Playhead', onSelect: () => tl.splitAtPlayhead(false) },
         { label: linked ? 'Unlink' : 'Link', disabled: !linked && ids.length < 2, onSelect: () => tl.toggleLink() },
-        { label: 'Match Frame', onSelect: () => tl.matchFrame() },
+        { label: 'Match Frame', disabled: hit.clip.adjustment, onSelect: () => tl.matchFrame() },
         'separator',
-        { label: 'Speed/Duration…', shortcut: '⌘R', onSelect: () => tl.openSpeedDialog() },
-        { label: 'Add Frame Hold', disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video'), onSelect: () => tl.addFrameHoldAtPlayhead() },
+        { label: 'Speed/Duration…', shortcut: '⌘R', disabled: hit.clip.adjustment, onSelect: () => tl.openSpeedDialog() },
+        { label: 'Add Frame Hold', disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video' && !c.adjustment), onSelect: () => tl.addFrameHoldAtPlayhead() },
         { label: 'Apply Cross Dissolve', shortcut: '⌘D', disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video'), onSelect: () => tl.applyCrossDissolve() },
         'separator',
-        { label: 'Set to Frame Size', onSelect: () => tl.run(resetMotion(ids, 'frame-size')) },
-        { label: 'Reset Motion', onSelect: () => tl.run(resetMotion(ids, 'reset')) },
+        ...(hit.clip.adjustment
+          ? []
+          : ([
+              { label: 'Set to Frame Size', onSelect: () => tl.run(resetMotion(ids, 'frame-size')) },
+              { label: 'Reset Motion', onSelect: () => tl.run(resetMotion(ids, 'reset')) }
+            ] as MenuEntry[])),
+        'separator',
+        { label: 'Paste Effects', disabled: !effectsController.clipboard || hit.clip.kind !== 'video', onSelect: () => effectsController.paste(ids.filter((id) => project.sequence.clips.find((c) => c.id === id)?.kind === 'video')) },
+        {
+          label: 'Remove Effects',
+          disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.effects.length > 0),
+          onSelect: () => {
+            for (const clip of project.sequence.clips.filter((c) => ids.includes(c.id) && c.effects.length > 0)) tl.run(removeEffects(clip.id, clip.effects.map((e) => e.id)))
+          }
+        },
         'separator',
         { label: 'Delete', danger: true, onSelect: () => tl.run(deleteClips(ids)) },
         { label: 'Ripple Delete', danger: true, onSelect: () => tl.run(rippleDeleteClips(ids)) }
@@ -365,7 +417,9 @@ export function TimelinePanel() {
       ]
     } else if (hit.kind === 'lane') {
       const gap = tl.gap
+      const lane = hit
       entries = [
+        ...(lane.row.track.kind === 'video' && !lane.row.track.locked ? ([{ label: 'New Adjustment Layer Here', onSelect: () => tl.newAdjustmentLayer(lane.row.track.id, lane.time) }, 'separator'] as MenuEntry[]) : []),
         { label: 'Paste', disabled: tl.clipboard.length === 0, onSelect: () => tl.paste('overwrite') },
         { label: 'Paste Insert', disabled: tl.clipboard.length === 0, onSelect: () => tl.paste('insert') },
         ...(gap ? (['separator', { label: 'Ripple Delete Gap', onSelect: () => tl.run(rippleDeleteGap(gap.trackId, gap.start, gap.end)) }] as MenuEntry[]) : [])
@@ -486,6 +540,9 @@ export function TimelinePanel() {
           <Icon name="zoomFit" fallback="Fit" />
         </button>
         <span className="tool-divider" />
+        <button className="button compact" title="A new adjustment layer at the playhead, above the clips there" onClick={() => tl.newAdjustmentLayer()}>
+          + Adjustment
+        </button>
         <button className="button compact" onClick={() => projectController.dispatch(addTrack('video'))}>
           + Video
         </button>
@@ -505,7 +562,7 @@ export function TimelinePanel() {
             <div className="track-header-divider" style={{ top: RULER_HEIGHT + rows.dividerTop - tl.scrollY }} />
           </div>
         </div>
-        <div className="timeline-area" ref={areaRef} onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => ((tl.preview = null), (tl.snapLine = null), tl.changed())}>
+        <div className="timeline-area" ref={areaRef} onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => ((tl.preview = null), (tl.snapLine = null), (tl.effectDropTarget = null), tl.changed())}>
           <canvas
             ref={canvasRef}
             className="timeline-canvas"

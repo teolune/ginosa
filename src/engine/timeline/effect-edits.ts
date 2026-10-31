@@ -1,6 +1,7 @@
 import type { Draft } from 'immer'
 import { effectById } from '../../effects/registry'
 import { cloneEffect, defaultParams, sanitiseValue } from '../effects/params'
+import { rescaleEffects } from '../effects/presets'
 import type { EffectInstance, ImageSize, ParamValue } from '../effects/types'
 import { CommandError } from '../project/commands'
 import type { MediaItem } from '../project/media'
@@ -126,15 +127,19 @@ export function resetEffect(clipId: string, effectId: string): TimelineCommand {
   })
 }
 
-/** Paste copied effects (or apply a preset) onto clips, below their existing effects. */
-export function pasteEffects(clipIds: string[], effects: EffectInstance[], label = 'Paste Effects', newId: IdFactory = defaultId): TimelineCommand {
+/**
+ * Paste copied effects (or apply a preset) onto clips, below their existing effects.
+ * With `madeOn` (the image size they were made on), positions scale to each clip.
+ */
+export function pasteEffects(clipIds: string[], effects: EffectInstance[], label = 'Paste Effects', newId: IdFactory = defaultId, madeOn: ImageSize | null = null): TimelineCommand {
   return timelineCommand(label, (draft) => {
     if (effects.length === 0) throw new CommandError('There are no effects to paste')
     const clips = [...new Set(clipIds)].map((id) => findClip(draft.sequence, id)).filter((c) => c.kind === 'video')
     if (clips.length === 0) throw new CommandError('Select a video clip or adjustment layer to paste effects onto')
     for (const clip of clips) {
       assertUnlocked(findTrack(draft.sequence, clip.trackId))
-      clip.effects.push(...effects.map((e) => cloneEffect(e, newId())))
+      const fitted = madeOn ? rescaleEffects(effects, madeOn, effectImageSize(clip, draft.media, draft.sequence)) : effects
+      clip.effects.push(...fitted.map((e) => cloneEffect(e, newId())))
     }
   })
 }
