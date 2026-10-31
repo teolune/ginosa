@@ -13,6 +13,7 @@ import type {
   OptimiseRequest,
   ProbeResult
 } from './media-types'
+import type { SymbolSet } from './symbols'
 
 /** Custom URL scheme that streams local media files (read-only, with HTTP range support). */
 export const MEDIA_SCHEME = 'ginosa-media'
@@ -200,6 +201,10 @@ export interface GinosaBridge {
     clear(projectId: string, category: CacheCategory | 'all'): Promise<void>
     reveal(): Promise<void>
     chooseLocation(): Promise<{ root: string; previous: string } | null>
+  }
+  ui: {
+    /** SF Symbols drawn by macOS for the interface icons (see shared/symbols.ts). */
+    symbols(): Promise<SymbolSet>
   }
   snapshot: {
     /** Present only when the app was started with --snapshot (automated UI screenshots). */

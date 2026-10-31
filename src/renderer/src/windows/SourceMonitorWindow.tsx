@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { setMarks } from '@engine/project/media-commands'
 import { frameRateValue, type MediaItem } from '@engine/project/media'
 import { frameToTicks, nearestStandardRate, secondsToTicks, ticksToSeconds } from '@engine/time'
+import { Icon } from '../app/Icon'
 import { getGpu } from '../gpu/shared'
 import { formatMediaTime } from '../media-panel/format'
 import { TestPlayer } from '../media/test-player'
@@ -196,8 +197,13 @@ export function SourceMonitorWindow() {
       <div className="source-bar">
         <span className="mono timecode">{item.kind === 'image' ? 'Still' : timeLabel(item, position)}</span>
         {isVideo && (
-          <button className="button compact" disabled={!playable} onClick={() => (player?.state.playing ? player.stop() : void player?.play())}>
-            {player?.state.playing ? 'Stop' : 'Play'}
+          <button
+            className="button compact icon-only"
+            title={player?.state.playing ? 'Stop (Space)' : 'Play (Space)'}
+            disabled={!playable}
+            onClick={() => (player?.state.playing ? player.stop() : void player?.play())}
+          >
+            <Icon name={player?.state.playing ? 'stop' : 'play'} fallback={player?.state.playing ? 'Stop' : 'Play'} />
           </button>
         )}
         {item.kind !== 'image' && (

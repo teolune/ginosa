@@ -21,6 +21,7 @@
   - Clear a category, or Clean Up a whole project, with a two-click confirm.
   - The cache location can be changed.
   - Deletion is guarded: project-ID and category checks, real-path containment, and symlinks are refused. Originals are opened read-only and never touched.
+- **Icons:** interface icons are SF Symbols, drawn by macOS at runtime and coloured like text: the track-header toggles (eye, speaker, padlock), window buttons, bins, audio and play.
 - **Project format v2:** adds media and bins. v1 projects upgrade automatically.
 - 93 unit and integration tests. The media tests run the real FFmpeg on generated clips.
 

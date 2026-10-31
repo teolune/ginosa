@@ -31,3 +31,9 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | FFmpeg / ffprobe | Conform, optimised copies, ProRes, export muxing, test media | LGPL-2.1+ / GPL-2+ (Homebrew build includes GPL parts) |
 | ffglitch | Codec-level datamosh (M15) | FFmpeg-derived; checked when added |
 | GitHub CLI (gh) | Pushing to the private repo | MIT |
+
+## Provided by macOS
+
+| Asset | Use | Terms |
+| --- | --- | --- |
+| SF Symbols | Interface icons, drawn by macOS at runtime through Electron's `nativeImage.createFromNamedImage`; nothing is bundled or copied into the repo | Apple's SF Symbols terms: only in apps for Apple platforms, and never in app icons, logos or other trademark use. Fine for a personal Mac-only app; the app icon must be our own |

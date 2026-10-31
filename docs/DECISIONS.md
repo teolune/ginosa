@@ -24,6 +24,7 @@
 | 18 | App name: **ginosa** | Approved | 2026-10-30 |
 | 19 | Log footage support (camera conversion + `.cube` LUT per clip) moves into M4 | Proposed | Raised by M0: camera originals are log |
 | 20 | HDR clips (HLG/PQ, e.g. iPhone's normal HDR mode) stay HDR: no automatic SDR copy. They're converted to the Rec.709 sequence live on the GPU, as a per-clip input setting alongside Apple Log (M4), so grading keeps the highlights. Export stays SDR | Approved | 2026-10-31. A full HDR timeline and export was offered and not chosen |
+| 21 | Interface icons are Apple's SF Symbols, drawn by macOS at runtime; text fallback if a symbol is missing | Approved | 2026-10-31, your request |
 
 ## Implementation notes (engineering choices, no approval needed)
 

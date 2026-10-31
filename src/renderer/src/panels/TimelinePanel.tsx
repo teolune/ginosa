@@ -3,6 +3,7 @@ import { addTrack, removeTrack, renameTrack, setTrackFlag } from '@engine/projec
 import { frameRateOf, tracksOfKind, type Track } from '@engine/project/model'
 import { formatTimecode, secondsToTicks } from '@engine/time'
 import { CommitInput } from '../app/CommitInput'
+import { Icon } from '../app/Icon'
 import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 
@@ -36,7 +37,7 @@ function TrackHeader({ track }: { track: Track }) {
           title={track.visible ? 'Hide track output' : 'Show track output'}
           onClick={() => dispatch(setTrackFlag(track.id, 'visible', !track.visible))}
         >
-          {track.visible ? 'Eye' : 'Off'}
+          <Icon name={track.visible ? 'eye' : 'eyeSlash'} fallback={track.visible ? 'Eye' : 'Off'} />
         </button>
       ) : (
         <button
@@ -44,7 +45,7 @@ function TrackHeader({ track }: { track: Track }) {
           title={track.muted ? 'Unmute track' : 'Mute track'}
           onClick={() => dispatch(setTrackFlag(track.id, 'muted', !track.muted))}
         >
-          M
+          <Icon name={track.muted ? 'speakerSlash' : 'speaker'} fallback="M" />
         </button>
       )}
       <button
@@ -52,10 +53,10 @@ function TrackHeader({ track }: { track: Track }) {
         title={track.locked ? 'Unlock track' : 'Lock track'}
         onClick={() => dispatch(setTrackFlag(track.id, 'locked', !track.locked))}
       >
-        L
+        <Icon name={track.locked ? 'lock' : 'lockOpen'} fallback="L" />
       </button>
       <button className="toggle subtle" title={`Delete ${track.name}`} onClick={() => dispatch(removeTrack(track.id))}>
-        ×
+        <Icon name="close" fallback="×" />
       </button>
     </div>
   )

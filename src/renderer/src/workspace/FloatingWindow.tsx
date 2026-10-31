@@ -1,4 +1,5 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Icon } from '../app/Icon'
 import { workspaceController } from '../state/workspace'
 import { resizeRect, snapMove, snapResize, type Rect, type ResizeEdge, type Size } from './layout'
 
@@ -76,17 +77,17 @@ export function FloatingWindow({ id, title, bounds, others, children }: Props) {
         <span className="spacer" />
         {spec.dockable && (
           <button className="window-button" title="Dock to the side" onClick={() => workspaceController.setDocked(id, true)}>
-            ⇥
+            <Icon name="dock" fallback="⇥" />
           </button>
         )}
         <button className="window-button" title="Minimise" onClick={() => workspaceController.minimize(id)}>
-          –
+          <Icon name="minimise" fallback="–" />
         </button>
         <button className="window-button" title={maximized ? 'Restore' : 'Maximise'} onClick={() => workspaceController.toggleMaximize(id)}>
-          {maximized ? '❐' : '□'}
+          <Icon name={maximized ? 'restore' : 'maximise'} fallback={maximized ? '❐' : '□'} />
         </button>
         <button className="window-button close" title="Close" onClick={() => workspaceController.close(id)}>
-          ×
+          <Icon name="close" fallback="×" />
         </button>
       </div>
       <div className="window-content">{children}</div>

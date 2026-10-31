@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Icon } from '../app/Icon'
 import { MediaPanel } from '../media-panel/MediaPanel'
 import { ProgramMonitor } from '../panels/ProgramMonitor'
 import { TimelinePanel } from '../panels/TimelinePanel'
@@ -98,10 +99,10 @@ export function Workspace() {
               ))}
               <span className="spacer" />
               <button className="window-button" title="Float this window" onClick={() => workspaceController.setDocked(dockTab.id, false)}>
-                ⇤
+                <Icon name="undock" fallback="⇤" />
               </button>
               <button className="window-button close" title="Close" onClick={() => workspaceController.close(dockTab.id)}>
-                ×
+                <Icon name="close" fallback="×" />
               </button>
             </header>
             <div className="dock-content">{renderWindow(dockTab.id)}</div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addTrack, renameTrack, setSequenceSettings } from '@engine/project/commands'
+import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
 import type { MenuCommand, MenuState } from '@shared/ipc'
@@ -66,7 +66,8 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'media':
     case 'source':
     case 'cache':
-    case 'waveform': {
+    case 'waveform':
+    case 'icons': {
       const files = await window.ginosa.snapshot.testMedia()
       await mediaController.importPaths(files, null)
       const bin = createBin('Selects', null)
@@ -90,6 +91,18 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         workspaceController.open('source-monitor')
       }
       if (scenario === 'cache') workspaceController.open('cache-manager')
+      if (scenario === 'icons') {
+        // Every icon state at once: hidden, locked and muted tracks, window and dock buttons.
+        const tracks = projectController.project?.sequence.tracks ?? []
+        const [v1, v2] = tracks.filter((t) => t.kind === 'video')
+        const [a1] = tracks.filter((t) => t.kind === 'audio')
+        if (v2) projectController.dispatch(setTrackFlag(v2.id, 'visible', false))
+        if (v1) projectController.dispatch(setTrackFlag(v1.id, 'locked', true))
+        if (a1) projectController.dispatch(setTrackFlag(a1.id, 'muted', true))
+        workspaceController.setDocked('project-settings', true)
+        if (h264) mediaController.openInSource(h264.id)
+        workspaceController.open('source-monitor')
+      }
       const song = (projectController.project?.media ?? []).find((m) => m.kind === 'audio')
       if (scenario === 'waveform' && song) {
         projectController.dispatch(setMarks(song.id, { in: secondsToTicks(4), out: secondsToTicks(12) }))

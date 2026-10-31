@@ -11,6 +11,7 @@ import { AppMenu } from './menu'
 import { normaliseProjectPath, ProjectService, RecentProjects } from './project-service'
 import { JsonFile } from './settings-store'
 import { isSnapshotRun, parseSnapshotArgs, type SnapshotOptions } from './snapshot'
+import { renderSymbols } from './symbols'
 
 app.setName('ginosa')
 
@@ -248,6 +249,8 @@ function registerIpc(): void {
   ipcMain.on('app:closeCancelled', () => {
     quitting = false
   })
+
+  ipcMain.handle('ui:symbols', () => renderSymbols())
 
   // ---- Snapshot mode --------------------------------------------------------
 

@@ -3,6 +3,7 @@ import { addTrack, removeTrack, renameProject, setSequenceSettings } from '@engi
 import { RESOLUTION_PRESETS } from '@engine/project/model'
 import { FRAME_RATES, type FrameRateName } from '@engine/time'
 import { CommitInput } from '../app/CommitInput'
+import { Icon } from '../app/Icon'
 import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 
@@ -100,7 +101,7 @@ export function ProjectSettingsWindow() {
             <span>{track.name}</span>
             <span className="spacer" />
             <button className="icon-button" title={`Delete ${track.name}`} onClick={() => projectController.dispatch(removeTrack(track.id))}>
-              ×
+              <Icon name="close" fallback="×" />
             </button>
           </li>
         ))}

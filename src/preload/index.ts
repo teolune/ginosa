@@ -80,6 +80,9 @@ const bridge: GinosaBridge = {
     reveal: () => ipcRenderer.invoke('cache:reveal'),
     chooseLocation: () => ipcRenderer.invoke('cache:chooseLocation')
   },
+  ui: {
+    symbols: () => ipcRenderer.invoke('ui:symbols')
+  },
   snapshot: {
     scenario: snapshotArg ? snapshotArg.slice('--ginosa-snapshot='.length) : null,
     tempProjectPath: () => ipcRenderer.invoke('snapshot:tempProjectPath'),

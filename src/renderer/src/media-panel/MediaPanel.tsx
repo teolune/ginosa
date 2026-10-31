@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, 
 import { deleteBin, moveToBin, removeMedia, renameBin, renameMedia } from '@engine/project/media-commands'
 import { OPTIMISE_REASON_TEXT, type Bin, type MediaItem } from '@engine/project/media'
 import { CommitInput } from '../app/CommitInput'
+import { Icon } from '../app/Icon'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { mediaController, type MediaRuntime } from '../state/media-controller'
 import { useObservable } from '../state/observable'
@@ -81,7 +82,7 @@ function Thumb({ item, runtime }: { item: MediaItem; runtime: MediaRuntime }) {
   useEffect(() => {
     mediaController.requestThumbnail(item)
   }, [item, runtime.status])
-  if (item.kind === 'audio') return <span className="thumb audio">♪</span>
+  if (item.kind === 'audio') return <span className="thumb audio"><Icon name="musicNote" fallback="♪" /></span>
   return runtime.thumbnailUrl ? <img className="thumb" src={runtime.thumbnailUrl} alt="" draggable={false} /> : <span className="thumb" />
 }
 
@@ -335,9 +336,9 @@ export function MediaPanel() {
                   >
                     <span className="name-cell" style={{ paddingLeft: row.depth * 16 }}>
                       <button className="twisty" onClick={(event) => (event.stopPropagation(), toggle(row.bin.id))}>
-                        {expanded.has(row.bin.id) ? '▾' : '▸'}
+                        <Icon name={expanded.has(row.bin.id) ? 'chevronDown' : 'chevronRight'} fallback={expanded.has(row.bin.id) ? '▾' : '▸'} />
                       </button>
-                      <span className="folder-icon" />
+                      <Icon name="folder" fallback="" className="folder-icon" />
                       {renaming === key ? (
                         <CommitInput
                           className="input compact"
