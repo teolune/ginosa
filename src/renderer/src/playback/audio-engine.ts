@@ -2,7 +2,7 @@ import type { Sequence } from '@engine/project/model'
 import type { MediaItem } from '@engine/project/media'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { audibleTracks, audioSegments, type AudioSegment } from '@engine/timeline/render-plan'
-import { clipEnd } from '@engine/timeline/timeline'
+import { clipEnd, sourceSpan } from '@engine/timeline/timeline'
 import type { WrappedAudioBuffer } from 'mediabunny'
 import { openMedia } from './sources'
 
@@ -35,7 +35,7 @@ class ClipFeeder {
   /** Context time at which this clip's media time `seconds` plays. */
   private ctxTimeFor(mediaSeconds: number): number {
     const clip = this.segment.clip
-    const timeline = clip.start + secondsToTicks(mediaSeconds) - clip.sourceIn
+    const timeline = clip.start + (secondsToTicks(mediaSeconds) - clip.sourceIn) / clip.speed
     return this.engine.ctxTimeOf(timeline)
   }
 
@@ -52,8 +52,8 @@ class ClipFeeder {
         }
         // Start where playback starts (or where the clip starts, if later).
         const from = Math.max(clip.start, this.engine.startTime)
-        const sourceFrom = ticksToSeconds(clip.sourceIn + (from - clip.start))
-        const sourceTo = ticksToSeconds(clip.sourceIn + clip.duration)
+        const sourceFrom = ticksToSeconds(clip.sourceIn + (from - clip.start) * clip.speed)
+        const sourceTo = ticksToSeconds(clip.sourceIn + sourceSpan(clip))
         this.origin = media.origin
         this.iterator = media.audioSink.buffers(media.origin + Math.max(0, sourceFrom - 0.05), media.origin + sourceTo + 0.05)
       }
@@ -68,14 +68,18 @@ class ClipFeeder {
           break
         }
         this.pending = null
+        // At other speeds the sound is played faster or slower, so its pitch changes (varispeed).
+        const speed = clip.speed
         const lo = Math.max(when, clipStartCtx, this.engine.ctx.currentTime)
-        const hi = Math.min(when + buffer.buffer.duration, clipEndCtx)
+        const hi = Math.min(when + buffer.buffer.duration / speed, clipEndCtx)
         if (hi - lo > 0.0005) {
           const source = this.engine.ctx.createBufferSource()
           source.buffer = buffer.buffer
+          source.playbackRate.value = speed
           source.connect(this.gain)
-          source.start(lo, lo - when, hi - lo)
-          this.engine.noteScheduled(lo, buffer.timestamp - this.origin + (lo - when), this.segment)
+          // Offset and duration are in the buffer's own time.
+          source.start(lo, (lo - when) * speed, (hi - lo) * speed)
+          this.engine.noteScheduled(lo, buffer.timestamp - this.origin + (lo - when) * speed, this.segment)
           this.sources.add(source)
           source.onended = () => this.sources.delete(source)
         }

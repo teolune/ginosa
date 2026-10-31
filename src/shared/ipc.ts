@@ -185,6 +185,10 @@ export interface GinosaBridge {
     waveform(request: GenerateRequest): Promise<ArrayBuffer>
     checkFiles(items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>): Promise<Array<{ id: string; status: FileStatus }>>
     chooseRelink(fileName: string): Promise<string | null>
+    /** Input LUTs (.cube): pick one, copy it into the project folder, read it back. */
+    chooseLut(): Promise<string | null>
+    importLut(projectPath: string, source: string): Promise<{ name: string; file: string }>
+    readLut(projectPath: string, file: string): Promise<string>
     searchMoved(folder: string, wanted: Array<{ id: string; fileName: string; size: number }>): Promise<Array<{ id: string; path: string }>>
     reveal(path: string): Promise<void>
     optimise(request: OptimiseRequest): Promise<OptimiseJob>

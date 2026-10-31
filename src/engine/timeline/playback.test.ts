@@ -39,7 +39,7 @@ function media(name: string, kind: MediaItem['kind'], width: number, height: num
           },
     audio: audio && kind !== 'image' ? { codec: 'aac', sampleRate: 48_000, channels: 2, channelLayout: 'stereo' } : null
   }
-  return { id: `m-${name}`, name, kind, path: `/f/${name}`, fingerprint: { size: 1, mtimeMs: 1, sample: name }, info, binId: null, importedAt: '2026-10-31T00:00:00Z', marks: { in: null, out: null } }
+  return { id: `m-${name}`, name, kind, path: `/f/${name}`, fingerprint: { size: 1, mtimeMs: 1, sample: name }, info, binId: null, importedAt: '2026-10-31T00:00:00Z', marks: { in: null, out: null }, colour: { input: 'auto', lut: null } }
 }
 
 const UHD = media('iphone4k', 'video', 3840, 2160)

@@ -34,6 +34,17 @@ export function openMedia(path: string): Promise<OpenedMedia> {
   media = (async () => {
     const input = new Input({ formats: ALL_FORMATS, source: new UrlSource(window.ginosa.mediaUrl(path)) })
     const video = await input.getPrimaryVideoTrack()
+    if (video) {
+      // Ask for the stored Y'CbCr → R'G'B' values only (sRGB transfer = no conversion on import).
+      // Chromium honours this whenever the file leaves its transfer unspecified, as iPhone log
+      // files do; for tagged Rec.709 the compositor undoes Chromium's display transform instead.
+      const tagged = await video.getColorSpace().catch(() => ({}) as VideoColorSpaceInit)
+      const original = video.getDecoderConfig.bind(video)
+      video.getDecoderConfig = async () => {
+        const config = await original()
+        return config && { ...config, colorSpace: { primaries: 'bt709', transfer: 'iec61966-2-1', matrix: tagged.matrix ?? 'bt709', fullRange: tagged.fullRange ?? false } }
+      }
+    }
     const audio = await input.getPrimaryAudioTrack()
     const videoOk = video ? await video.canDecode() : false
     const audioOk = audio ? await audio.canDecode() : false

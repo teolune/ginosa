@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { History } from '../history'
 import { secondsToTicks } from '../time'
 import { CommandError } from './commands'
-import { createBin, deleteBin, importMedia, moveToBin, relinkMedia, removeMedia, setMarks } from './media-commands'
-import { optimiseReasons, type MediaInfo, type MediaItem } from './media'
+import { createBin, deleteBin, importMedia, moveToBin, relinkMedia, removeMedia, setMarks, setMediaColour } from './media-commands'
+import { detectColour, effectiveColour, optimiseReasons, type MediaInfo, type MediaItem } from './media'
 import { PROJECT_SCHEMA_VERSION, createProject } from './model'
 import { parseProject, serializeProject } from './serialize'
 
@@ -42,7 +42,8 @@ function item(name: string, binId: string | null = null): MediaItem {
     info: structuredClone(videoInfo),
     binId,
     importedAt: '2026-10-31T00:00:00.000Z',
-    marks: { in: null, out: null }
+    marks: { in: null, out: null },
+    colour: { input: 'auto', lut: null }
   }
 }
 
@@ -176,5 +177,39 @@ describe('project format v2', () => {
     const data = JSON.parse(serializeProject(history.state))
     data.media[0].binId = 'missing-bin'
     expect(parseProject(data).media[0]?.binId).toBeNull()
+  })
+})
+
+describe('colour interpretation', () => {
+  const tagged = (primaries: string | null, transfer: string | null, matrix: string | null, bitDepth = 10, hdr: 'hlg' | 'pq' | null = null): MediaInfo => {
+    const info = structuredClone(videoInfo)
+    info.video!.colour = { primaries, transfer, matrix, range: 'tv' }
+    info.video!.bitDepth = bitDepth
+    info.video!.hdr = hdr
+    return info
+  }
+
+  it('detects Apple Log, Apple Log 2, HDR and Rec.709 from the tags', () => {
+    expect(detectColour(tagged('bt2020', null, 'bt2020nc'))).toBe('apple-log')
+    expect(detectColour(tagged(null, null, 'bt2020nc'))).toBe('apple-log-2')
+    expect(detectColour(tagged('bt2020', 'arib-std-b67', 'bt2020nc', 10, 'hlg'))).toBe('hlg')
+    expect(detectColour(tagged('bt709', 'bt709', 'bt709', 8))).toBe('rec709')
+    expect(detectColour(tagged(null, null, null, 8))).toBe('rec709')
+    // 8-bit BT.2020 without a transfer isn't log footage from an iPhone.
+    expect(detectColour(tagged('bt2020', null, 'bt2020nc', 8))).toBe('rec709')
+  })
+
+  it('lets you override the detection and set an input LUT, undoably', () => {
+    const history = fresh()
+    const clip = { ...item('Log clip'), info: tagged('bt2020', null, 'bt2020nc') }
+    history.dispatch(importMedia([clip]))
+    expect(effectiveColour(history.state.media[0]!)).toBe('apple-log')
+    history.dispatch(setMediaColour([clip.id], { input: 'apple-log-2' }))
+    expect(effectiveColour(history.state.media[0]!)).toBe('apple-log-2')
+    history.dispatch(setMediaColour([clip.id], { lut: { name: 'AppleLogToRec709', file: 'luts/AppleLogToRec709.cube' } }))
+    expect(history.undoLabel).toBe('Set Input LUT')
+    expect(parseProject(serializeProject(history.state)).media[0]!.colour.lut?.name).toBe('AppleLogToRec709')
+    history.undo()
+    expect(history.state.media[0]!.colour.lut).toBeNull()
   })
 })

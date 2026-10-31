@@ -5,6 +5,8 @@ export interface MenuItem {
   onSelect(): void
   disabled?: boolean
   danger?: boolean
+  /** Shown on the right, e.g. ⌘D. */
+  shortcut?: string
 }
 
 export type MenuEntry = MenuItem | 'separator'
@@ -46,6 +48,7 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
             }}
           >
             {item.label}
+            {item.shortcut && <span className="context-shortcut">{item.shortcut}</span>}
           </button>
         )
       )}

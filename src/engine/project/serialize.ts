@@ -1,6 +1,6 @@
 import { FRAME_RATES } from '../time'
-import type { AudioStreamInfo, Bin, ColourInfo, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track } from './model'
+import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition } from './model'
 import { defaultMotion } from '../timeline/motion'
 
 /**
@@ -87,6 +87,17 @@ function migrate(raw: Json): Json {
           return { ...c, motion, opacity: 100, blendMode: 'normal', volume: 0 }
         })
       }
+    }
+  }
+  if (version < 5) {
+    const media = Array.isArray(data['media']) ? data['media'] : []
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    data = {
+      ...data,
+      schemaVersion: 5,
+      media: media.map((m) => (isObject(m) ? { ...m, colour: { input: 'auto', lut: null } } : m)),
+      sequence: { ...sequence, clips: clips.map((c) => (isObject(c) ? { ...c, speed: 1, reverse: false, transitionIn: null, transitionOut: null } : c)) }
     }
   }
   return data
@@ -182,7 +193,23 @@ function parseMediaItem(value: unknown, index: number): MediaItem {
     info: parseMediaInfo(value['info'], `${where}.info`),
     binId: typeof binId === 'string' ? binId : null,
     importedAt: expectString(value, 'importedAt', where),
-    marks: { in: optionalNumber(marks, 'in'), out: optionalNumber(marks, 'out') }
+    marks: { in: optionalNumber(marks, 'in'), out: optionalNumber(marks, 'out') },
+    colour: parseColourSetting(value['colour'], `${where}.colour`)
+  }
+}
+
+const COLOUR_INPUTS: ColourInput[] = ['auto', 'rec709', 'apple-log', 'apple-log-2']
+
+function parseColourSetting(value: unknown, where: string): MediaColour {
+  // Media parsed during the v3 → v4 upgrade predates colour settings.
+  if (value === undefined) return { input: 'auto', lut: null }
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const input = value['input']
+  if (!COLOUR_INPUTS.includes(input as ColourInput)) throw new ProjectFormatError(`${where}.input is not a colour setting`)
+  const lut = value['lut']
+  return {
+    input: input as ColourInput,
+    lut: isObject(lut) ? { name: expectString(lut, 'name', `${where}.lut`), file: expectString(lut, 'file', `${where}.lut`) } : null
   }
 }
 
@@ -235,6 +262,12 @@ function parseMotion(value: unknown, where: string): Motion {
   }
 }
 
+function parseTransition(value: unknown, where: string): Transition | null {
+  if (value === null || value === undefined) return null
+  if (!isObject(value) || value['kind'] !== 'cross-dissolve') throw new ProjectFormatError(`${where} is not a transition`)
+  return { kind: 'cross-dissolve', duration: expectInteger(value, 'duration', where, 1, MAX_TICKS) }
+}
+
 function parseBlendMode(value: unknown, where: string): BlendMode {
   if (!BLEND_MODES.some((m) => m.id === value)) throw new ProjectFormatError(`${where} is not a blend mode`)
   return value as BlendMode
@@ -259,7 +292,11 @@ function parseClip(value: unknown, index: number): Clip {
     motion: parseMotion(value['motion'], `${where}.motion`),
     opacity: Math.min(100, Math.max(0, expectNumber(value, 'opacity', where))),
     blendMode: parseBlendMode(value['blendMode'], `${where}.blendMode`),
-    volume: expectNumber(value, 'volume', where)
+    volume: expectNumber(value, 'volume', where),
+    speed: Math.max(0, expectNumber(value, 'speed', where)),
+    reverse: expectBoolean(value, 'reverse', where),
+    transitionIn: parseTransition(value['transitionIn'], `${where}.transitionIn`),
+    transitionOut: parseTransition(value['transitionOut'], `${where}.transitionOut`)
   }
 }
 

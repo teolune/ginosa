@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { deleteBin, moveToBin, removeMedia, renameBin, renameMedia } from '@engine/project/media-commands'
-import { OPTIMISE_REASON_TEXT, type Bin, type MediaItem } from '@engine/project/media'
+import { deleteBin, moveToBin, removeMedia, renameBin, renameMedia, setMediaColour } from '@engine/project/media-commands'
+import { COLOUR_LABELS, OPTIMISE_REASON_TEXT, detectColour, type Bin, type ColourInput, type MediaItem } from '@engine/project/media'
 import { CommitInput } from '../app/CommitInput'
 import { Icon } from '../app/Icon'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
@@ -85,6 +85,23 @@ function Thumb({ item, runtime }: { item: MediaItem; runtime: MediaRuntime }) {
   }, [item, runtime.status])
   if (item.kind === 'audio') return <span className="thumb audio"><Icon name="musicNote" fallback="♪" /></span>
   return runtime.thumbnailUrl ? <img className="thumb" src={runtime.thumbnailUrl} alt="" draggable={false} /> : <span className="thumb" />
+}
+
+/** Interpret Footage › Colour, for the clicked item and any other selected items. */
+function colourEntries(item: MediaItem, selectedIds: string[]): MenuEntry[] {
+  const ids = selectedIds.includes(item.id) ? selectedIds : [item.id]
+  const tick = (on: boolean, label: string) => `${on ? '✓ ' : '\u2003'}${label}`
+  const set = (input: ColourInput) => projectController.dispatch(setMediaColour(ids, { input }))
+  const detected = COLOUR_LABELS[detectColour(item.info)]
+  return [
+    'separator',
+    { label: tick(item.colour.input === 'auto', `Colour: Auto (${detected})`), onSelect: () => set('auto') },
+    { label: tick(item.colour.input === 'rec709', 'Colour: Rec.709'), onSelect: () => set('rec709') },
+    { label: tick(item.colour.input === 'apple-log', 'Colour: Apple Log'), onSelect: () => set('apple-log') },
+    { label: tick(item.colour.input === 'apple-log-2', 'Colour: Apple Log 2'), onSelect: () => set('apple-log-2') },
+    { label: item.colour.lut ? `Input LUT: ${item.colour.lut.name}… (change)` : 'Input LUT…', onSelect: () => void mediaController.chooseInputLut(ids) },
+    ...(item.colour.lut ? [{ label: 'Remove Input LUT', onSelect: () => projectController.dispatch(setMediaColour(ids, { lut: null })) }] : [])
+  ]
 }
 
 /** The project's media library, Premiere-style: bins, columns, drag to organise, Finder drops to import. */
@@ -255,6 +272,7 @@ export function MediaPanel() {
           ? [{ label: 'Cancel Optimised Copy', onSelect: () => void window.ginosa.media.cancelJob(runtime.job!.id) }]
           : []),
         { label: 'Locate File…', onSelect: () => void mediaController.relink(item.id) },
+        ...(item.kind === 'video' ? colourEntries(item, selected.filter((id) => !id.startsWith('bin:'))) : []),
         'separator',
         { label: selected.length > 1 ? `Remove ${selected.length} Items from Project` : 'Remove from Project', danger: true, onSelect: removeSelected }
       ]

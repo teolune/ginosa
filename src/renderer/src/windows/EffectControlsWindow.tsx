@@ -2,6 +2,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
 import { defaultMotion } from '@engine/timeline/motion'
+import { COLOUR_LABELS, effectiveColour } from '@engine/project/media'
 import { Icon } from '../app/Icon'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -148,6 +149,17 @@ export function EffectControlsWindow() {
         <span className="fx-clip-name">{video?.name ?? audio?.name}</span>
         {selected.length > 2 && <span className="muted small">and {selected.length - 1} more selected; showing one</span>}
       </div>
+      {video && item && item.kind === 'video' && (
+        <div className="fx-source-colour muted small">
+          Source colour: <strong>{item.colour.lut ? `Input LUT ${item.colour.lut.name}` : COLOUR_LABELS[effectiveColour(item)]}</strong>
+          {item.colour.input === 'auto' && !item.colour.lut ? ' (detected)' : ''} · right-click the file in Media to change
+        </div>
+      )}
+      {video && (video.speed !== 1 || video.reverse) && (
+        <div className="fx-source-colour muted small">
+          Speed: <strong>{video.speed === 0 ? 'Frame Hold' : `${video.reverse ? '-' : ''}${Math.round(video.speed * 1000) / 10}%`}</strong> · ⌘R to change
+        </div>
+      )}
       {video && fresh && (
         <>
           <Section title="Motion" onReset={locked(video) ? undefined : () => projectController.dispatch(resetMotion([video.id], 'reset'))}>

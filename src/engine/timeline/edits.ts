@@ -12,6 +12,10 @@ import {
   clearRange,
   clipEnd,
   clipsOnTrack,
+  cloneClip,
+  cutHead,
+  cutTail,
+  handles,
   emptyAfter,
   emptyBefore,
   findClip,
@@ -22,6 +26,8 @@ import {
   mediaLength,
   offsetTrack,
   removeSpace,
+  sourceSpan,
+  sourceTimeAt,
   splitClip,
   syncTracks,
   toFrame
@@ -108,7 +114,11 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
       motion: defaultMotion(item, sequence.settings),
       opacity: 100,
       blendMode: 'normal' as const,
-      volume: 0
+      volume: 0,
+      speed: 1,
+      reverse: false,
+      transitionIn: null,
+      transitionOut: null
     }
   })
 }
@@ -170,7 +180,7 @@ export function applyMove(sequence: Sequence, request: MoveRequest, ctx: EditCon
       linkId = linkMap.get(linkId) ?? ctx.newId()
       linkMap.set(clip.linkId!, linkId)
     }
-    moved.push({ ...clip, motion: { ...clip.motion }, id: request.copy ? ctx.newId() : clip.id, trackId: to.id, start, linkId })
+    moved.push({ ...cloneClip(clip), id: request.copy ? ctx.newId() : clip.id, trackId: to.id, start, linkId })
   }
   if (!request.copy) {
     const ids = new Set(request.clipIds)
@@ -215,11 +225,12 @@ function ownLimits(sequence: Sequence, media: MediaItem[], clip: Clip, edge: Edg
   const frame = frameTicks(sequence)
   const item = mediaFor(media, clip)
   const length = item ? mediaLength(item) : null
+  const spare = handles(clip, length)
   if (edge === 'in') {
     // delta moves the in point: + shortens, - lengthens.
-    return { lo: -clip.sourceIn, hi: clip.duration - frame }
+    return { lo: -spare.head, hi: clip.duration - frame }
   }
-  return { lo: frame - clip.duration, hi: length === null ? Number.MAX_SAFE_INTEGER : length - clip.sourceIn - clip.duration }
+  return { lo: frame - clip.duration, hi: spare.tail }
 }
 
 function intersect(a: Range, b: Range): Range {
@@ -246,13 +257,8 @@ export function limitTrim(sequence: Sequence, media: MediaItem[], clipIds: strin
 }
 
 function trimEdge(clip: Clip, edge: Edge, delta: Ticks): void {
-  if (edge === 'in') {
-    clip.start += delta
-    clip.sourceIn += delta
-    clip.duration -= delta
-  } else {
-    clip.duration += delta
-  }
+  if (edge === 'in') cutHead(clip, delta)
+  else cutTail(clip, -delta)
 }
 
 export interface TrimRequest {
@@ -312,9 +318,10 @@ export function applyRippleTrim(sequence: Sequence, media: MediaItem[], request:
   }
   for (const clip of clips) {
     if (request.edge === 'in') {
-      clip.sourceIn += delta
-      clip.duration -= delta
-    } else clip.duration += delta
+      // The clip keeps its place; its content slides.
+      cutHead(clip, delta)
+      clip.start -= delta
+    } else cutTail(clip, -delta)
   }
   const others = syncTracks(sequence, edited)
   if (change > 0) insertSpace(sequence, others, point, change, ctx, new Set(edited))
@@ -518,6 +525,10 @@ export interface ClipboardClip {
   opacity: number
   blendMode: Clip['blendMode']
   volume: number
+  speed: number
+  reverse: boolean
+  transitionIn: Clip['transitionIn']
+  transitionOut: Clip['transitionOut']
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -536,7 +547,11 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     motion: { ...c.motion },
     opacity: c.opacity,
     blendMode: c.blendMode,
-    volume: c.volume
+    volume: c.volume,
+    speed: c.speed,
+    reverse: c.reverse,
+    transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
+    transitionOut: c.transitionOut ? { ...c.transitionOut } : null
   }))
 }
 
@@ -565,7 +580,11 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       motion: { ...c.motion },
       opacity: c.opacity,
       blendMode: c.blendMode,
-      volume: c.volume
+      volume: c.volume,
+      speed: c.speed,
+      reverse: c.reverse,
+      transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
+      transitionOut: c.transitionOut ? { ...c.transitionOut } : null
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]
@@ -687,5 +706,185 @@ export function resetMotion(clipIds: string[], mode: 'frame-size' | 'reset'): Ti
       if (mode === 'frame-size') clip.motion.scale = fresh.scale
       else clip.motion = fresh
     }
+  })
+}
+
+// ---- Transitions ----------------------------------------------------------------------
+
+export type TransitionEnd = 'in' | 'out'
+
+/** Premiere's default transition length. */
+export const DEFAULT_TRANSITION_SECONDS = 1
+
+function videoClipForTransition(sequence: Sequence, id: string): Clip {
+  const clip = findClip(sequence, id)
+  if (clip.kind !== 'video') throw new CommandError('Cross-dissolves go on video clips (audio crossfades are planned)')
+  assertUnlocked(findTrack(sequence, clip.trackId))
+  return clip
+}
+
+/**
+ * Cmd+D with clips selected: a cross-dissolve at both ends of each clip. A cut shared
+ * with a neighbour becomes one dissolve between them; a free end fades.
+ */
+export function addCrossDissolves(clipIds: string[], duration: Ticks): TimelineCommand {
+  return timelineCommand(clipIds.length === 1 ? 'Add Cross Dissolve' : 'Add Cross Dissolves', (draft) => {
+    const sequence = draft.sequence
+    const length = Math.max(frameTicks(sequence), toFrame(duration, frameTicks(sequence)))
+    const ids = clipIds.filter((id) => findClip(sequence, id).kind === 'video')
+    if (ids.length === 0) throw new CommandError('Select a video clip to add a cross-dissolve')
+    for (const id of ids) {
+      const clip = videoClipForTransition(sequence, id)
+      clip.transitionIn = { kind: 'cross-dissolve', duration: length }
+      const next = clipsOnTrack(sequence, clip.trackId).find((c) => c.start === clipEnd(clip))
+      if (next && !findTrack(sequence, next.trackId).locked) {
+        next.transitionIn = { kind: 'cross-dissolve', duration: length }
+        clip.transitionOut = null
+      } else clip.transitionOut = { kind: 'cross-dissolve', duration: length }
+    }
+  })
+}
+
+/** Cmd+D on a cut: a cross-dissolve where a clip starts (or a fade where one ends). */
+export function addCrossDissolveAt(trackId: string, at: Ticks, duration: Ticks): TimelineCommand {
+  return timelineCommand('Add Cross Dissolve', (draft) => {
+    const sequence = draft.sequence
+    const length = Math.max(frameTicks(sequence), toFrame(duration, frameTicks(sequence)))
+    const clips = clipsOnTrack(sequence, trackId)
+    const starting = clips.find((c) => c.start === at)
+    const ending = clips.find((c) => clipEnd(c) === at)
+    if (starting) videoClipForTransition(sequence, starting.id).transitionIn = { kind: 'cross-dissolve', duration: length }
+    else if (ending) videoClipForTransition(sequence, ending.id).transitionOut = { kind: 'cross-dissolve', duration: length }
+    else throw new CommandError('There’s no cut there')
+  })
+}
+
+export function removeTransition(clipId: string, end: TransitionEnd): TimelineCommand {
+  return timelineCommand('Delete Transition', (draft) => {
+    const clip = videoClipForTransition(draft.sequence, clipId)
+    if (end === 'in') clip.transitionIn = null
+    else clip.transitionOut = null
+  })
+}
+
+export function setTransitionDuration(clipId: string, end: TransitionEnd, duration: Ticks): TimelineCommand {
+  const command = timelineCommand('Change Transition Duration', (draft) => {
+    const clip = videoClipForTransition(draft.sequence, clipId)
+    const transition = end === 'in' ? clip.transitionIn : clip.transitionOut
+    if (!transition) throw new CommandError('That transition no longer exists')
+    transition.duration = Math.max(frameTicks(draft.sequence), toFrame(duration, frameTicks(draft.sequence)))
+  })
+  command.coalesceKey = `transition:${clipId}:${end}`
+  return command
+}
+
+// ---- Speed, reverse and frame hold -----------------------------------------------------
+
+export interface SpeedRequest {
+  clipIds: string[]
+  /** 1 = 100%. */
+  speed: number
+  reverse: boolean
+  /** Shift later clips (and sync-locked tracks) to follow the new length, as Premiere's "Ripple Edit, Shifting Trailing Clips". */
+  ripple: boolean
+}
+
+export const MIN_SPEED = 0.01
+export const MAX_SPEED = 100
+
+/**
+ * Premiere's Speed/Duration: the clip keeps the same media and its length changes to
+ * match (200% = half as long). Without ripple, a clip can't grow into the next one, so
+ * it stops at it. Linked picture and sound change together.
+ */
+export function setClipSpeed(request: SpeedRequest, media: MediaItem[], newId: IdFactory = defaultId): TimelineCommand {
+  return timelineCommand('Speed/Duration', (draft, command) => {
+    const sequence = draft.sequence
+    const frame = frameTicks(sequence)
+    if (!(request.speed >= MIN_SPEED && request.speed <= MAX_SPEED)) throw new CommandError(`Speed must be between ${MIN_SPEED * 100}% and ${MAX_SPEED * 100}%`)
+    const clips = [...new Set(request.clipIds)].map((id) => findClip(sequence, id))
+    if (clips.length === 0) throw new CommandError('Select a clip to change its speed')
+    for (const clip of clips) assertUnlocked(findTrack(sequence, clip.trackId))
+    const ctx = new EditContext(newId)
+    const selectedTracks = new Set(clips.map((c) => c.trackId))
+    // Linked picture and sound with the same timing are one edit.
+    const groups = new Map<string, Clip[]>()
+    for (const clip of clips) {
+      const key = clip.linkId ? `${clip.linkId}:${clip.start}:${clip.duration}` : clip.id
+      groups.set(key, [...(groups.get(key) ?? []), clip])
+    }
+    // Latest first, so rippling one doesn't move a clip we haven't handled yet.
+    for (const group of [...groups.values()].sort((a, b) => b[0]!.start - a[0]!.start)) {
+      const first = group[0]!
+      let span = first.speed === 0 ? first.duration : sourceSpan(first)
+      if (first.speed === 0) {
+        // A hold has no length in its media; give it what's left after the held frame.
+        const item = mediaFor(media, first)
+        const length = item ? mediaLength(item) : null
+        if (length !== null) span = Math.max(frame, Math.min(span, length - first.sourceIn))
+      }
+      const wanted = Math.max(frame, toFrame(span / request.speed, frame, 'floor'))
+      const end = clipEnd(first)
+      let change = wanted - first.duration
+      if (change > 0 && !request.ripple) {
+        for (const clip of group) {
+          const next = clipsOnTrack(sequence, clip.trackId).find((c) => c.id !== clip.id && c.start >= end)
+          if (next) change = Math.min(change, next.start - end)
+        }
+      }
+      for (const clip of group) {
+        if (request.ripple && change !== 0) {
+          for (const other of clipsOnTrack(sequence, clip.trackId)) if (other.id !== clip.id && other.start >= end) other.start += change
+        }
+        clip.speed = request.speed
+        clip.reverse = request.reverse
+        clip.duration += change
+      }
+      if (request.ripple && change !== 0) {
+        const others = syncTracks(sequence, selectedTracks)
+        if (change > 0) insertSpace(sequence, others, end, change, ctx)
+        else removeSpace(sequence, others, end + change, end)
+      }
+    }
+    noteSplits(command, sequence, ctx)
+    const notes: string[] = []
+    if (command.notice) notes.push(command.notice)
+    if (clips.some((c) => c.kind === 'audio')) {
+      if (request.reverse) notes.push('Reversed sound is silent for now; reversed audio playback is planned.')
+      else if (request.speed !== 1) notes.push('Sound at this speed changes pitch, like tape; Maintain Audio Pitch is planned.')
+    }
+    command.notice = notes.length > 0 ? notes.join(' ') : undefined
+  })
+}
+
+/**
+ * Add Frame Hold: from `at` to the clip's end, the picture holds the frame at `at`. The
+ * clip (and its linked sound, which keeps playing) is split there, like a razor cut.
+ */
+export function addFrameHold(clipIds: string[], at: Ticks, newId: IdFactory = defaultId): TimelineCommand {
+  return timelineCommand('Add Frame Hold', (draft) => {
+    const sequence = draft.sequence
+    const time = toFrame(at, frameTicks(sequence))
+    const ctx = new EditContext(newId)
+    let count = 0
+    for (const id of new Set(clipIds)) {
+      const clip = findClip(sequence, id)
+      if (clip.kind !== 'video' || clip.start > time || clipEnd(clip) <= time) continue
+      assertUnlocked(findTrack(sequence, clip.trackId))
+      const held = sourceTimeAt(clip, time, frameTicks(sequence))
+      let target = clip
+      if (clip.start < time) {
+        const partners = clip.linkId
+          ? sequence.clips.filter((c) => c.id !== clip.id && c.linkId === clip.linkId && c.start < time && clipEnd(c) > time && !findTrack(sequence, c.trackId).locked)
+          : []
+        target = splitClip(sequence, clip, time, ctx)
+        for (const partner of partners) splitClip(sequence, partner, time, ctx)
+      }
+      target.sourceIn = held
+      target.speed = 0
+      target.reverse = false
+      count++
+    }
+    if (count === 0) throw new CommandError('Put the playhead over a selected video clip to hold its frame')
   })
 }

@@ -74,7 +74,8 @@ function media(name: string, kind: MediaItem['kind'], seconds: number): MediaIte
     info,
     binId: null,
     importedAt: '2026-10-31T00:00:00.000Z',
-    marks: { in: null, out: null }
+    marks: { in: null, out: null },
+    colour: { input: 'auto', lut: null }
   }
 }
 

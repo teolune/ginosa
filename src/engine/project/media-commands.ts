@@ -1,7 +1,7 @@
 import type { Draft } from 'immer'
 import type { Ticks } from '../time'
 import { CommandError, type Command } from './commands'
-import { binAncestors, binDescendants, type Bin, type MediaFingerprint, type MediaInfo, type MediaItem } from './media'
+import { binAncestors, binDescendants, type Bin, type MediaColour, type MediaFingerprint, type MediaInfo, type MediaItem } from './media'
 import { defaultId, type IdFactory, type Project } from './model'
 
 /** Undoable media-library edits. Removing media from a project never touches the files on disk. */
@@ -115,6 +115,21 @@ export function removeMedia(ids: string[]): Command {
     }
   }
   return command
+}
+
+/** Interpret Footage › Colour: how a file's colour is read, and its input LUT. */
+export function setMediaColour(ids: string[], changes: Partial<MediaColour>): Command {
+  const label = changes.lut !== undefined ? (changes.lut ? 'Set Input LUT' : 'Remove Input LUT') : 'Interpret Colour'
+  return {
+    label,
+    apply(draft) {
+      for (const id of ids) {
+        const item = findItem(draft, id)
+        if (changes.input !== undefined) item.colour.input = changes.input
+        if (changes.lut !== undefined) item.colour.lut = changes.lut ? { ...changes.lut } : null
+      }
+    }
+  }
 }
 
 /** Points a media item at a moved or replaced file. */

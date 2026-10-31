@@ -1,6 +1,7 @@
 import type { MediaItem } from '@engine/project/media'
 import type { Clip, Marker, Sequence } from '@engine/project/model'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
+import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
 import { clipEnd } from '@engine/timeline/timeline'
 import type { MediaRuntime } from '../state/media-controller'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
@@ -17,6 +18,7 @@ export interface Scene {
   fps: number
   playhead: Ticks
   selection: Set<string>
+  transition: { clipId: string; end: 'in' | 'out' } | null
   gap: GapSelection | null
   snapLine: Ticks | null
   razorLine: { time: Ticks; trackId: string | null } | null
@@ -49,7 +51,18 @@ const COLOURS = {
   snap: '#f0c040',
   razor: '#ff6b5b',
   gap: 'rgba(91,140,255,0.18)',
-  locked: 'rgba(255,255,255,0.03)'
+  locked: 'rgba(255,255,255,0.03)',
+  transition: 'rgba(214,220,235,0.82)',
+  transitionSelected: '#ffffff',
+  transitionText: '#1b1d22'
+}
+
+/** Premiere's speed badge: [200%], reversed as [-100%], or a frame hold. */
+export function speedBadge(clip: Clip): string {
+  if (clip.speed === 0) return ' [Hold]'
+  if (clip.speed === 1 && !clip.reverse) return ''
+  const percent = Math.round(clip.speed * 1000) / 10
+  return ` [${clip.reverse ? '-' : ''}${percent}%]`
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -128,9 +141,9 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x
   const right = Math.min(x + w, scene.width)
   const buckets = wave.peaks.length / 2
   for (let px = Math.floor(left); px < right; px++) {
-    // Timeline time at this column and the next, mapped into the media.
-    const t0 = ticksToSeconds(clip.sourceIn) + (px - x) / view.pps
-    const t1 = t0 + 1 / view.pps
+    // Timeline time at this column and the next, mapped into the media (at the clip's speed).
+    const t0 = ticksToSeconds(clip.sourceIn) + ((px - x) / view.pps) * clip.speed
+    const t1 = t0 + clip.speed / view.pps
     let b0 = Math.floor(t0 * wave.bucketsPerSecond)
     const b1 = Math.max(b0 + 1, Math.floor(t1 * wave.bucketsPerSecond))
     if (b0 >= buckets) break
@@ -175,20 +188,82 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
       ctx.globalAlpha = 1
     }
   }
-  if (clip.kind === 'audio') drawWaveform(ctx, scene, clip, x, y + 12, w, h - 12)
+  // Reversed and held sound is silent for now, so it gets no waveform.
+  if (clip.kind === 'audio' && clip.speed > 0 && !clip.reverse) drawWaveform(ctx, scene, clip, x, y + 12, w, h - 12)
 
   if (w > 24) {
     ctx.fillStyle = COLOURS.clipText
     ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, sans-serif'
     ctx.textBaseline = 'top'
-    const label = offline ? `${clip.name} (offline)` : clip.name
-    ctx.fillText(label, Math.max(x, 0) + 5, y + 2)
+    const silent = clip.kind === 'audio' && (clip.reverse || clip.speed === 0) ? ' (silent)' : ''
+    // The speed badge sits at the right of the label strip so it stays visible on short clips.
+    const badge = offline ? '' : (speedBadge(clip) + silent).trim()
+    const left = Math.max(x, 0) + 5
+    const right = Math.min(x + w, scene.width) - 5
+    let badgeWidth = 0
+    if (badge) {
+      badgeWidth = ctx.measureText(badge).width + 6
+      if (right - left > badgeWidth + 4) {
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'
+        ctx.fillRect(right - badgeWidth, y + 1, badgeWidth + 3, 13)
+        ctx.fillStyle = '#ffd38a'
+        ctx.textAlign = 'right'
+        ctx.fillText(badge, right, y + 2)
+        ctx.textAlign = 'left'
+        ctx.fillStyle = COLOURS.clipText
+      } else badgeWidth = 0
+    }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(left - 5, y, Math.max(0, right - badgeWidth - left), 14)
+    ctx.clip()
+    ctx.fillText(offline ? `${clip.name} (offline)` : clip.name, left, y + 2)
+    ctx.restore()
   }
   ctx.restore()
 
   ctx.strokeStyle = selected ? '#ffffff' : 'rgba(0,0,0,0.35)'
   ctx.lineWidth = selected ? 1.5 : 1
   roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
+  ctx.stroke()
+}
+
+function drawTransition(ctx: CanvasRenderingContext2D, scene: Scene, span: TransitionSpan, top: number, height: number): void {
+  const x0 = timeToX(span.from, scene.view)
+  const x1 = Math.max(x0 + 6, timeToX(span.to, scene.view))
+  if (x1 < 0 || x0 > scene.width) return
+  const y = top + 3
+  const h = Math.max(8, height / 2 - 4)
+  const selected = scene.transition?.clipId === span.clip.id && scene.transition.end === span.end
+  ctx.save()
+  roundRect(ctx, x0 + 0.5, y + 0.5, x1 - x0 - 1, h, 2)
+  ctx.fillStyle = selected ? COLOURS.transitionSelected : COLOURS.transition
+  ctx.fill()
+  ctx.clip()
+  // A dissolve draws as a cross; a fade as one diagonal (up for in, down for out).
+  ctx.strokeStyle = 'rgba(27,29,34,0.45)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  if (span.between || span.end === 'in') {
+    ctx.moveTo(x0, y + h)
+    ctx.lineTo(x1, y)
+  }
+  if (span.between || span.end === 'out') {
+    ctx.moveTo(x0, y)
+    ctx.lineTo(x1, y + h)
+  }
+  ctx.stroke()
+  if (x1 - x0 > 90 && h >= 12) {
+    ctx.fillStyle = COLOURS.transitionText
+    ctx.font = '600 10px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    ctx.fillText('Cross Dissolve', (Math.max(x0, 0) + Math.min(x1, scene.width)) / 2, y + h / 2)
+  }
+  ctx.restore()
+  ctx.strokeStyle = selected ? '#5b8cff' : 'rgba(0,0,0,0.5)'
+  ctx.lineWidth = selected ? 1.5 : 1
+  roundRect(ctx, x0 + 0.5, y + 0.5, x1 - x0 - 1, h, 2)
   ctx.stroke()
 }
 
@@ -245,6 +320,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, scene: Scene): void 
     const dim = (row.track.kind === 'video' && !row.track.visible) || (row.track.kind === 'audio' && row.track.muted)
     ctx.globalAlpha = dim ? 0.45 : 1
     for (const clip of scene.sequence.clips) if (clip.trackId === row.track.id) drawClip(ctx, scene, clip, row.top, row.height)
+    if (row.track.kind === 'video') for (const span of transitionSpans(scene.sequence, row.track.id)) drawTransition(ctx, scene, span, row.top, row.height)
     ctx.globalAlpha = 1
   }
 

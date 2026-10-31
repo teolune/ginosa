@@ -11,6 +11,7 @@ import {
   moveMarker,
   rippleTrimClips,
   rollEdit,
+  setTransitionDuration,
   splitAllTracks,
   splitClips,
   trimClips,
@@ -18,6 +19,7 @@ import {
   type EditMode,
   type MoveRequest
 } from '@engine/timeline/edits'
+import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
 import { snapDelta, snapTargets, snapTime } from '@engine/timeline/snapping'
 import { EditContext, clipEnd, findTrack, gapAt, trackIndex, toFrame } from '@engine/timeline/timeline'
 import { mediaController } from '../state/media-controller'
@@ -30,6 +32,8 @@ export type Hit =
   | { kind: 'ruler'; time: Ticks; marker: Marker | null }
   | { kind: 'clip'; clip: Clip; row: Row; edge: Edge | null; time: Ticks }
   | { kind: 'lane'; row: Row; time: Ticks }
+  /** A transition box (the top half of a video lane); `side` is set on an edge that resizes it. */
+  | { kind: 'transition'; span: TransitionSpan; row: Row; side: 'left' | 'right' | null; time: Ticks }
   | { kind: 'none'; time: Ticks }
 
 type TrimMode = 'trim' | 'ripple' | 'roll'
@@ -41,6 +45,7 @@ type Drag =
   | { type: 'marquee'; x0: number; y0: number; additive: boolean; base: Set<string> }
   | { type: 'playhead' }
   | { type: 'marker'; marker: Marker; x0: number; time: Ticks; moved: boolean }
+  | { type: 'transition'; span: TransitionSpan; side: 'left' | 'right'; x0: number; duration: Ticks; moved: boolean }
 
 const DRAG_THRESHOLD = 3
 
@@ -76,6 +81,18 @@ export function hitTest(x: number, y: number, edgeZone = EDGE_GRAB): Hit {
   const rows = layoutRows(sequence)
   const row = rowAt(rows, y - RULER_HEIGHT + tl.scrollY)
   if (!row) return { kind: 'none', time }
+  if (row.track.kind === 'video' && y - RULER_HEIGHT + tl.scrollY - row.top < row.height / 2) {
+    for (const span of transitionSpans(sequence, row.track.id)) {
+      const left = timeToX(span.from, tl.view)
+      const right = Math.max(left + 6, timeToX(span.to, tl.view))
+      if (x < left - 2 || x > right + 2) continue
+      // A dissolve resizes from either edge; a fade only from its inner edge.
+      let side: 'left' | 'right' | null = null
+      if (Math.abs(x - left) <= 4 && (span.between || span.end === 'out')) side = 'left'
+      else if (Math.abs(x - right) <= 4 && (span.between || span.end === 'in')) side = 'right'
+      return { kind: 'transition', span, row, side, time }
+    }
+  }
   const clips = sequence.clips.filter((c) => c.trackId === row.track.id)
   let best: { clip: Clip; edge: Edge | null; distance: number } | null = null
   for (const clip of clips) {
@@ -110,9 +127,10 @@ export class TimelineInteraction {
 
   cursor(x: number, y: number, event: { shiftKey: boolean; altKey: boolean; metaKey: boolean }): string {
     if (this.drag?.type === 'move') return event.altKey ? 'copy' : 'grabbing'
-    if (this.drag?.type === 'trim' || this.drag?.type === 'marker') return 'ew-resize'
+    if (this.drag?.type === 'trim' || this.drag?.type === 'marker' || this.drag?.type === 'transition') return 'ew-resize'
     const hit = hitTest(x, y, this.edgeZone())
     if (hit.kind === 'ruler') return hit.marker ? 'ew-resize' : 'pointer'
+    if (hit.kind === 'transition' && tl.tool === 'select') return hit.side ? 'ew-resize' : 'pointer'
     if (tl.tool === 'razor') return hit.kind === 'clip' || event.shiftKey ? 'crosshair' : 'default'
     if (tl.tool === 'forward') return 'e-resize'
     if (tl.tool === 'backward') return 'w-resize'
@@ -187,6 +205,14 @@ export class TimelineInteraction {
       return
     }
     if (hit.kind === 'none') return
+    if (hit.kind === 'transition' && tl.tool === 'select') {
+      if (this.locked(hit.span.clip)) return
+      tl.selectTransition({ clipId: hit.span.clip.id, end: hit.span.end })
+      const transition = hit.span.end === 'in' ? hit.span.clip.transitionIn : hit.span.clip.transitionOut
+      if (hit.side && transition) this.drag = { type: 'transition', span: hit.span, side: hit.side, x0: x, duration: transition.duration, moved: false }
+      return
+    }
+    if (hit.kind === 'transition') return
 
     const additive = event.shiftKey || event.metaKey
     switch (tl.tool) {
@@ -309,6 +335,21 @@ export class TimelineInteraction {
         tl.changed()
         return
       }
+      case 'transition': {
+        if (!drag.moved && Math.abs(x - drag.x0) < DRAG_THRESHOLD) return
+        drag.moved = true
+        const { clip, end, between } = drag.span
+        const time = xToTime(x, tl.view)
+        const length = between ? 2 * Math.abs(time - clip.start) : end === 'in' ? time - clip.start : clipEnd(clip) - time
+        drag.duration = Math.max(tl.frame(), toFrame(length, tl.frame()))
+        tl.preview = produce(sequence, (d) => {
+          const target = d.clips.find((c) => c.id === clip.id)
+          const transition = end === 'in' ? target?.transitionIn : target?.transitionOut
+          if (transition) transition.duration = drag.duration
+        })
+        tl.changed()
+        return
+      }
       case 'trim': {
         if (!drag.moved && Math.abs(x - drag.x0) < DRAG_THRESHOLD) return
         drag.moved = true
@@ -349,6 +390,9 @@ export class TimelineInteraction {
       return
     }
     switch (drag.type) {
+      case 'transition':
+        if (drag.moved) tl.run(setTransitionDuration(drag.span.clip.id, drag.span.end, drag.duration))
+        break
       case 'marker':
         if (drag.moved) tl.run(moveMarker(drag.marker.id, drag.time))
         else tl.setPlayhead(drag.marker.time, false)

@@ -3,7 +3,12 @@ import type { Clip, Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
 import { formatTimecode, secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import {
+  DEFAULT_TRANSITION_SECONDS,
+  addCrossDissolveAt,
+  addCrossDissolves,
+  addFrameHold,
   addMarker,
+  removeTransition,
   copyClips,
   deleteClips,
   linkClips,
@@ -16,7 +21,8 @@ import {
   splitClips,
   unlinkClips,
   type ClipboardClip,
-  type EditMode
+  type EditMode,
+  type TransitionEnd
 } from '@engine/timeline/edits'
 import { clipEnd, editPoints, findTrack, frameTicks, sequenceEnd, toFrame, topVideoClipAt, withLinked } from '@engine/timeline/timeline'
 import { mediaController } from '../state/media-controller'
@@ -64,6 +70,10 @@ class TimelineController extends Observable {
   snapping = true
   playhead: Ticks = 0
   selection = new Set<string>()
+  /** A selected transition (clicking one selects it; Delete removes it). */
+  transition: { clipId: string; end: TransitionEnd } | null = null
+  /** Clips the Speed/Duration dialog is open for. */
+  speedDialog: string[] | null = null
   gap: GapSelection | null = null
   view: View = { pps: 40, scroll: 0 }
   scrollY = 0
@@ -145,6 +155,11 @@ class TimelineController extends Observable {
   }
 
   deleteSelection(ripple: boolean): void {
+    if (this.transition) {
+      if (this.run(removeTransition(this.transition.clipId, this.transition.end))) this.transition = null
+      this.notify()
+      return
+    }
     if (this.gap && this.selection.size === 0) {
       if (this.run(rippleDeleteGap(this.gap.trackId, this.gap.start, this.gap.end))) this.gap = null
       this.notify()
@@ -263,7 +278,68 @@ class TimelineController extends Observable {
 
   // ---- Selection -----------------------------------------------------------------
 
+  selectTransition(transition: { clipId: string; end: TransitionEnd } | null): void {
+    this.selection.clear()
+    this.gap = null
+    this.transition = transition
+    this.notify()
+  }
+
+  /**
+   * Cmd+D, Premiere's Apply Video Transition: a cross-dissolve on both ends of each
+   * selected video clip, or, with nothing selected, at the edit nearest the playhead.
+   */
+  applyCrossDissolve(): void {
+    const sequence = this.committed
+    if (!sequence) return
+    const duration = secondsToTicks(DEFAULT_TRANSITION_SECONDS)
+    const ids = [...this.selection].filter((id) => sequence.clips.find((c) => c.id === id)?.kind === 'video')
+    if (ids.length > 0) {
+      this.run(addCrossDissolves(ids, duration))
+      return
+    }
+    const unlocked = new Set(sequence.tracks.filter((t) => t.kind === 'video' && !t.locked).map((t) => t.id))
+    let best: { trackId: string; at: Ticks } | null = null
+    for (const clip of sequence.clips) {
+      if (!unlocked.has(clip.trackId)) continue
+      for (const at of [clip.start, clipEnd(clip)]) {
+        if (!best || Math.abs(at - this.playhead) < Math.abs(best.at - this.playhead)) best = { trackId: clip.trackId, at }
+      }
+    }
+    if (!best) projectController.showMessage('Add a video clip first: cross-dissolves go on cuts between video clips')
+    else this.run(addCrossDissolveAt(best.trackId, best.at, duration))
+  }
+
+  /** Add Frame Hold on the selected clips (or the topmost video clip) at the playhead. */
+  addFrameHoldAtPlayhead(): void {
+    const sequence = this.committed
+    if (!sequence) return
+    let ids = [...this.selection]
+    if (ids.length === 0) {
+      const clip = topVideoClipAt(sequence, this.playhead)
+      if (clip) ids = [clip.id]
+    }
+    this.run(addFrameHold(ids, this.playhead))
+  }
+
+  /** Cmd+R: Speed/Duration for the selected clips. */
+  openSpeedDialog(): void {
+    const ids = [...this.selection]
+    if (ids.length === 0) {
+      projectController.showMessage('Select a clip to change its speed')
+      return
+    }
+    this.speedDialog = ids
+    this.notify()
+  }
+
+  closeSpeedDialog(): void {
+    this.speedDialog = null
+    this.notify()
+  }
+
   select(ids: string[], mode: 'replace' | 'toggle' | 'add'): void {
+    this.transition = null
     if (mode === 'replace') this.selection = new Set(ids)
     else if (mode === 'add') for (const id of ids) this.selection.add(id)
     else {
@@ -291,6 +367,7 @@ class TimelineController extends Observable {
   }
 
   deselect(): void {
+    this.transition = null
     this.selection.clear()
     this.gap = null
     this.notify()
@@ -460,6 +537,8 @@ class TimelineController extends Observable {
     }
     if (cmd) {
       if (lower === 'l') this.toggleLink()
+      else if (lower === 'd' && !shift) this.applyCrossDissolve()
+      else if (lower === 'r' && !shift) this.openSpeedDialog()
       else if (lower === 'a' && shift) this.deselect()
       else if (lower === 'a') this.selectAll()
       else if (lower === 'c') this.copy()

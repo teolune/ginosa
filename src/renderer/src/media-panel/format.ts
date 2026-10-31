@@ -1,4 +1,4 @@
-import { frameRateValue, type MediaItem } from '@engine/project/media'
+import { COLOUR_LABELS, effectiveColour, frameRateValue, type MediaItem } from '@engine/project/media'
 import { formatTimecode, nearestStandardRate, secondsToTicks } from '@engine/time'
 
 /** Video: timecode at the clip's own rate. Audio has no frames: hh:mm:ss.hundredths. */
@@ -34,7 +34,8 @@ export function formatCodec(item: MediaItem): string {
   const video = item.info.video
   if (video && item.kind !== 'image') {
     const depth = video.bitDepth && video.bitDepth > 8 ? ` ${video.bitDepth}-bit` : ''
-    return `${video.codec.toUpperCase()}${depth}${video.hdr ? ` ${video.hdr.toUpperCase()}` : ''}`
+    const colour = item.colour.lut ? ` · LUT ${item.colour.lut.name}` : effectiveColour(item) === 'rec709' ? '' : ` · ${COLOUR_LABELS[effectiveColour(item)]}`
+    return `${video.codec.toUpperCase()}${depth}${colour}`
   }
   if (video) return video.codec.toUpperCase()
   return item.info.audio?.codec.toUpperCase() ?? ''

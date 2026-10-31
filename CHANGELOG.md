@@ -1,5 +1,21 @@
 # Changelog
 
+## M4 · Playback (part 2)
+
+- **Speed/Duration** (⌘R): speed %, duration (linked), Reverse Speed, and ripple that shifts later clips and sync-locked tracks. Linked picture and sound change together. Clips show [200%], [-100%] or [Hold].
+- **Add Frame Hold:** holds the frame under the playhead to the clip's end. Its sound keeps playing.
+- **Reverse playback** decodes short stretches backwards and keeps only the frames that will be shown.
+- **Sound at other speeds** plays varispeed (pitch changes). Reversed and held sound is silent for now.
+- **Cross-dissolves** (⌘D): 1 s, centred on the cut, or a fade at a free end. Select, delete, drag to resize, or type a duration. They use media past the clip's end, holding the edge frame if there isn't any.
+- **Colour interpretation** per media file (right-click → Colour):
+  - Auto detects Apple Log and Apple Log 2 (iPhone/Blackmagic Camera), with a built-in conversion to Rec.709 (Apple's published curve and gamut).
+  - An input `.cube` LUT (3D or 1D) replaces the built-in conversion; it's copied into the project.
+  - Rec.709 values come through exactly: Chromium's display conversion is undone on the GPU and reapplied once, at the monitor.
+- **Speed test** (`npm run speed-test`): reads every played frame's number back off the GPU. Measured 275 frames, 0 dropped, 0 wrong, 0 late.
+- **Colour check** (`npm run snapshot -- --scenario logview`): Apple Log within 0.001, Apple Log 2 exact, Rec.709 within 0.008.
+- **Project format v5:** colour settings per media file; speed, reverse and transitions per clip.
+- 169 tests.
+
 ## M4 · Playback (part 1)
 
 - **Playback with sound:** Space plays and stops; J/K/L shuttle (L up to 8×, J reverse).

@@ -77,10 +77,79 @@ npm run dev
 - [ ] Try the blend modes with a clip on V2 over V1: Multiply, Screen, Overlay, Difference and the rest. They follow Photoshop's formulas.
 - [ ] Right-click a clip in the timeline for **Set to Frame Size** and **Reset Motion**.
 
-## Not yet (part 2)
+# M4 · Try this (part 2: speed, dissolves, log footage)
 
-- Cross-dissolves; speed, reverse and freeze frame.
-- Apple Log / Apple Log 2 / HDR conversion and your `.cube` LUTs.
-- Sound in the Source Monitor.
+Part 2 adds:
+- speed, reverse and frame holds (Speed/Duration, ⌘R)
+- cross-dissolves (⌘D)
+- Apple Log and Apple Log 2 conversion, and input `.cube` LUTs
 
-Please drop your Premiere log→Rec.709 LUTs and look LUTs into `Reference Materials`, and send me the `ffprobe` output from the M2 checklist for one Apple Log and one Apple Log 2 clip.
+About 20 minutes.
+
+## In Terminal (part 2)
+
+New Terminal tab (Cmd+T), not the one running `npm run agent`. One line at a time:
+
+```
+cd ~/Desktop/video/Developer/Ginosa
+npm run check
+npm run test-media
+npm run speed-test
+cat renders/speed/speed.json
+npm run snapshot -- --scenario logview
+cat renders/ui/logview.json
+open renders/ui/logview.png
+npm run sync-test
+npm run dev
+```
+
+- [ ] `npm run check` ends with **Tests 169 passed (169)**. New tests cover:
+  - where a clip is in its media at any speed, reversed (the same frames as forwards, backwards) or held
+  - Speed/Duration with and without ripple, linked picture and sound together, and trimming fast clips
+  - Add Frame Hold, cross-dissolves and fades, transition length limits, splitting and saving
+  - Apple Log maths, `.cube` reading and colour detection
+- [ ] `npm run test-media` adds:
+  - `framecode_h264.mp4`: ten black/white blocks spell out each frame's number
+  - `patches_*.mov`: five colour patches tagged like Apple Log, Apple Log 2, HLG and Rec.709
+- [ ] `npm run speed-test` opens ginosa for about 15 seconds. It plays forwards, reversed, 200%, a frame hold, reversed 200% and a dissolve, reading each frame's number back off the GPU. Then `cat renders/speed/speed.json` shows `"verdict": "pass"`. On this Mac:
+  - `presented` 275 and `dropped` 0
+  - every region `wrong` 0 and `late` 0, and all 15 checked dissolve frames a mix of both clips
+- [ ] `logview.json`: each clip's worst error against the expected values. I got Apple Log 0.001, Apple Log 2 0, Rec.709 0.008 (out of 1). `logview.png` shows the patches converted.
+- [ ] `npm run sync-test` still passes (`cat renders/sync/sync.json`).
+
+## Speed, reverse and frame hold
+
+- [ ] Select a clip and press **⌘R** (or right-click → **Speed/Duration…**):
+  - type a **Speed** and the **Duration** follows (and the other way round)
+  - **Reverse Speed** plays it backwards
+  - **Ripple Edit, Shifting Trailing Clips** moves later clips (and sync-locked tracks) to follow
+- [ ] Without ripple, a slower clip stops at the next one, and a faster one leaves a gap.
+- [ ] Clips show their speed on the timeline: **[200%]**, **[-100%]** reversed, **[Hold]**. Effect Controls shows it too.
+- [ ] Right-click → **Add Frame Hold** holds the frame under the playhead to the end of the clip. Its sound keeps playing. Drag the held part's end out as far as you like.
+- [ ] Play a reversed clip of your 4K footage with the timing overlay on. Tell me the fps and dropped numbers.
+- Sound at other speeds changes pitch, like tape. Reversed and held sound is silent for now (marked "(silent)").
+
+## Cross-dissolves
+
+- [ ] Select clips and press **⌘D**: each cut between two clips gets a 1 s dissolve centred on the cut, and a free end fades from or to black (or the tracks below).
+- [ ] With nothing selected, ⌘D puts one on the cut nearest the playhead.
+- [ ] Dissolves draw as a box at the top of the clip:
+  - click to select it, then press Delete
+  - drag its edge to change its length
+  - right-click → **Set Transition Duration…** (timecode, or frames like `15`)
+- [ ] A dissolve uses the media past each clip's end. If there isn't any, it holds the last frame.
+
+## Log footage and LUTs
+
+- [ ] Import an **Apple Log** clip (Blackmagic Camera, Apple Log). Right-click it in Media → **Colour**. It should say **Auto (detected): Apple Log**, and the picture should look normal, not flat and grey.
+- [ ] Same with an **Apple Log 2** clip. If either is detected wrong, pick the right one from the menu and **send me that clip's `ffprobe` output** so I can fix the detection.
+- [ ] Right-click → Colour → **Input LUT…** and choose one of your Premiere log→Rec.709 `.cube` LUTs. It replaces the built-in conversion and is copied into the project's `luts` folder. **Remove Input LUT** goes back.
+- [ ] Compare a clip in ginosa and Premiere with the same LUT. They should match closely; tell me if not.
+- HDR (HLG/PQ) clips still use Chromium's own tone-mapping. See the note in DECISIONS: fixing that is next.
+
+## Not yet
+
+- Sound and colour conversion in the Source Monitor (next).
+- Audio crossfades; Maintain Audio Pitch; reversed sound.
+
+Still waiting: your log→Rec.709 and look LUTs in `Reference Materials`, and the `ffprobe` output for one Apple Log and one Apple Log 2 clip.

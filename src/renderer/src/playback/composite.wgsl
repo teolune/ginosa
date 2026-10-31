@@ -6,6 +6,12 @@ struct Layer {
   inverse0: vec4f, // a, b, c, d of the sequence-pixel -> source-pixel transform
   inverse1: vec4f, // e, f, source width, source height (as displayed)
   params: vec4f,   // output pixels per sequence pixel, opacity (0-1), rotation quarter turns, blend mode
+  colour: vec4f,   // decode (0 = values as stored, 1 = undo the Mac video display transform), conversion (0 none, 1 Apple Log, 2 LUT), LUT size, unused
+  lutMin: vec4f,
+  lutMax: vec4f,
+  gamut0: vec4f,   // columns of the linear gamut matrix to Rec.709 (Apple Log conversions)
+  gamut1: vec4f,
+  gamut2: vec4f,
 };
 
 @group(0) @binding(0) var srcVideo: texture_external;
@@ -13,6 +19,66 @@ struct Layer {
 @group(0) @binding(2) var<uniform> layer: Layer;
 @group(0) @binding(3) var dst: texture_2d<f32>;
 @group(0) @binding(4) var srcImage: texture_2d<f32>;
+@group(0) @binding(7) var lut: texture_3d<f32>;
+
+// ---- Colour: working values are the file's own Rec.709 code values ----
+
+fn srgbToLinear(c: vec3f) -> vec3f {
+  return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
+}
+
+fn linearToSrgb(c: vec3f) -> vec3f {
+  return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, 12.92 * c, c <= vec3f(0.0031308));
+}
+
+// Chromium shows Rec.709 video the way macOS does (gamma 1.961, on an sRGB display).
+const MAC_VIDEO_GAMMA = 1.961;
+
+fn undoMacDisplay(c: vec3f) -> vec3f {
+  return pow(max(srgbToLinear(c), vec3f(0.0)), vec3f(1.0 / MAC_VIDEO_GAMMA));
+}
+
+fn macDisplay(c: vec3f) -> vec3f {
+  return linearToSrgb(pow(max(c, vec3f(0.0)), vec3f(MAC_VIDEO_GAMMA)));
+}
+
+// Apple Log Profile (Apple Log and Apple Log 2 share it): code value -> scene linear.
+fn appleLogDecode(p: vec3f) -> vec3f {
+  let R0 = -0.05641088;
+  let Rt = 0.01;
+  let c = 47.28711236;
+  let beta = 0.00964052;
+  let gamma = 0.08550479;
+  let delta = 0.69336945;
+  let pt = c * (Rt - R0) * (Rt - R0);
+  let logPart = exp2((p - delta) / gamma) - beta;
+  let toe = sqrt(max(p, vec3f(0.0)) / c) + R0;
+  return select(select(vec3f(R0), toe, p >= vec3f(0.0)), logPart, p >= vec3f(pt));
+}
+
+fn shoulder(x: vec3f) -> vec3f {
+  let knee = 0.5;
+  return select(knee + (1.0 - knee) * (1.0 - exp(-(x - knee) / (1.0 - knee))), x, x <= vec3f(knee));
+}
+
+fn rec709Oetf(l: vec3f) -> vec3f {
+  return select(1.099 * pow(l, vec3f(0.45)) - 0.099, 4.5 * l, l < vec3f(0.018));
+}
+
+fn inputColour(stored: vec3f) -> vec3f {
+  var v = stored;
+  if (layer.colour.x > 0.5) { v = undoMacDisplay(v); }
+  let conversion = u32(layer.colour.y + 0.5);
+  if (conversion == 1u) {
+    let gamut = mat3x3f(layer.gamut0.xyz, layer.gamut1.xyz, layer.gamut2.xyz);
+    v = rec709Oetf(shoulder(max(gamut * appleLogDecode(v), vec3f(0.0))));
+  } else if (conversion == 2u) {
+    let n = layer.colour.z;
+    let t = clamp((v - layer.lutMin.xyz) / (layer.lutMax.xyz - layer.lutMin.xyz), vec3f(0.0), vec3f(1.0));
+    v = textureSampleLevel(lut, srcSampler, t * (n - 1.0) / n + 0.5 / n, 0.0).rgb;
+  }
+  return v;
+}
 
 struct VsOut {
   @builtin(position) position: vec4f,
@@ -93,16 +159,16 @@ fn composite(pixel: vec2f, src: vec4f, s: vec2f) -> vec4f {
 fn fsVideo(in: VsOut) -> @location(0) vec4f {
   let s = sourcePixel(in.position.xy);
   let uv = codedUv(clamp(s / layer.inverse1.zw, vec2f(0.0), vec2f(1.0)), layer.params.z);
-  let src = textureSampleBaseClampToEdge(srcVideo, srcSampler, uv);
-  return composite(in.position.xy, src, s);
+  let sampled = textureSampleBaseClampToEdge(srcVideo, srcSampler, uv);
+  return composite(in.position.xy, vec4f(inputColour(sampled.rgb), sampled.a), s);
 }
 
 @fragment
 fn fsImage(in: VsOut) -> @location(0) vec4f {
   let s = sourcePixel(in.position.xy);
   let uv = clamp(s / layer.inverse1.zw, vec2f(0.0), vec2f(1.0));
-  let src = textureSampleLevel(srcImage, srcSampler, uv, 0.0);
-  return composite(in.position.xy, src, s);
+  let sampled = textureSampleLevel(srcImage, srcSampler, uv, 0.0);
+  return composite(in.position.xy, vec4f(inputColour(sampled.rgb), sampled.a), s);
 }
 
 // Final copy of the composite to the screen (or an export target).
@@ -111,6 +177,7 @@ fn fsImage(in: VsOut) -> @location(0) vec4f {
 
 @fragment
 fn fsPresent(in: VsOut) -> @location(0) vec4f {
+  // On screen, Rec.709 is shown the way QuickTime shows the exported file.
   let c = textureSampleLevel(finalTex, finalSampler, in.uv, 0.0);
-  return vec4f(c.rgb, 1.0);
+  return vec4f(macDisplay(c.rgb), 1.0);
 }

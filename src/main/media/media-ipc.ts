@@ -1,5 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { join } from 'node:path'
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
+import { basename, extname, join, resolve, sep } from 'node:path'
+import { PROJECT_EXTENSION } from '../../shared/ipc'
+import { parseCube } from '../../engine/colour/cube'
 import { IMPORT_EXTENSIONS, type MediaFingerprint, type MediaInfo, type MediaKind, type OptimiseReason } from '../../engine/project/media'
 import { CACHE_CATEGORIES, CacheService, type CacheCategory } from '../cache/cache-service'
 import { JsonFile } from '../settings-store'
@@ -64,6 +67,38 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
   ipcMain.handle('media:checkFiles', async (_event, items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>) =>
     Promise.all(items.map(async (item) => ({ id: item.id, status: await checkFile(item.path, item.fingerprint) })))
   )
+
+  // ---- Input LUTs: copied into the project folder so the project carries them ----------
+  const projectDir = async (projectPath: string): Promise<string> => {
+    const dir = resolve(projectPath)
+    if (!dir.endsWith(PROJECT_EXTENSION) || !(await stat(dir)).isDirectory()) throw new Error('Not a ginosa project folder')
+    return dir
+  }
+
+  ipcMain.handle('media:chooseLut', async (event) => {
+    const options: Electron.OpenDialogOptions = { title: 'Choose an input LUT', buttonLabel: 'Use LUT', properties: ['openFile'], filters: [{ name: 'Cube LUT', extensions: ['cube'] }] }
+    const window = owner(event.sender)
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+
+  ipcMain.handle('media:importLut', async (_event, projectPath: string, source: string) => {
+    const dir = await projectDir(projectPath)
+    parseCube(await readFile(source, 'utf8')) // refuse broken files before copying anything
+    await mkdir(join(dir, 'luts'), { recursive: true })
+    const name = basename(source, extname(source))
+    let file = join('luts', `${name}.cube`)
+    for (let n = 2; await stat(join(dir, file)).then(() => true, () => false); n++) file = join('luts', `${name} ${n}.cube`)
+    await copyFile(source, join(dir, file))
+    return { name, file }
+  })
+
+  ipcMain.handle('media:readLut', async (_event, projectPath: string, file: string) => {
+    const dir = await projectDir(projectPath)
+    const full = resolve(dir, file)
+    if (!full.startsWith(dir + sep)) throw new Error('That LUT is outside the project folder')
+    return readFile(full, 'utf8')
+  })
 
   ipcMain.handle('media:chooseRelink', async (event, fileName: string) => {
     const options: Electron.OpenDialogOptions = {

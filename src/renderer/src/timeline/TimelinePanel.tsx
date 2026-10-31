@@ -4,7 +4,7 @@ import { addTrack, CommandError, removeTrack, renameTrack, setTrackFlag, type Co
 import type { MediaItem } from '@engine/project/media'
 import { frameRateOf, type Sequence, type Track } from '@engine/project/model'
 import { frameRateValue, parseTimecode, ticksToSeconds, type Ticks } from '@engine/time'
-import { applyPlace, removeMarkers, renameMarker, resetMotion, rippleDeleteClips, deleteClips, rippleDeleteGap, type EditMode } from '@engine/timeline/edits'
+import { applyPlace, removeMarkers, removeTransition, renameMarker, resetMotion, rippleDeleteClips, deleteClips, rippleDeleteGap, setTransitionDuration, type EditMode } from '@engine/timeline/edits'
 import { snapTargets, snapTime } from '@engine/timeline/snapping'
 import { EditContext, clipEnd, sequenceEnd, toFrame, trackIndex, tracksOf } from '@engine/timeline/timeline'
 import { CommitInput } from '../app/CommitInput'
@@ -18,6 +18,7 @@ import { drawTimeline } from './draw'
 import { MEDIA_DRAG_TYPE, SOURCE_DRAG_TYPE } from './drag-types'
 import { RULER_HEIGHT, SNAP_PIXELS, layoutRows, pixelsToTicks, rowAt, xToTime, type Row } from './geometry'
 import { TimelineInteraction, hitTest, type Hit } from './interaction'
+import { SpeedDialog } from './SpeedDialog'
 import { TOOLS, timelineController as tl, type Tool } from './timeline-controller'
 import type { SymbolName } from '@shared/symbols'
 
@@ -214,6 +215,7 @@ export function TimelinePanel() {
       fps: frameRateValue(frameRateOf(sequence.settings)),
       playhead: tl.playhead,
       selection: tl.selection,
+      transition: tl.transition,
       gap: tl.gap,
       snapLine: tl.snapLine,
       razorLine: tl.razorLine,
@@ -342,11 +344,24 @@ export function TimelinePanel() {
         { label: 'Add Edit at Playhead', onSelect: () => tl.splitAtPlayhead(false) },
         { label: linked ? 'Unlink' : 'Link', disabled: !linked && ids.length < 2, onSelect: () => tl.toggleLink() },
         { label: 'Match Frame', onSelect: () => tl.matchFrame() },
+        'separator',
+        { label: 'Speed/Duration…', shortcut: '⌘R', onSelect: () => tl.openSpeedDialog() },
+        { label: 'Add Frame Hold', disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video'), onSelect: () => tl.addFrameHoldAtPlayhead() },
+        { label: 'Apply Cross Dissolve', shortcut: '⌘D', disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video'), onSelect: () => tl.applyCrossDissolve() },
+        'separator',
         { label: 'Set to Frame Size', onSelect: () => tl.run(resetMotion(ids, 'frame-size')) },
         { label: 'Reset Motion', onSelect: () => tl.run(resetMotion(ids, 'reset')) },
         'separator',
         { label: 'Delete', danger: true, onSelect: () => tl.run(deleteClips(ids)) },
         { label: 'Ripple Delete', danger: true, onSelect: () => tl.run(rippleDeleteClips(ids)) }
+      ]
+    } else if (hit.kind === 'transition') {
+      const { clip, end } = hit.span
+      tl.selectTransition({ clipId: clip.id, end })
+      entries = [
+        { label: 'Set Transition Duration…', onSelect: () => transitionDurationPrompt(clip.id, end) },
+        'separator',
+        { label: 'Delete', danger: true, onSelect: () => tl.run(removeTransition(clip.id, end)) }
       ]
     } else if (hit.kind === 'lane') {
       const gap = tl.gap
@@ -369,6 +384,25 @@ export function TimelinePanel() {
           ]
     }
     if (entries.length) setMenu({ x, y, entries })
+  }
+  const transitionDurationPrompt = (clipId: string, end: 'in' | 'out') => {
+    const clip = project.sequence.clips.find((c) => c.id === clipId)
+    const transition = end === 'in' ? clip?.transitionIn : clip?.transitionOut
+    if (!transition) return
+    const rate = frameRateOf(project.sequence.settings)
+    setPrompt({
+      title: 'Set Transition Duration',
+      label: 'Duration (timecode, or frames like 15)',
+      initial: tl.timecode(transition.duration),
+      confirm: 'Set',
+      resolve: (value) => {
+        setPrompt(null)
+        if (value === null) return
+        const ticks = /^\d+$/.test(value) ? Number(value) * (tl.frame()) : parseTimecode(value, rate)
+        if (ticks && ticks > 0) tl.run(setTransitionDuration(clipId, end, ticks))
+        else projectController.showMessage(`“${value}” isn’t a duration`)
+      }
+    })
   }
   const renameMarkerPrompt = (id: string, name: string) =>
     setPrompt({
@@ -515,6 +549,7 @@ export function TimelinePanel() {
         <div className="timeline-scroll-thumb" style={{ left: thumbLeft, width: thumbWidth }} onPointerDown={onThumbDown} />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.entries} onClose={() => setMenu(null)} />}
+      {tl.speedDialog && <SpeedDialog clipIds={tl.speedDialog} />}
       <PromptDialog request={prompt} />
     </section>
   )

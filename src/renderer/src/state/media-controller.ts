@@ -1,5 +1,5 @@
 import { ALL_FORMATS, Input, UrlSource } from 'mediabunny'
-import { createBin, importMedia, relinkMedia } from '@engine/project/media-commands'
+import { createBin, importMedia, relinkMedia, setMediaColour } from '@engine/project/media-commands'
 import { IMPORT_EXTENSIONS, optimiseReasons, type MediaItem, type OptimiseReason } from '@engine/project/media'
 import type { Project } from '@engine/project/model'
 import type { Ticks } from '@engine/time'
@@ -254,7 +254,8 @@ export class MediaController extends Observable {
       info: file.info,
       binId,
       importedAt: new Date().toISOString(),
-      marks: { in: null, out: null }
+      marks: { in: null, out: null },
+      colour: { input: 'auto', lut: null }
     }
   }
 
@@ -298,6 +299,21 @@ export class MediaController extends Observable {
     if (projectController.dispatch(relinkMedia(item.id, file.path, file.fingerprint, file.info))) {
       const updated = this.item(item.id)
       if (updated) void this.check(updated)
+    }
+  }
+
+  /** Picks a .cube, copies it into the project folder and sets it as the input LUT. */
+  async chooseInputLut(ids: string[]): Promise<void> {
+    const projectPath = projectController.path
+    if (!projectPath) return
+    const source = await window.ginosa.media.chooseLut()
+    if (!source) return
+    try {
+      // The main process checks the file is a readable .cube before copying it in.
+      const lut = await window.ginosa.media.importLut(projectPath, source)
+      projectController.dispatch(setMediaColour(ids, { lut }))
+    } catch (error) {
+      projectController.showMessage(`That LUT couldn't be used: ${(error as Error).message}`)
     }
   }
 

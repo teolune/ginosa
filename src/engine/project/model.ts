@@ -6,8 +6,8 @@ import type { Bin, MediaItem } from './media'
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. */
-export const PROJECT_SCHEMA_VERSION = 4
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. */
+export const PROJECT_SCHEMA_VERSION = 5
 
 export type TrackKind = 'video' | 'audio'
 
@@ -81,6 +81,19 @@ export interface Clip {
   blendMode: BlendMode
   /** Audio clips: gain in dB (0 = unchanged). */
   volume: number
+  /** Playback speed: 1 = 100%; 0 = frame hold (the frame at `sourceIn` for the whole clip). */
+  speed: number
+  /** Plays its media backwards. */
+  reverse: boolean
+  /** A cross-dissolve from the clip before it (centred on the cut), or a fade in if nothing is there. */
+  transitionIn: Transition | null
+  /** A fade out at the clip's end (used when nothing follows the clip). */
+  transitionOut: Transition | null
+}
+
+export interface Transition {
+  kind: 'cross-dissolve'
+  duration: Ticks
 }
 
 export interface Marker {

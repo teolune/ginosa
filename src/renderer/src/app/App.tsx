@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
-import { addMarker, placeMedia, setClipProperties, splitClips } from '@engine/timeline/edits'
+import { addCrossDissolveAt, addFrameHold, addMarker, placeMedia, setClipProperties, setClipSpeed, splitClips } from '@engine/timeline/edits'
 import { player } from '../playback/player'
 import { runSyncTest } from '../playback/sync-test'
+import { runSpeedTest } from '../playback/speed-test'
+import { probePatches, readPixels } from '../playback/colour-probe'
+import { appleLogToRec709 } from '@engine/colour/colour'
+import { effectiveColour } from '@engine/project/media'
 import { RULER_HEIGHT, layoutRows, timeToX } from '../timeline/geometry'
 import { TimelineInteraction } from '../timeline/interaction'
 import type { MenuCommand, MenuState } from '@shared/ipc'
@@ -72,6 +76,46 @@ async function buildSnapshotTimeline(): Promise<void> {
   await wait(2500)
 }
 
+/** The speed/reverse/hold/dissolve timeline from speed-test.ts, played and checked frame by frame. */
+async function runSpeedScenario(dialog: boolean): Promise<void> {
+  const project = projectController.project
+  const item = project?.media.find((m) => m.name === 'framecode_h264')
+  if (!project || !item) return
+  const v1 = project.sequence.tracks.find((t) => t.kind === 'video')!.id
+  const s = secondsToTicks
+  const place = (at: number, inS: number, outS: number) => {
+    projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: s(inS), sourceOut: s(outS), at: s(at), videoTrackId: v1, audioTrackId: null, mode: 'overwrite' }))
+    const clips = projectController.project!.sequence.clips
+    return clips.find((c) => c.trackId === v1 && c.start === s(at))!.id
+  }
+  const media = () => projectController.project!.media
+  place(0, 0, 2)
+  projectController.dispatch(setClipSpeed({ clipIds: [place(2, 2, 4)], speed: 1, reverse: true, ripple: false }, media()))
+  projectController.dispatch(setClipSpeed({ clipIds: [place(4, 4, 8)], speed: 2, reverse: false, ripple: false }, media()))
+  projectController.dispatch(addFrameHold([place(6, 9, 10)], s(6)))
+  // 4 s of media at 200% reversed fills 7–9 s; the next clip starts at 9 s.
+  projectController.dispatch(setClipSpeed({ clipIds: [place(7, 8, 12)], speed: 2, reverse: true, ripple: false }, media()))
+  place(9, 0, 2)
+  projectController.dispatch(addCrossDissolveAt(v1, s(9), s(1)))
+  timelineController.zoomToFit()
+  workspaceController.focus('program-monitor')
+  await wait(1500)
+  if (dialog) {
+    // The 200% clip, selected, with Speed/Duration open.
+    const fast = projectController.project!.sequence.clips.find((c) => c.speed === 2 && !c.reverse)!
+    timelineController.select([fast.id], 'replace')
+    timelineController.setPlayhead(s(5))
+    timelineController.openSpeedDialog()
+    await wait(800)
+    return
+  }
+  player.toggleStats()
+  const report = await runSpeedTest(projectController.project!.sequence.settings.width)
+  await window.ginosa.snapshot.report(report)
+  timelineController.setPlayhead(s(9))
+  await wait(1200)
+}
+
 /** Automated UI screenshots (npm run snapshot): set up a scene, then ask the main process to capture. */
 async function runSnapshotScenario(scenario: string): Promise<void> {
   if (scenario !== 'start') {
@@ -79,6 +123,44 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'logview': {
+      // Each patch clip through the real playback path: decoder request, detection, shader.
+      const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_(applelog|applelog2|rec709)\.mov$/.test(f))
+      await mediaController.importPaths(files, null)
+      await wait(1500)
+      const patches: Array<[number, number, number]> = [[0.2, 0.2, 0.2], [0.502, 0.502, 0.502], [0.6, 0.251, 0.149], [0.149, 0.451, 0.702], [0.949, 0.949, 0.949]]
+      const report: Record<string, unknown> = {}
+      const v1 = projectController.project!.sequence.tracks.find((t) => t.kind === 'video')!
+      for (const item of projectController.project!.media) {
+        projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: 0, sourceOut: null, at: 0, videoTrackId: v1.id, audioTrackId: null, mode: 'overwrite' }))
+        timelineController.setPlayhead(secondsToTicks(0.5))
+        await wait(1200)
+        const got = player.lastStill ? await readPixels(player.lastStill, [192, 576, 960, 1344, 1728].map((x) => [x, 540] as [number, number])) : []
+        const colour = effectiveColour(item)
+        const expected = patches.map((p) => (colour === 'apple-log' ? appleLogToRec709(p, 'bt2020') : colour === 'apple-log-2' ? appleLogToRec709(p, 'apple-wide-gamut') : p).map((v) => Math.round(v * 1000) / 1000))
+        const worst = Math.max(...got.flatMap((g, i) => g.map((v, c) => Math.abs(v - expected[i]![c]!))))
+        report[item.name] = { detected: colour, worstError: Math.round(worst * 1000) / 1000, expected, got }
+      }
+      await window.ginosa.snapshot.report(report)
+      break
+    }
+    case 'colour': {
+      const files = (await window.ginosa.snapshot.testMedia()).filter((f) => f.includes('patches_'))
+      const report: Record<string, unknown> = { expected: [[0.2, 0.2, 0.2], [0.502, 0.502, 0.502], [0.6, 0.251, 0.149], [0.149, 0.451, 0.702], [0.949, 0.949, 0.949]] }
+      for (const file of files) {
+        const name = file.split('/').pop()!
+        try {
+          report[name] = {
+            asTagged: await probePatches(file, null),
+            asSrgb: await probePatches(file, { primaries: 'bt709', transfer: 'iec61966-2-1', matrix: (file.includes('rec709') ? 'bt709' : 'bt2020-ncl') as VideoMatrixCoefficients, fullRange: false })
+          }
+        } catch (error) {
+          report[name] = (error as Error).message
+        }
+      }
+      await window.ginosa.snapshot.report(report)
+      break
+    }
     case 'windows':
       workspaceController.open('project-settings')
       workspaceController.open('diagnostics')
@@ -106,9 +188,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'drag':
     case 'composite':
     case 'playback':
-    case 'sync': {
+    case 'sync':
+    case 'speed':
+    case 'speeddialog': {
       const all = await window.ginosa.snapshot.testMedia()
-      const files = scenario === 'sync' ? all.filter((f) => f.endsWith('sync_flash_beep.mp4')) : all.filter((f) => !f.endsWith('sync_flash_beep.mp4'))
+      const special = (f: string) => /sync_flash_beep\.mp4$|framecode_h264\.mp4$|patches_[a-z0-9]+\.mov$/.test(f)
+      const files =
+        scenario === 'sync' ? all.filter((f) => f.endsWith('sync_flash_beep.mp4')) : scenario === 'speed' || scenario === 'speeddialog' ? all.filter((f) => f.endsWith('framecode_h264.mp4')) : all.filter((f) => !special(f))
       await mediaController.importPaths(files, null)
       const bin = createBin('Selects', null)
       projectController.dispatch(bin)
@@ -161,6 +247,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
           await wait(1500)
         }
       }
+      if (scenario === 'speed' || scenario === 'speeddialog') await runSpeedScenario(scenario === 'speeddialog')
       if (scenario === 'drag') {
         // Grab the still on V2 and hold it 1.3 s later: the preview and the snap guide should show.
         const sequence = projectController.project!.sequence

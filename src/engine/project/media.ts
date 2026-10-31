@@ -65,6 +65,29 @@ export interface MediaMarks {
   out: Ticks | null
 }
 
+/**
+ * How a file's colour is read (like Premiere's Interpret Footage): detected from its
+ * tags, or set by hand. An input LUT, when set, replaces the built-in conversion.
+ */
+export type ColourInput = 'auto' | 'rec709' | 'apple-log' | 'apple-log-2'
+export type DetectedColour = 'rec709' | 'apple-log' | 'apple-log-2' | 'hlg' | 'pq'
+
+export interface MediaColour {
+  input: ColourInput
+  /** An input LUT copied into the project folder (`file` is relative to it). */
+  lut: { name: string; file: string } | null
+}
+
+export const DEFAULT_COLOUR: MediaColour = { input: 'auto', lut: null }
+
+export const COLOUR_LABELS: Record<DetectedColour, string> = {
+  rec709: 'Rec.709',
+  'apple-log': 'Apple Log',
+  'apple-log-2': 'Apple Log 2',
+  hlg: 'HDR (HLG)',
+  pq: 'HDR (PQ)'
+}
+
 export interface MediaItem {
   id: string
   name: string
@@ -75,6 +98,31 @@ export interface MediaItem {
   binId: string | null
   importedAt: string
   marks: MediaMarks
+  colour: MediaColour
+}
+
+/**
+ * What a file's colour tags suggest. iPhone log files leave the transfer unspecified:
+ * Apple Log keeps BT.2020 primaries, Apple Log 2 (Apple Wide Gamut) leaves them
+ * unspecified too; both use the BT.2020 matrix and 10-bit.
+ */
+export function detectColour(info: MediaInfo): DetectedColour {
+  const video = info.video
+  if (!video) return 'rec709'
+  if (video.hdr) return video.hdr
+  const c = video.colour
+  const unspecified = (v: string | null) => v === null || v === 'unspecified' || v === 'reserved'
+  const bt2020Matrix = c.matrix === 'bt2020nc' || c.matrix === 'bt2020_ncl'
+  if ((video.bitDepth ?? 8) >= 10 && bt2020Matrix && unspecified(c.transfer)) {
+    if (c.primaries === 'bt2020') return 'apple-log'
+    if (unspecified(c.primaries)) return 'apple-log-2'
+  }
+  return 'rec709'
+}
+
+/** The conversion that applies: the hand-set choice, else what the tags suggest. */
+export function effectiveColour(item: MediaItem): DetectedColour {
+  return item.colour.input === 'auto' ? detectColour(item.info) : item.colour.input
 }
 
 export interface Bin {

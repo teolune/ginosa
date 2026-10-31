@@ -3,8 +3,11 @@ import type { Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
 import { frameRateValue, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
 import { inverseMotion, sourceSize } from '@engine/timeline/motion'
-import { videoLayersAt, type VideoLayer } from '@engine/timeline/render-plan'
-import { sequenceEnd } from '@engine/timeline/timeline'
+import { APPLE_WIDE_GAMUT_TO_REC709, BT2020_TO_REC709 } from '@engine/colour/colour'
+import { parseCube, sampleCube, type CubeLut } from '@engine/colour/cube'
+import { effectiveColour } from '@engine/project/media'
+import { sourceTimeAt, videoLayersAt, visibleFrom, type VideoLayer } from '@engine/timeline/render-plan'
+import { mediaLength, sequenceEnd } from '@engine/timeline/timeline'
 import type { VideoSample } from 'mediabunny'
 import { getGpu } from '../gpu/shared'
 import { mediaController } from '../state/media-controller'
@@ -12,9 +15,9 @@ import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { AudioEngine } from './audio-engine'
-import { Compositor, type CompositeLayer } from './compositor'
-import { openMedia, openStill } from './sources'
-import { VideoStream } from './video-stream'
+import { Compositor, type CompositeLayer, type GpuLut, type LayerColour } from './compositor'
+import { openMedia, openStill, type OpenedMedia } from './sources'
+import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
 
 export type PlaybackResolution = 1 | 0.5 | 0.25
 
@@ -59,7 +62,7 @@ class Player extends Observable {
   private canvas: HTMLCanvasElement | null = null
   private context: GPUCanvasContext | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
-  private streams = new Map<string, VideoStream>()
+  private streams = new Map<string, FrameSource>()
   private stillTextures = new Map<string, GPUTexture>()
   private frameHandle = 0
   private wallStart = 0
@@ -71,6 +74,8 @@ class Player extends Observable {
   private stillRender: { busy: boolean; again: boolean } = { busy: false, again: false }
   private sequenceAtStart: Sequence | null = null
   recording: PresentedFrame[] | null = null
+  /** The last paused-frame composite (for tests that read pixels back). */
+  lastStill: GPUTexture | null = null
   /** Why frames were counted as dropped (for diagnosis). */
   debug = { skipped: 0, missing: {} as Record<string, number> }
   /** Test hook: called with each composited frame during playback. */
@@ -148,7 +153,61 @@ class Player extends Observable {
     if (!inverse) return null
     const size = sourceSize(layer.item, sequence.settings)
     const rotation = Math.round(((layer.item.info.video?.rotation ?? 0) % 360) / 90)
-    return { source, inverse, width: size.width, height: size.height, rotation: (rotation + 4) % 4, opacity: layer.clip.opacity / 100, blend: layer.clip.blendMode }
+    return {
+      source,
+      inverse,
+      width: size.width,
+      height: size.height,
+      rotation: (rotation + 4) % 4,
+      opacity: (layer.clip.opacity / 100) * layer.weight,
+      blend: layer.clip.blendMode,
+      colour: this.layerColour(layer.item, source)
+    }
+  }
+
+  // ---- Colour ------------------------------------------------------------------------
+
+  private luts = new Map<string, GpuLut | 'loading' | 'failed'>()
+
+  /** How this layer's pixels become working values: undo Chromium's display step, then the file's conversion. */
+  private layerColour(item: MediaItem, source: CompositeLayer['source']): LayerColour {
+    // Our decoder request (sRGB transfer) arrives untouched; anything else got the Mac video display transform.
+    const undoMacDisplay = source.kind === 'image' || source.frame.colorSpace.transfer !== 'iec61966-2-1'
+    if (item.colour.lut) {
+      const lut = this.lut(item.colour.lut.file)
+      return { undoMacDisplay, conversion: lut ? { kind: 'lut', lut } : { kind: 'none' } }
+    }
+    const colour = effectiveColour(item)
+    if (colour === 'apple-log') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: BT2020_TO_REC709 } }
+    if (colour === 'apple-log-2') return { undoMacDisplay, conversion: { kind: 'apple-log', gamut: APPLE_WIDE_GAMUT_TO_REC709 } }
+    // Rec.709 as is; HDR (HLG/PQ) has already been tone-mapped to SDR by Chromium.
+    return { undoMacDisplay, conversion: { kind: 'none' } }
+  }
+
+  private lut(file: string): GpuLut | null {
+    const projectPath = projectController.path
+    if (!projectPath || !this.compositor) return null
+    const key = `${projectPath}::${file}`
+    const entry = this.luts.get(key)
+    if (entry && entry !== 'loading' && entry !== 'failed') return entry
+    if (!entry) {
+      this.luts.set(key, 'loading')
+      window.ginosa.media
+        .readLut(projectPath, file)
+        .then((text) => {
+          const cube = parseCube(text)
+          const rgb = cube.kind === '3d' ? cube.data : expand1d(cube)
+          const size = cube.kind === '3d' ? cube.size : 33
+          this.luts.set(key, this.compositor!.lutTexture(size, rgb, cube.domainMin, cube.domainMax))
+          this.requestStill()
+        })
+        .catch((error: Error) => {
+          this.luts.set(key, 'failed')
+          this.message = `Input LUT ${file}: ${error.message}`
+          this.notify()
+        })
+    }
+    return null
   }
 
   // ---- Still frame (paused) --------------------------------------------------------
@@ -210,6 +269,7 @@ class Player extends Observable {
     })
     const result = this.compositor.render(composite, scale)
     this.compositor.present(result, this.context, this.format)
+    this.lastStill = result
     for (const p of prepared) if (p.source?.kind === 'video') p.source.frame.close()
     samples.forEach((s) => s.close())
     if (message !== this.message) {
@@ -282,7 +342,7 @@ class Player extends Observable {
         if (!path) continue
         const media = await openMedia(path).catch(() => null)
         if (!media?.videoSink) continue
-        const stream = new VideoStream(media, ticksToSeconds(layer.sourceTime))
+        const stream = this.openStream(media, layer, from, project.sequence)
         this.streams.set(layer.clip.id, stream)
         starting.push(stream.ready(600))
       }
@@ -369,7 +429,7 @@ class Player extends Observable {
       }
     }
     if (this.rate > 0) {
-      for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate))) this.ensureStream(layer, Math.max(layer.clip.start, shown))
+      for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate))) this.ensureStream(layer, Math.max(visibleFrom(sequence, layer.clip), shown), sequence)
     }
 
     const composite: CompositeLayer[] = []
@@ -387,7 +447,7 @@ class Player extends Observable {
         continue
       }
       if (this.rate < 0) continue // reverse shows the still-render path below
-      const stream = this.ensureStream(layer, shown)
+      const stream = this.ensureStream(layer, shown, sequence)
       const sample = stream?.frameAt(ticksToSeconds(layer.sourceTime)) ?? null
       if (!sample) {
         missing = true
@@ -442,20 +502,33 @@ class Player extends Observable {
     })
   }
 
-  private ensureStream(layer: VideoLayer, at: Ticks): VideoStream | null {
+  /** Forwards, reversed or a frame hold, from the clip's media time at timeline time `at`. */
+  private openStream(media: OpenedMedia, layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource {
+    const clip = layer.clip
+    const start = ticksToSeconds(sourceTimeAt(clip, at, ticksPerFrame(frameRateOf(sequence.settings)), mediaLength(layer.item)))
+    if (clip.speed === 0) return new HoldStream(media, start)
+    if (clip.reverse) {
+      const step = ticksToSeconds(ticksPerFrame(frameRateOf(sequence.settings))) * clip.speed
+      const rate = layer.item.info.video?.frameRate
+      const frameSeconds = rate && rate.num > 0 ? rate.den / rate.num : 1 / 30
+      return new ReverseStream(media, start, step, frameSeconds)
+    }
+    return new VideoStream(media, start)
+  }
+
+  private ensureStream(layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource | null {
     if (layer.item.kind === 'image') return null
     const existing = this.streams.get(layer.clip.id)
     if (existing) return existing
     const path = this.path(layer.item)
     if (!path) return null
-    const startSeconds = ticksToSeconds(layer.clip.sourceIn + Math.max(0, at - layer.clip.start))
     // Open asynchronously; the slot is filled once the file is ready.
-    const placeholder = { frameAt: () => null, close: () => undefined, late: 0 } as unknown as VideoStream
+    const placeholder: FrameSource = { frameAt: () => null, ready: async () => undefined, close: () => undefined, late: 0 }
     this.streams.set(layer.clip.id, placeholder)
     void openMedia(path)
       .then((media) => {
         if (this.streams.get(layer.clip.id) !== placeholder) return
-        this.streams.set(layer.clip.id, new VideoStream(media, startSeconds))
+        this.streams.set(layer.clip.id, this.openStream(media, layer, at, sequence))
       })
       .catch((error: Error) => {
         this.message = `${layer.item.name}: ${error.message}`
@@ -463,6 +536,23 @@ class Player extends Observable {
       })
     return placeholder
   }
+}
+
+/** A 1D LUT as a 33³ cube, so the shader only needs one kind. */
+function expand1d(lut: CubeLut): Float32Array {
+  const n = 33
+  const out = new Float32Array(n * n * n * 3)
+  for (let b = 0; b < n; b++)
+    for (let g = 0; g < n; g++)
+      for (let r = 0; r < n; r++) {
+        const at = (b * n * n + g * n + r) * 3
+        const span = (i: number) => lut.domainMin[i]! + ((lut.domainMax[i]! - lut.domainMin[i]!) * [r, g, b][i]!) / (n - 1)
+        const value = sampleCube(lut, [span(0), span(1), span(2)])
+        out[at] = value[0]
+        out[at + 1] = value[1]
+        out[at + 2] = value[2]
+      }
+  return out
 }
 
 export const player = new Player()

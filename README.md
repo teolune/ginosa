@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M4 · Playback (part 1).** Timeline playback with sound (Space, J/K/L), a WebGPU compositor with Motion, opacity and blend modes, Effect Controls, playback resolution, a timing overlay and an automated A/V sync test. Built on M3's timeline, M2's media library and M1's projects. Next: M4 part 2 (cross-dissolves, speed/reverse/freeze, Apple Log and HDR conversion with LUTs).
+**M4 · Playback (part 2).** Speed/Duration, reverse and frame holds, cross-dissolves, and Apple Log / Apple Log 2 conversion with input `.cube` LUTs, on top of part 1's playback with sound, WebGPU compositor, Effect Controls and A/V sync test. Built on M3's timeline, M2's media library and M1's projects. Next: HDR conversion on ginosa's own maths, and the Source Monitor on the new player (sound, colour).
 
 ## Setup (once)
 
@@ -28,6 +28,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run doctor` | Re-runs the environment check |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
 | `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
+| `npm run speed-test` | Plays speed, reverse, hold and dissolve clips and checks every frame; writes `renders/speed/speed.json` |
 | `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |
 
 ### Render harness flags

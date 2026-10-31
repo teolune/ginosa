@@ -110,19 +110,72 @@ export class EditContext {
   }
 }
 
+/** A deep copy (nested objects aren't shared, which matters inside Immer drafts). */
+export function cloneClip(clip: Clip): Clip {
+  return {
+    ...clip,
+    motion: { ...clip.motion },
+    transitionIn: clip.transitionIn ? { ...clip.transitionIn } : null,
+    transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null
+  }
+}
+
+/** How much media a clip uses, in ticks (its duration × speed; 0 for a frame hold). */
+export function sourceSpan(clip: Clip): Ticks {
+  return Math.round(clip.duration * clip.speed)
+}
+
+/**
+ * Where in its media a clip is during the sequence frame starting at `time` (`frame` is
+ * the sequence's frame length), with speed, reverse and frame hold. A reversed clip shows
+ * the same frames as it would forwards, in the opposite order: its first frame is the
+ * forward clip's last. Times past the media's ends (a transition needing more than there
+ * is) hold the edge frame, as Premiere does.
+ */
+export function sourceTimeAt(clip: Clip, time: Ticks, frame: Ticks, length: Ticks | null = null): Ticks {
+  let t: Ticks
+  if (clip.speed === 0) t = clip.sourceIn
+  else if (clip.reverse) t = clip.sourceIn + sourceSpan(clip) - Math.round((time - clip.start + frame) * clip.speed)
+  else t = clip.sourceIn + Math.round((time - clip.start) * clip.speed)
+  if (length !== null) t = Math.min(Math.max(0, t), Math.max(0, length - 1))
+  return t
+}
+
+/**
+ * Removes `ticks` from the clip's start (negative: extends it). Which end of the media
+ * that touches depends on direction: a reversed clip starts at the end of its media.
+ */
+export function cutHead(clip: Clip, ticks: Ticks): void {
+  clip.start += ticks
+  clip.duration -= ticks
+  if (clip.speed > 0 && !clip.reverse) clip.sourceIn += Math.round(ticks * clip.speed)
+}
+
+/** Removes `ticks` from the clip's end (negative: extends it). */
+export function cutTail(clip: Clip, ticks: Ticks): void {
+  clip.duration -= ticks
+  if (clip.speed > 0 && clip.reverse) clip.sourceIn += Math.round(ticks * clip.speed)
+}
+
+/**
+ * Spare media beyond the clip's ends, in timeline ticks (what a trim or transition can
+ * reveal). `length` is the media's length, or null for stills; frame holds never run out.
+ */
+export function handles(clip: Clip, length: Ticks | null): { head: Ticks; tail: Ticks } {
+  if (clip.speed === 0 || length === null) return { head: Number.MAX_SAFE_INTEGER, tail: Number.MAX_SAFE_INTEGER }
+  const before = Math.max(0, clip.sourceIn)
+  const after = Math.max(0, length - clip.sourceIn - sourceSpan(clip))
+  const toTimeline = (ticks: Ticks) => Math.floor(ticks / clip.speed)
+  return clip.reverse ? { head: toTimeline(after), tail: toTimeline(before) } : { head: toTimeline(before), tail: toTimeline(after) }
+}
+
 /** Splits `clip` at `at` (strictly inside it). The clip keeps the left part; returns the new right part. */
 export function splitClip(sequence: Sequence, clip: Clip, at: Ticks, ctx: EditContext): Clip {
   const offset = at - clip.start
-  const right: Clip = {
-    ...clip,
-    motion: { ...clip.motion },
-    id: ctx.newId(),
-    start: at,
-    duration: clip.duration - offset,
-    sourceIn: clip.sourceIn + offset,
-    linkId: ctx.linkForRightHalf(clip.linkId)
-  }
-  clip.duration = offset
+  const right: Clip = { ...cloneClip(clip), id: ctx.newId(), linkId: ctx.linkForRightHalf(clip.linkId), transitionIn: null }
+  cutHead(right, offset)
+  cutTail(clip, clip.duration - offset)
+  clip.transitionOut = null
   sequence.clips.push(right)
   return right
 }
@@ -137,14 +190,11 @@ export function clearRange(sequence: Sequence, trackId: string, start: Ticks, en
       sequence.clips.splice(sequence.clips.indexOf(clip), 1)
     } else if (clip.start < start && cEnd > end) {
       splitClip(sequence, clip, end, ctx)
-      clip.duration = start - clip.start
+      cutTail(clip, clipEnd(clip) - start)
     } else if (clip.start < start) {
-      clip.duration = start - clip.start
+      cutTail(clip, cEnd - start)
     } else {
-      const cut = end - clip.start
-      clip.start = end
-      clip.sourceIn += cut
-      clip.duration -= cut
+      cutHead(clip, end - clip.start)
     }
   }
 }
