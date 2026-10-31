@@ -6,7 +6,8 @@
 - **Colour check** now covers HLG and PQ (`npm run snapshot -- --scenario logview`).
 - **Source Monitor on the real player:** sound, colour conversion (log, HDR, LUTs), J/K/L, frame steps; starting one monitor stops the other. Mark Out now includes the frame on screen (Premiere). Checked by `npm run snapshot -- --scenario sourceplay` (Apple Log within 0.001; A/V sync p95 20 ms, 0 dropped).
 - **Your LUTs:** all 57 in `Reference Materials` load (17 log→Rec.709, 40 looks).
-- 183 tests.
+- **Your Apple Log clips** (iPhone, HEVC 4:2:2 10-bit) are detected correctly, decode natively and play at 25 fps with 0 dropped. `npm run snapshot -- --scenario footage` runs them through ginosa.
+- 184 tests.
 
 ## M4 · Playback (part 2)
 

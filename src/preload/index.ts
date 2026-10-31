@@ -91,6 +91,7 @@ const bridge: GinosaBridge = {
     tempProjectPath: () => ipcRenderer.invoke('snapshot:tempProjectPath'),
     simulateCrash: () => ipcRenderer.invoke('snapshot:simulateCrash'),
     testMedia: () => ipcRenderer.invoke('snapshot:testMedia'),
+    referenceClips: () => ipcRenderer.invoke('snapshot:referenceClips'),
     ready: () => ipcRenderer.invoke('snapshot:ready'),
     report: (data) => ipcRenderer.invoke('snapshot:report', data)
   }

@@ -268,6 +268,14 @@ function registerIpc(): void {
     return (await readdir(dir).catch(() => [] as string[])).filter((f) => !f.startsWith('.')).sort().map((f) => join(dir, f))
   })
 
+  // Your own clips for the footage check: ../Reference Materials/AppleLogClips (never copied or changed).
+  ipcMain.handle('snapshot:referenceClips', async () => {
+    if (!snapshot) return []
+    const dir = join(process.cwd(), '..', 'Reference Materials', 'AppleLogClips')
+    const { readdir } = await import('node:fs/promises')
+    return (await readdir(dir).catch(() => [] as string[])).filter((f) => /\.(mov|mp4)$/i.test(f)).sort().map((f) => join(dir, f))
+  })
+
   ipcMain.handle('snapshot:simulateCrash', async () => {
     if (snapshot) await projects.simulateCrash()
   })

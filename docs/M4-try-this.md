@@ -167,7 +167,7 @@ open renders/ui/sourceplay.png
 npm run dev
 ```
 
-- [ ] `npm run check` ends with **Tests 183 passed (183)**. New tests cover:
+- [ ] `npm run check` ends with **Tests 184 passed (184)**. New tests cover:
   - finding and rewriting the HDR tag in seven real and hand-built HEVC headers, at the same bit positions FFmpeg reports
   - the Source Monitor's one-clip sequence (size, frame rate, rotation, sound-only files)
 - [ ] `npm run test-media` adds `patches_pq.mov`.
@@ -194,4 +194,4 @@ npm run dev
 
 - Audio crossfades; Maintain Audio Pitch; reversed sound.
 
-Still waiting: your log→Rec.709 and look LUTs in `Reference Materials`, and the `ffprobe` output for one Apple Log and one Apple Log 2 clip.
+Your clips in `Reference Materials/AppleLogClips` confirmed the detection. To re-run them through ginosa: `npm run snapshot -- --scenario footage` (Apple Log 1 in the Source Monitor) or `footage2` (Apple Log 2), then `cat renders/ui/footage.json`.

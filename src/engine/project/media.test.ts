@@ -199,6 +199,17 @@ describe('colour interpretation', () => {
     expect(detectColour(tagged('bt2020', null, 'bt2020nc', 8))).toBe('rec709')
   })
 
+  it('detects your Apple Log and Apple Log 2 clips (iPhone, HEVC 4:2:2 10-bit) from their real tags', () => {
+    // As probed from AppleLog1.mov / AppleLog2.mov: colr nclc 9/2/9 and 2/2/9, matching the SPS VUI.
+    const clip = (primaries: string | null): MediaInfo => {
+      const info = tagged(primaries, null, 'bt2020nc')
+      info.video = { ...info.video!, codec: 'hevc', profile: 'Rext', width: 3840, height: 2160, pixelFormat: 'yuv422p10le', frameRate: { num: 25, den: 1 } }
+      return info
+    }
+    expect(detectColour(clip('bt2020'))).toBe('apple-log')
+    expect(detectColour(clip(null))).toBe('apple-log-2')
+  })
+
   it('lets you override the detection and set an input LUT, undoably', () => {
     const history = fresh()
     const clip = { ...item('Log clip'), info: tagged('bt2020', null, 'bt2020nc') }

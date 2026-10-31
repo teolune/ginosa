@@ -7,6 +7,7 @@ import { player } from '../playback/player'
 import { runSyncTest } from '../playback/sync-test'
 import { runSpeedTest } from '../playback/speed-test'
 import { sourcePlayer } from '../playback/source-player'
+import { openMedia } from '../playback/sources'
 import { probePatches, readPixels } from '../playback/colour-probe'
 import { appleLogToRec709 } from '@engine/colour/colour'
 import { hdrToSdr } from '@shared/colour/hdr-to-sdr'
@@ -125,6 +126,54 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'footage':
+    case 'footage2': {
+      // Your Apple Log clips through ginosa: probe, detection, decoding, conversion, playback speed.
+      const files = await window.ginosa.snapshot.referenceClips()
+      await mediaController.importPaths(files, null)
+      for (let i = 0; i < 40; i++) {
+        await wait(500)
+        if ((projectController.project?.media ?? []).every((m) => mediaController.get(m.id).status !== 'checking' && mediaController.get(m.id).thumbnailUrl)) break
+      }
+      const project = projectController.project!
+      const v1 = project.sequence.tracks.find((t) => t.kind === 'video')!
+      const a1 = project.sequence.tracks.find((t) => t.kind === 'audio')!
+      const report: Record<string, unknown> = {}
+      let at = 0
+      for (const item of project.media) {
+        const runtime = mediaController.get(item.id)
+        const path = mediaController.playablePath(item)
+        const opened = path ? await openMedia(path).catch((error: Error) => error.message) : 'no playable path'
+        report[item.name] = {
+          video: item.info.video,
+          detected: effectiveColour(item),
+          status: runtime.status,
+          decodable: runtime.decodable,
+          optimiseRequired: runtime.required,
+          optimiseSuggested: runtime.suggested,
+          decoderOpened: typeof opened === 'string' ? opened : opened.videoSink !== null,
+          codec: typeof opened === 'string' ? null : await opened.video?.getCodecParameterString()
+        }
+        projectController.dispatch(placeMedia({ mediaId: item.id, sourceIn: 0, sourceOut: secondsToTicks(4), at: secondsToTicks(at), videoTrackId: v1.id, audioTrackId: a1.id, mode: 'overwrite' }))
+        at += 4
+      }
+      // Playback speed: 8 s across both clips, 4K HEVC 4:2:2 10-bit into a 1080p timeline.
+      player.toggleStats()
+      await player.play(1, 0)
+      await wait(7500)
+      report.playback = { stats: player.stats, debug: player.debug }
+      player.stop()
+      // A converted frame in the Source Monitor: Apple Log 1, or Apple Log 2 with --scenario footage2.
+      const shown = projectController.project!.media[scenario === 'footage2' ? 1 : 0]
+      timelineController.setPlayhead(secondsToTicks(6))
+      if (shown) {
+        workspaceController.open('source-monitor')
+        mediaController.openInSource(shown.id, secondsToTicks(2))
+      }
+      await wait(2500)
+      await window.ginosa.snapshot.report(report)
+      break
+    }
     case 'sourceplay': {
       // The Source Monitor on the new player: Apple Log converted, then picture/sound sync.
       const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_applelog\.mov$|sync_flash_beep\.mp4$/.test(f))
