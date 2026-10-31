@@ -1,13 +1,14 @@
 import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
+import type { EffectInstance } from '../effects/types'
 
 /**
  * The project document. Everything the user can undo lives here; window layouts,
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. */
-export const PROJECT_SCHEMA_VERSION = 5
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. */
+export const PROJECT_SCHEMA_VERSION = 6
 
 export type TrackKind = 'video' | 'audio'
 
@@ -25,7 +26,10 @@ export interface Track {
   solo: boolean
 }
 
-/** Photoshop/Premiere blend modes, applied to display (gamma-encoded) values. */
+/**
+ * The Photoshop blend modes, applied to display (gamma-encoded) values, for clips,
+ * adjustment layers and every effect. The order is the shader's mode number (blend.wgsl).
+ */
 export const BLEND_MODES = [
   { id: 'normal', label: 'Normal' },
   { id: 'darken', label: 'Darken' },
@@ -39,8 +43,29 @@ export const BLEND_MODES = [
   { id: 'soft-light', label: 'Soft Light' },
   { id: 'hard-light', label: 'Hard Light' },
   { id: 'difference', label: 'Difference' },
-  { id: 'exclusion', label: 'Exclusion' }
+  { id: 'exclusion', label: 'Exclusion' },
+  { id: 'linear-burn', label: 'Linear Burn' },
+  { id: 'vivid-light', label: 'Vivid Light' },
+  { id: 'linear-light', label: 'Linear Light' },
+  { id: 'pin-light', label: 'Pin Light' },
+  { id: 'hard-mix', label: 'Hard Mix' },
+  { id: 'subtract', label: 'Subtract' },
+  { id: 'divide', label: 'Divide' },
+  { id: 'hue', label: 'Hue' },
+  { id: 'saturation', label: 'Saturation' },
+  { id: 'color', label: 'Color' },
+  { id: 'luminosity', label: 'Luminosity' }
 ] as const
+
+/** Blend modes in Photoshop's menu order, with separators between its groups. */
+export const BLEND_MENU: ReadonlyArray<BlendMode | '-'> = [
+  'normal', '-',
+  'darken', 'multiply', 'color-burn', 'linear-burn', '-',
+  'lighten', 'screen', 'color-dodge', 'add', '-',
+  'overlay', 'soft-light', 'hard-light', 'vivid-light', 'linear-light', 'pin-light', 'hard-mix', '-',
+  'difference', 'exclusion', 'subtract', 'divide', '-',
+  'hue', 'saturation', 'color', 'luminosity'
+]
 
 export type BlendMode = (typeof BLEND_MODES)[number]['id']
 
@@ -89,6 +114,10 @@ export interface Clip {
   transitionIn: Transition | null
   /** A fade out at the clip's end (used when nothing follows the clip). */
   transitionOut: Transition | null
+  /** Effects, top to bottom. A clip's run on it before its Motion; an adjustment layer's on everything below it. */
+  effects: EffectInstance[]
+  /** An adjustment layer: a video-track item with no media, whose effects apply to the tracks beneath it. */
+  adjustment: boolean
 }
 
 export interface Transition {

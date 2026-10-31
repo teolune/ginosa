@@ -1,7 +1,10 @@
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
 import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition } from './model'
-import { defaultMotion } from '../timeline/motion'
+import { defaultMotion, sourceSize } from '../timeline/motion'
+import { effectById } from '../../effects/registry'
+import { sanitiseParams, upgradeInstance } from '../effects/params'
+import type { EffectInstance, ParamValue } from '../effects/types'
 
 /**
  * Project file format: pretty-printed JSON with a schema version. parseProject()
@@ -99,6 +102,11 @@ function migrate(raw: Json): Json {
       media: media.map((m) => (isObject(m) ? { ...m, colour: { input: 'auto', lut: null } } : m)),
       sequence: { ...sequence, clips: clips.map((c) => (isObject(c) ? { ...c, speed: 1, reverse: false, transitionIn: null, transitionOut: null } : c)) }
     }
+  }
+  if (version < 6) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    data = { ...data, schemaVersion: 6, sequence: { ...sequence, clips: clips.map((c) => (isObject(c) ? { ...c, effects: [], adjustment: false } : c)) } }
   }
   return data
 }
@@ -296,8 +304,37 @@ function parseClip(value: unknown, index: number): Clip {
     speed: Math.max(0, expectNumber(value, 'speed', where)),
     reverse: expectBoolean(value, 'reverse', where),
     transitionIn: parseTransition(value['transitionIn'], `${where}.transitionIn`),
-    transitionOut: parseTransition(value['transitionOut'], `${where}.transitionOut`)
+    transitionOut: parseTransition(value['transitionOut'], `${where}.transitionOut`),
+    effects: parseEffects(value['effects'], `${where}.effects`),
+    adjustment: expectBoolean(value, 'adjustment', where)
   }
+}
+
+function parseParamValue(value: unknown, where: string): ParamValue {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'boolean' || typeof value === 'string') return value
+  if (Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number' && Number.isFinite(v))) return [value[0], value[1]]
+  throw new ProjectFormatError(`${where} is not an effect value`)
+}
+
+/** Effects as stored; values are checked against each effect's manifest once media is known. */
+function parseEffects(value: unknown, where: string): EffectInstance[] {
+  if (!Array.isArray(value)) throw new ProjectFormatError(`${where} should be a list`)
+  return value.map((raw, index) => {
+    const at = `${where}[${index}]`
+    if (!isObject(raw)) throw new ProjectFormatError(`${at} should be an object`)
+    const params = raw['params']
+    if (!isObject(params)) throw new ProjectFormatError(`${at}.params should be an object`)
+    return {
+      id: expectString(raw, 'id', at),
+      effectId: expectString(raw, 'effectId', at),
+      version: expectInteger(raw, 'version', at, 1, 1_000_000),
+      enabled: expectBoolean(raw, 'enabled', at),
+      mix: Math.min(100, Math.max(0, expectNumber(raw, 'mix', at))),
+      blendMode: parseBlendMode(raw['blendMode'], `${at}.blendMode`),
+      params: Object.fromEntries(Object.entries(params).map(([key, v]) => [key, parseParamValue(v, `${at}.params.${key}`)]))
+    }
+  })
 }
 
 function parseMarker(value: unknown, index: number): Marker {
@@ -357,7 +394,19 @@ export function parseProject(input: string | unknown): Project {
   if (new Set(clips.map((c) => c.id)).size !== clips.length) throw new ProjectFormatError('Two clips share the same id')
   for (const clip of clips) {
     if (trackKinds.get(clip.trackId) !== clip.kind) throw new ProjectFormatError(`Clip "${clip.name}" is on a missing or wrong-kind track`)
-    if (!mediaIds.has(clip.mediaId)) throw new ProjectFormatError(`Clip "${clip.name}" points at media that isn't in the project`)
+    if (clip.adjustment) {
+      if (clip.kind !== 'video') throw new ProjectFormatError(`Adjustment layer "${clip.name}" is on an audio track`)
+    } else if (!mediaIds.has(clip.mediaId)) throw new ProjectFormatError(`Clip "${clip.name}" points at media that isn't in the project`)
+    // Effects made with an older version of their effect are upgraded; values are checked.
+    // An effect this version of ginosa doesn't know is kept as it is (shown as missing).
+    const settingsForSize = { width: expectInteger(settings, 'width', 'sequence.settings', MIN_DIMENSION, MAX_DIMENSION), height: expectInteger(settings, 'height', 'sequence.settings', MIN_DIMENSION, MAX_DIMENSION) }
+    const size = clip.adjustment ? settingsForSize : sourceSize(media.find((m) => m.id === clip.mediaId), { ...settingsForSize, frameRate: '25', sampleRate: 48_000 })
+    clip.effects = clip.effects.map((effect) => {
+      const manifest = effectById(effect.effectId)
+      if (!manifest) return effect
+      const upgraded = upgradeInstance(manifest, effect, size)
+      return { ...upgraded, params: sanitiseParams(manifest, upgraded.params, size) }
+    })
   }
   const markers = markersRaw.map(parseMarker)
 

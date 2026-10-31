@@ -1,3 +1,4 @@
+import { cloneEffect } from '../effects/params'
 import type { MediaItem } from '../project/media'
 import { CommandError } from '../project/commands'
 import { frameRateOf, type Clip, type IdFactory, type Sequence, type Track, type TrackKind } from '../project/model'
@@ -116,7 +117,9 @@ export function cloneClip(clip: Clip): Clip {
     ...clip,
     motion: { ...clip.motion },
     transitionIn: clip.transitionIn ? { ...clip.transitionIn } : null,
-    transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null
+    transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null,
+    // Effects are copied with their ids (ids only need to be unique within a clip).
+    effects: clip.effects.map((e) => cloneEffect(e))
   }
 }
 

@@ -12,8 +12,9 @@ export { sourceTimeAt }
 
 export interface VideoLayer {
   clip: Clip
-  item: MediaItem
-  /** Time in the media file to show, in ticks. */
+  /** The clip's media; null for an adjustment layer. */
+  item: MediaItem | null
+  /** Time in the media file to show, in ticks (0 for adjustment layers). */
   sourceTime: Ticks
   /** Transition weight (0–1), multiplied into the clip's opacity. */
   weight: number
@@ -105,6 +106,11 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip, weight } of trackLayers(sequence, track.id, time)) {
       if (clip.opacity <= 0 || weight <= 0) continue
+      if (clip.adjustment) {
+        // An adjustment layer with nothing switched on changes nothing.
+        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight) })
+        continue
+      }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
       layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight) })

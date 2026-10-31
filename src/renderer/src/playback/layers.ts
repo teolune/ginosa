@@ -5,7 +5,9 @@ import type { Sequence } from '@engine/project/model'
 import { inverseMotion, sourceSize } from '@engine/timeline/motion'
 import type { VideoLayer } from '@engine/timeline/render-plan'
 import { projectController } from '../state/project-controller'
-import type { Compositor, CompositeLayer, GpuLut, LayerColour } from './compositor'
+import { effectById } from '../../../effects/registry'
+import type { EffectInstance } from '@engine/effects/types'
+import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, LayerColour } from './compositor'
 
 /**
  * Turns the render plan's layers into compositor layers: Motion, opacity × transition
@@ -23,9 +25,22 @@ export class LayerBuilder {
     private readonly onError: (message: string) => void = () => undefined
   ) {}
 
+  /** The switched-on effects of a stack, ready for the GPU (effects missing from this version are skipped). */
+  effects(stack: EffectInstance[]): GpuEffect[] {
+    return stack.flatMap((effect) => {
+      const manifest = effect.enabled ? effectById(effect.effectId) : undefined
+      return manifest ? [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode }] : []
+    })
+  }
+
+  /** An adjustment layer: its effects on everything beneath, with its opacity × transition weight. */
+  adjustment(layer: VideoLayer): AdjustmentStep {
+    return { kind: 'adjustment', effects: this.effects(layer.clip.effects), opacity: (layer.clip.opacity / 100) * layer.weight, blend: layer.clip.blendMode }
+  }
+
   build(layer: VideoLayer, source: CompositeLayer['source'], sequence: Sequence): CompositeLayer | null {
     const inverse = inverseMotion(layer.clip.motion)
-    if (!inverse) return null
+    if (!inverse || !layer.item) return null
     const size = sourceSize(layer.item, sequence.settings)
     const rotation = Math.round(((layer.item.info.video?.rotation ?? 0) % 360) / 90)
     return {
@@ -36,7 +51,8 @@ export class LayerBuilder {
       rotation: (rotation + 4) % 4,
       opacity: (layer.clip.opacity / 100) * layer.weight,
       blend: layer.clip.blendMode,
-      colour: this.colour(layer.item, source)
+      colour: this.colour(layer.item, source),
+      effects: this.effects(layer.clip.effects)
     }
   }
 

@@ -4,6 +4,7 @@ import type { MediaItem } from '../project/media'
 import { defaultId, type Clip, type IdFactory, type Project, type Sequence, type TrackKind } from '../project/model'
 import { secondsToTicks, type Ticks } from '../time'
 import { defaultMotion } from './motion'
+import { cloneEffect } from '../effects/params'
 import {
   DEFAULT_STILL_SECONDS,
   EditContext,
@@ -57,7 +58,7 @@ function noteSplits(command: TimelineCommand, sequence: Sequence, ctx: EditConte
   command.notice = `Sync Lock split ${plural(ctx.splitElsewhere.length, 'clip')} on ${names} to keep ${ctx.splitElsewhere.length === 1 ? 'it' : 'them'} in sync. Turn off Sync Lock on a track (e.g. your song) to leave it whole.`
 }
 
-function timelineCommand(label: string, apply: (draft: Draft<Project>, command: TimelineCommand) => void): TimelineCommand {
+export function timelineCommand(label: string, apply: (draft: Draft<Project>, command: TimelineCommand) => void): TimelineCommand {
   const command: TimelineCommand = {
     label,
     apply(draft) {
@@ -118,7 +119,9 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
       speed: 1,
       reverse: false,
       transitionIn: null,
-      transitionOut: null
+      transitionOut: null,
+      effects: [],
+      adjustment: false
     }
   })
 }
@@ -529,6 +532,8 @@ export interface ClipboardClip {
   reverse: boolean
   transitionIn: Clip['transitionIn']
   transitionOut: Clip['transitionOut']
+  effects: Clip['effects']
+  adjustment: boolean
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -551,7 +556,9 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     speed: c.speed,
     reverse: c.reverse,
     transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
-    transitionOut: c.transitionOut ? { ...c.transitionOut } : null
+    transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
+    effects: c.effects.map((e) => cloneEffect(e)),
+    adjustment: c.adjustment
   }))
 }
 
@@ -559,7 +566,7 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
   const start = toFrame(at, frameTicks(sequence))
   const links = new Map<string, string>()
   const clips: Clip[] = clipboard.map((c) => {
-    if (!media.some((m) => m.id === c.mediaId)) throw new CommandError(`"${c.name}" is no longer in the project`)
+    if (!c.adjustment && !media.some((m) => m.id === c.mediaId)) throw new CommandError(`"${c.name}" is no longer in the project`)
     const track = findTrack(sequence, c.trackId)
     assertUnlocked(track)
     let linkId: string | null = null
@@ -584,7 +591,10 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       speed: c.speed,
       reverse: c.reverse,
       transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
-      transitionOut: c.transitionOut ? { ...c.transitionOut } : null
+      transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
+      // Pasted effects get fresh ids so they can be told apart from the originals.
+      effects: c.effects.map((e) => cloneEffect(e, ctx.newId())),
+      adjustment: c.adjustment
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]
@@ -804,6 +814,7 @@ export function setClipSpeed(request: SpeedRequest, media: MediaItem[], newId: I
     if (!(request.speed >= MIN_SPEED && request.speed <= MAX_SPEED)) throw new CommandError(`Speed must be between ${MIN_SPEED * 100}% and ${MAX_SPEED * 100}%`)
     const clips = [...new Set(request.clipIds)].map((id) => findClip(sequence, id))
     if (clips.length === 0) throw new CommandError('Select a clip to change its speed')
+    if (clips.some((c) => c.adjustment)) throw new CommandError('Adjustment layers have no speed: they apply to whatever is beneath them')
     for (const clip of clips) assertUnlocked(findTrack(sequence, clip.trackId))
     const ctx = new EditContext(newId)
     const selectedTracks = new Set(clips.map((c) => c.trackId))
@@ -869,7 +880,7 @@ export function addFrameHold(clipIds: string[], at: Ticks, newId: IdFactory = de
     let count = 0
     for (const id of new Set(clipIds)) {
       const clip = findClip(sequence, id)
-      if (clip.kind !== 'video' || clip.start > time || clipEnd(clip) <= time) continue
+      if (clip.kind !== 'video' || clip.adjustment || clip.start > time || clipEnd(clip) <= time) continue
       assertUnlocked(findTrack(sequence, clip.trackId))
       const held = sourceTimeAt(clip, time, frameTicks(sequence))
       let target = clip

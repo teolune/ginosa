@@ -159,31 +159,6 @@ fn codedUv(uv: vec2f, quarters: f32) -> vec2f {
   return uv;
 }
 
-fn softLight(d: f32, s: f32) -> f32 {
-  if (s <= 0.5) { return d - (1.0 - 2.0 * s) * d * (1.0 - d); }
-  var g: f32;
-  if (d <= 0.25) { g = ((16.0 * d - 12.0) * d + 4.0) * d; } else { g = sqrt(d); }
-  return d + (2.0 * s - 1.0) * (g - d);
-}
-
-fn blendChannel(d: f32, s: f32, mode: u32) -> f32 {
-  switch (mode) {
-    case 1u: { return min(d, s); }                                   // darken
-    case 2u: { return d * s; }                                       // multiply
-    case 3u: { if (d >= 1.0) { return 1.0; } if (s <= 0.0) { return 0.0; } return 1.0 - min(1.0, (1.0 - d) / s); } // color burn
-    case 4u: { return max(d, s); }                                   // lighten
-    case 5u: { return 1.0 - (1.0 - d) * (1.0 - s); }                 // screen
-    case 6u: { if (d <= 0.0) { return 0.0; } if (s >= 1.0) { return 1.0; } return min(1.0, d / (1.0 - s)); } // color dodge
-    case 7u: { return min(1.0, d + s); }                             // linear dodge (add)
-    case 8u: { if (d <= 0.5) { return 2.0 * d * s; } return 1.0 - 2.0 * (1.0 - d) * (1.0 - s); } // overlay
-    case 9u: { return softLight(d, s); }                             // soft light
-    case 10u: { if (s <= 0.5) { return 2.0 * d * s; } return 1.0 - 2.0 * (1.0 - d) * (1.0 - s); } // hard light
-    case 11u: { return abs(d - s); }                                 // difference
-    case 12u: { return d + s - 2.0 * d * s; }                        // exclusion
-    default: { return s; }                                           // normal
-  }
-}
-
 fn composite(pixel: vec2f, src: vec4f, s: vec2f) -> vec4f {
   let below = textureLoad(dst, vec2i(pixel), 0);
   let size = layer.inverse1.zw;
@@ -192,11 +167,7 @@ fn composite(pixel: vec2f, src: vec4f, s: vec2f) -> vec4f {
   let perPixel = max(max(fwidth(s.x), fwidth(s.y)), 1e-4);
   let coverage = clamp(edge / perPixel + 0.5, 0.0, 1.0);
   let mode = u32(layer.params.w + 0.5);
-  let blended = vec3f(
-    blendChannel(below.r, src.r, mode),
-    blendChannel(below.g, src.g, mode),
-    blendChannel(below.b, src.b, mode)
-  );
+  let blended = blendRgb(below.rgb, src.rgb, mode);
   let alpha = clamp(src.a * layer.params.y * coverage, 0.0, 1.0);
   return vec4f(mix(below.rgb, blended, alpha), 1.0);
 }
@@ -215,6 +186,32 @@ fn fsImage(in: VsOut) -> @location(0) vec4f {
   let uv = clamp(s / layer.inverse1.zw, vec2f(0.0), vec2f(1.0));
   let sampled = textureSampleLevel(srcImage, srcSampler, uv, 0.0);
   return composite(in.position.xy, vec4f(inputColour(sampled.rgb), sampled.a), s);
+}
+
+// A clip with effects is first drawn at its own size (decoded, colour-converted,
+// rotation applied), so its effects run on its own pixels before Motion places it.
+@fragment
+fn fsSourceVideo(in: VsOut) -> @location(0) vec4f {
+  let sampled = textureSampleBaseClampToEdge(srcVideo, srcSampler, codedUv(in.uv, layer.params.z));
+  return vec4f(inputColour(sampled.rgb), sampled.a);
+}
+
+@fragment
+fn fsSourceImage(in: VsOut) -> @location(0) vec4f {
+  let sampled = textureSampleLevel(srcImage, srcSampler, in.uv, 0.0);
+  return vec4f(inputColour(sampled.rgb), sampled.a);
+}
+
+// An adjustment layer: its effects' result (srcImage, the size of the frame) blended
+// onto everything beneath with the layer's opacity and blend mode. Transparent parts
+// of the result (e.g. a Transform shrinking the frame) count as black.
+@fragment
+fn fsAdjust(in: VsOut) -> @location(0) vec4f {
+  let below = textureLoad(dst, vec2i(in.position.xy), 0);
+  let fx = textureLoad(srcImage, vec2i(in.position.xy), 0);
+  let mode = u32(layer.params.w + 0.5);
+  let blended = blendRgb(below.rgb, fx.rgb * fx.a, mode);
+  return vec4f(mix(below.rgb, blended, clamp(layer.params.y, 0.0, 1.0)), 1.0);
 }
 
 // Final copy of the composite to the screen (or an export target).

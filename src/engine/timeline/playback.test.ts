@@ -123,7 +123,7 @@ describe('render plan', () => {
     const t = setup()
     t.place(UHD, 0, t.V1, t.A1)
     t.place(PORTRAIT, 2, t.V2, null, 3)
-    const at = (seconds: number) => videoLayersAt(t.history.state.sequence, t.history.state.media, s(seconds)).map((l) => l.item.name)
+    const at = (seconds: number) => videoLayersAt(t.history.state.sequence, t.history.state.media, s(seconds)).map((l) => l.item?.name)
     expect(at(1)).toEqual(['iphone4k'])
     expect(at(3)).toEqual(['iphone4k', 'portrait'])
     const layer = videoLayersAt(t.history.state.sequence, t.history.state.media, s(3))[1]!

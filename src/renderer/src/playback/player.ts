@@ -11,7 +11,7 @@ import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { AudioEngine } from './audio-engine'
-import { Compositor, type CompositeLayer } from './compositor'
+import { Compositor, type CompositeLayer, type CompositeStep } from './compositor'
 import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
@@ -192,6 +192,10 @@ export class Player extends Observable {
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
     let message: string | null = null
     for (const layer of layers) {
+      if (!layer.item) {
+        prepared.push({ layer, source: null })
+        continue
+      }
       const path = this.path(layer.item)
       if (!path) {
         message = mediaController.get(layer.item.id).status === 'offline' ? `${layer.item.name} is offline` : `${layer.item.name}: optimised copy in progress`
@@ -216,7 +220,8 @@ export class Player extends Observable {
       return
     }
     const scale = this.prepareTarget(sequence)
-    const composite = prepared.flatMap((p) => {
+    const composite = prepared.flatMap((p): CompositeStep[] => {
+      if (!p.layer.item) return [this.layers!.adjustment(p.layer)]
       const layer = p.source ? this.layers!.build(p.layer, p.source, sequence) : null
       return layer ? [layer] : []
     })
@@ -289,7 +294,7 @@ export class Player extends Observable {
     if (rate > 0) {
       const starting: Array<Promise<void>> = []
       for (const layer of videoLayersAt(project.sequence, project.media, from)) {
-        const path = layer.item.kind === 'image' ? null : this.path(layer.item)
+        const path = !layer.item || layer.item.kind === 'image' ? null : this.path(layer.item)
         if (!path) continue
         const media = await openMedia(path).catch(() => null)
         if (!media?.videoSink) continue
@@ -383,13 +388,18 @@ export class Player extends Observable {
       for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate))) this.ensureStream(layer, Math.max(visibleFrom(sequence, layer.clip), shown), sequence)
     }
 
-    const composite: CompositeLayer[] = []
+    const composite: CompositeStep[] = []
     const frames: VideoFrame[] = []
     let missing = false
     for (const layer of layers) {
-      const path = this.path(layer.item)
+      if (!layer.item) {
+        composite.push(this.layers!.adjustment(layer))
+        continue
+      }
+      const item = layer.item
+      const path = this.path(item)
       if (!path) continue
-      if (layer.item.kind === 'image') {
+      if (item.kind === 'image') {
         const texture = this.layers!.loadedStill(path)
         if (texture) {
           const c = this.layers!.build(layer, { kind: 'image', texture }, sequence)
@@ -402,7 +412,7 @@ export class Player extends Observable {
       const sample = stream?.frameAt(ticksToSeconds(layer.sourceTime)) ?? null
       if (!sample) {
         missing = true
-        this.debug.missing[layer.item.name] = (this.debug.missing[layer.item.name] ?? 0) + 1
+        this.debug.missing[item.name] = (this.debug.missing[item.name] ?? 0) + 1
         continue
       }
       const videoFrame = sample.toVideoFrame()
@@ -456,11 +466,11 @@ export class Player extends Observable {
   /** Forwards, reversed or a frame hold, from the clip's media time at timeline time `at`. */
   private openStream(media: OpenedMedia, layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource {
     const clip = layer.clip
-    const start = ticksToSeconds(sourceTimeAt(clip, at, ticksPerFrame(frameRateOf(sequence.settings)), mediaLength(layer.item)))
+    const start = ticksToSeconds(sourceTimeAt(clip, at, ticksPerFrame(frameRateOf(sequence.settings)), layer.item ? mediaLength(layer.item) : null))
     if (clip.speed === 0) return new HoldStream(media, start)
     if (clip.reverse) {
       const step = ticksToSeconds(ticksPerFrame(frameRateOf(sequence.settings))) * clip.speed
-      const rate = layer.item.info.video?.frameRate
+      const rate = layer.item?.info.video?.frameRate
       const frameSeconds = rate && rate.num > 0 ? rate.den / rate.num : 1 / 30
       return new ReverseStream(media, start, step, frameSeconds)
     }
@@ -468,10 +478,11 @@ export class Player extends Observable {
   }
 
   private ensureStream(layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource | null {
-    if (layer.item.kind === 'image') return null
+    const item = layer.item
+    if (!item || item.kind === 'image') return null
     const existing = this.streams.get(layer.clip.id)
     if (existing) return existing
-    const path = this.path(layer.item)
+    const path = this.path(item)
     if (!path) return null
     // Open asynchronously; the slot is filled once the file is ready.
     const placeholder: FrameSource = { frameAt: () => null, ready: async () => undefined, close: () => undefined, late: 0 }
@@ -482,7 +493,7 @@ export class Player extends Observable {
         this.streams.set(layer.clip.id, this.openStream(media, layer, at, sequence))
       })
       .catch((error: Error) => {
-        this.message = `${layer.item.name}: ${error.message}`
+        this.message = `${item.name}: ${error.message}`
         this.notify()
       })
     return placeholder

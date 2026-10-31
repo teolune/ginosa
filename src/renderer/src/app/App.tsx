@@ -8,6 +8,7 @@ import { runSyncTest } from '../playback/sync-test'
 import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
 import { exportColourTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
 import { exporter } from '../playback/exporter'
+import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { sourcePlayer } from '../playback/source-player'
 import { openMedia } from '../playback/sources'
 import { probePatches, readPixels } from '../playback/colour-probe'
@@ -178,6 +179,10 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       }
       await wait(2500)
       await window.ginosa.snapshot.report(report)
+      break
+    }
+    case 'effectsgpu': {
+      await window.ginosa.snapshot.report(await runEffectGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'sourceplay': {

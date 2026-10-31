@@ -10,7 +10,7 @@ import { getGpu } from '../gpu/shared'
 import { mediaController } from '../state/media-controller'
 import { Observable } from '../state/observable'
 import { renderMixdown } from './audio-mixdown'
-import { Compositor, type CompositeLayer } from './compositor'
+import { Compositor, type CompositeStep } from './compositor'
 import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { YuvConverter } from './yuv'
@@ -115,7 +115,7 @@ class Exporter extends Observable {
     try {
       if (frames === 0) throw new Error('The timeline is empty')
       // Everything the export needs must be playable now.
-      const used = new Set(sequence.clips.map((c) => c.mediaId))
+      const used = new Set(sequence.clips.filter((c) => !c.adjustment).map((c) => c.mediaId))
       const items = media.filter((m) => used.has(m.id))
       for (const item of items) {
         if (!mediaController.playablePath(item)) throw new Error(`${item.name} isn't available: ${mediaController.get(item.id).status === 'offline' ? 'it is offline' : 'its optimised copy is still being made'}`)
@@ -146,9 +146,13 @@ class Exporter extends Observable {
         this.checkCancelled()
         const time: Ticks = index * frame
         const plan = videoLayersAt(sequence, media, time)
-        const composite: CompositeLayer[] = []
+        const composite: CompositeStep[] = []
         const videoFrames: VideoFrame[] = []
         for (const layer of plan) {
+          if (!layer.item) {
+            composite.push(layers.adjustment(layer))
+            continue
+          }
           const file = path(layer.item)!
           if (layer.item.kind === 'image') {
             const texture = layers.loadedStill(file) ?? layers.stillTexture(file, await openStill(file))

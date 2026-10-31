@@ -1,0 +1,177 @@
+import { blendIndex } from '@engine/effects/blend'
+import { DISPLAY_GAMMA } from '@engine/effects/colour-spaces'
+import type { EffectManifest, ParamValue } from '@engine/effects/types'
+import type { BlendMode } from '@engine/project/model'
+import blendSource from './blend.wgsl?raw'
+
+/**
+ * Turns an effect's WGSL into a complete render pass: its parameters as a uniform
+ * struct, helpers to read the input in the effect's colour space, and the shared
+ * controls every effect gets (the result converted back to display values, then
+ * blended onto the input with its blend mode and Mix).
+ */
+
+const SPACES = { display: 0, linear: 1, oklab: 2 } as const
+
+interface Field {
+  name: string
+  value(params: Record<string, ParamValue>, pixelScale: number): number
+}
+
+function fields(manifest: EffectManifest): Field[] {
+  const out: Field[] = []
+  for (const spec of manifest.params) {
+    const id = spec.id
+    switch (spec.type) {
+      case 'number':
+        out.push({ name: id, value: (p, scale) => Number(p[id] ?? spec.default) * (spec.pixels ? scale : 1) })
+        break
+      case 'angle':
+        out.push({ name: id, value: (p) => Number(p[id] ?? spec.default) })
+        break
+      case 'toggle':
+        out.push({ name: id, value: (p) => ((p[id] ?? spec.default) ? 1 : 0) })
+        break
+      case 'choice':
+        out.push({ name: id, value: (p) => Math.max(0, spec.options.findIndex((o) => o.id === (p[id] ?? spec.default))) })
+        break
+      case 'point':
+        out.push({ name: `${id}_x`, value: (p, scale) => ((p[id] as [number, number] | undefined)?.[0] ?? 0) * scale })
+        out.push({ name: `${id}_y`, value: (p, scale) => ((p[id] as [number, number] | undefined)?.[1] ?? 0) * scale })
+        break
+    }
+  }
+  // Uniform structs are padded to 16 bytes.
+  while (out.length === 0 || out.length % 4 !== 0) out.push({ name: `_pad${out.length}`, value: () => 0 })
+  return out
+}
+
+export function paramsBytes(manifest: EffectManifest): number {
+  return fields(manifest).length * 4
+}
+
+/** The effect's parameter values as the uniform buffer expects. Pixel values are scaled to the processing size. */
+export function packParams(manifest: EffectManifest, params: Record<string, ParamValue>, pixelScale: number): Float32Array {
+  return new Float32Array(fields(manifest).map((f) => f.value(params, pixelScale)))
+}
+
+/** The frame uniform: image size, Mix (0–1), blend mode, pixel scale. */
+export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number): Float32Array {
+  return new Float32Array([width, height, mix, blendIndex(blend), pixelScale, 0, 0, 0])
+}
+
+export function effectShaderSource(manifest: EffectManifest): string {
+  const params = fields(manifest)
+    .map((f) => `  ${f.name}: f32,`)
+    .join('\n')
+  return `
+struct EffectFrame {
+  size: vec2f,
+  mixAmount: f32,
+  blendMode: f32,
+  pixelScale: f32,
+  _a: f32,
+  _b: f32,
+  _c: f32,
+};
+
+struct EffectParams {
+${params}
+};
+
+@group(0) @binding(0) var inputTex: texture_2d<f32>;
+@group(0) @binding(1) var linearSampler: sampler;
+@group(0) @binding(2) var<uniform> frame: EffectFrame;
+@group(0) @binding(3) var<uniform> params: EffectParams;
+
+const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
+
+fn toLinear(c: vec3f) -> vec3f { return sign(c) * pow(abs(c), vec3f(${DISPLAY_GAMMA.toFixed(1)})); }
+fn toDisplay(c: vec3f) -> vec3f { return sign(c) * pow(abs(c), vec3f(1.0 / ${DISPLAY_GAMMA.toFixed(1)})); }
+
+// WGSL's pow is undefined for negative bases, so cube roots and cubes keep the sign by hand.
+fn cbrtSigned(x: f32) -> f32 { return sign(x) * pow(abs(x), 1.0 / 3.0); }
+
+fn toOklab(c: vec3f) -> vec3f {
+  let l = cbrtSigned(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);
+  let m = cbrtSigned(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);
+  let s = cbrtSigned(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);
+  return vec3f(
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+  );
+}
+
+fn fromOklab(c: vec3f) -> vec3f {
+  let l0 = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
+  let m0 = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
+  let s0 = c.x - 0.0894841775 * c.y - 1.291485548 * c.z;
+  let l = l0 * l0 * l0;
+  let m = m0 * m0 * m0;
+  let s = s0 * s0 * s0;
+  return vec3f(
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  );
+}
+
+fn toSpace(c: vec3f) -> vec3f {
+  if (EFFECT_SPACE == 1u) { return toLinear(c); }
+  if (EFFECT_SPACE == 2u) { return toOklab(toLinear(c)); }
+  return c;
+}
+
+fn fromSpace(c: vec3f) -> vec3f {
+  if (EFFECT_SPACE == 1u) { return toDisplay(c); }
+  if (EFFECT_SPACE == 2u) { return toDisplay(fromOklab(c)); }
+  return c;
+}
+
+fn imageSize() -> vec2f { return frame.size; }
+
+fn inputLoad(p: vec2i) -> vec4f {
+  let c = textureLoad(inputTex, clamp(p, vec2i(0), vec2i(frame.size) - 1), 0);
+  return vec4f(toSpace(c.rgb), c.a);
+}
+
+fn inputAt(px: vec2f) -> vec4f {
+  let c = textureSampleLevel(inputTex, linearSampler, px / frame.size, 0.0);
+  return vec4f(toSpace(c.rgb), c.a);
+}
+
+fn inputNearest(px: vec2f) -> vec4f { return inputLoad(vec2i(floor(px))); }
+
+${blendSource}
+
+// ---- ${manifest.name} (src/effects/${manifest.id}) ----
+${manifest.shader}
+// ----
+
+struct VsOut {
+  @builtin(position) position: vec4f,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) index: u32) -> VsOut {
+  var corners = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VsOut;
+  out.position = vec4f(corners[index], 0.0, 1.0);
+  return out;
+}
+
+@fragment
+fn fsEffect(in: VsOut) -> @location(0) vec4f {
+  let src = textureLoad(inputTex, vec2i(in.position.xy), 0);
+  let fx = effect(in.position.xy);
+  let result = vec4f(fromSpace(fx.rgb), fx.a);
+  let mode = u32(frame.blendMode + 0.5);
+  var blended = result;
+  if (mode != 0u) {
+    blended = vec4f(mix(src.rgb, blendRgb(src.rgb, result.rgb, mode), result.a), src.a);
+  }
+  return mix(src, blended, clamp(frame.mixAmount, 0.0, 1.0));
+}
+`
+}

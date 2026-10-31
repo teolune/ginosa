@@ -1,7 +1,20 @@
 import { BLEND_MODES, type BlendMode } from '@engine/project/model'
 import type { Affine } from '@engine/timeline/motion'
 import type { Matrix3 } from '@engine/colour/colour'
-import shaderSource from './composite.wgsl?raw'
+import type { EffectManifest, ParamValue } from '@engine/effects/types'
+import blendSource from './blend.wgsl?raw'
+import compositeSource from './composite.wgsl?raw'
+import { effectShaderSource, packFrame, packParams } from './effect-shader'
+
+const shaderSource = `${blendSource}\n${compositeSource}`
+
+/** An effect ready to run: its manifest, values, and the shared Mix (0–1) and blend mode. */
+export interface GpuEffect {
+  manifest: EffectManifest
+  params: Record<string, ParamValue>
+  mix: number
+  blend: BlendMode
+}
 
 /** One layer to composite: a decoded frame or a still, how it's placed, and how it blends. */
 export interface CompositeLayer {
@@ -16,6 +29,22 @@ export interface CompositeLayer {
   opacity: number
   blend: BlendMode
   colour: LayerColour
+  /** The clip's effects (switched-on ones only), run on its own pixels before Motion. */
+  effects?: GpuEffect[]
+}
+
+/** An adjustment layer: effects on everything composited so far, blended back with opacity and mode. */
+export interface AdjustmentStep {
+  kind: 'adjustment'
+  effects: GpuEffect[]
+  opacity: number
+  blend: BlendMode
+}
+
+export type CompositeStep = CompositeLayer | AdjustmentStep
+
+function isAdjustment(step: CompositeStep): step is AdjustmentStep {
+  return (step as AdjustmentStep).kind === 'adjustment'
 }
 
 /** How a layer's pixels become working (Rec.709 code) values. */
@@ -33,6 +62,8 @@ export interface GpuLut {
 }
 
 const LAYER_BYTES = 144
+const UNIFORM_BYTES = 256
+const NO_COLOUR: LayerColour = { undoMacDisplay: false, conversion: { kind: 'none' } }
 
 /** float32 → IEEE half, for 16-bit float textures. */
 function toHalf(value: number): number {
@@ -59,8 +90,11 @@ function toHalf(value: number): number {
 export class Compositor {
   private readonly module: GPUShaderModule
   private readonly sampler: GPUSampler
-  private videoPipeline: GPURenderPipeline | null = null
-  private imagePipeline: GPURenderPipeline | null = null
+  private pipelines = new Map<string, GPURenderPipeline>()
+  private effectPipelines = new Map<string, GPURenderPipeline>()
+  private effectLayout: GPUPipelineLayout | null = null
+  private scratch = new Map<string, GPUTexture[]>()
+  private uniformUsed = 0
   private presentPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
   private targets: [GPUTexture, GPUTexture] | null = null
   private uniformPool: GPUBuffer[] = []
@@ -89,18 +123,47 @@ export class Compositor {
     this.targets = [make(), make()]
   }
 
-  private layerPipeline(kind: 'video' | 'image'): GPURenderPipeline {
-    const existing = kind === 'video' ? this.videoPipeline : this.imagePipeline
-    if (existing) return existing
-    const pipeline = this.device.createRenderPipeline({
-      label: `composite ${kind}`,
-      layout: 'auto',
-      vertex: { module: this.module, entryPoint: 'vs' },
-      fragment: { module: this.module, entryPoint: kind === 'video' ? 'fsVideo' : 'fsImage', targets: [{ format: 'rgba16float' }] },
-      primitive: { topology: 'triangle-list' }
-    })
-    if (kind === 'video') this.videoPipeline = pipeline
-    else this.imagePipeline = pipeline
+  private pipeline(entryPoint: string): GPURenderPipeline {
+    let pipeline = this.pipelines.get(entryPoint)
+    if (!pipeline) {
+      pipeline = this.device.createRenderPipeline({
+        label: `composite ${entryPoint}`,
+        layout: 'auto',
+        vertex: { module: this.module, entryPoint: 'vs' },
+        fragment: { module: this.module, entryPoint, targets: [{ format: 'rgba16float' }] },
+        primitive: { topology: 'triangle-list' }
+      })
+      this.pipelines.set(entryPoint, pipeline)
+    }
+    return pipeline
+  }
+
+  private effectPipeline(manifest: EffectManifest): GPURenderPipeline {
+    let pipeline = this.effectPipelines.get(manifest.id)
+    if (!pipeline) {
+      const module = this.device.createShaderModule({ label: `effect ${manifest.id}`, code: effectShaderSource(manifest) })
+      // One explicit layout for every effect, so bindings an effect doesn't use are still valid.
+      this.effectLayout ??= this.device.createPipelineLayout({
+        bindGroupLayouts: [
+          this.device.createBindGroupLayout({
+            entries: [
+              { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+              { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+              { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+            ]
+          })
+        ]
+      })
+      pipeline = this.device.createRenderPipeline({
+        label: `effect ${manifest.id}`,
+        layout: this.effectLayout,
+        vertex: { module, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fsEffect', targets: [{ format: 'rgba16float' }] },
+        primitive: { topology: 'triangle-list' }
+      })
+      this.effectPipelines.set(manifest.id, pipeline)
+    }
     return pipeline
   }
 
@@ -119,60 +182,150 @@ export class Compositor {
     return pipeline
   }
 
-  private uniforms(index: number): GPUBuffer {
-    while (this.uniformPool.length <= index) {
-      this.uniformPool.push(this.device.createBuffer({ size: LAYER_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }))
+  /** A uniform buffer for one pass. Each pass in a frame needs its own (writes land before the frame runs). */
+  private uniform(data: Float32Array): GPUBuffer {
+    if (this.uniformUsed >= this.uniformPool.length) {
+      this.uniformPool.push(this.device.createBuffer({ size: UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }))
     }
-    return this.uniformPool[index]!
+    const buffer = this.uniformPool[this.uniformUsed++]!
+    this.device.queue.writeBuffer(buffer, 0, data)
+    return buffer
   }
 
-  /**
-   * Composites `layers` (bottom first) over black. `scale` is output pixels per sequence
-   * pixel. Must run in the task that produced the VideoFrames (external textures expire).
-   * Returns the texture holding the result.
-   */
-  render(layers: CompositeLayer[], scale: number): GPUTexture {
-    if (!this.targets) throw new Error('Compositor has no size yet')
-    const encoder = this.device.createCommandEncoder({ label: 'composite' })
-    let [read, write] = this.targets
-    // Start from black.
-    encoder.beginRenderPass({ colorAttachments: [{ view: read.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }).end()
-    layers.forEach((layer, index) => {
-      const data = new Float32Array(LAYER_BYTES / 4)
-      const m = layer.inverse
-      const conversion = layer.colour.conversion
-      const lut = conversion.kind === 'lut' ? conversion.lut : null
-      const gamut = conversion.kind === 'apple-log' ? conversion.gamut : ([1, 0, 0, 0, 1, 0, 0, 0, 1] as Matrix3)
-      data.set([
-        m.a, m.b, m.c, m.d, m.e, m.f, layer.width, layer.height,
-        scale, layer.opacity, layer.rotation, BLEND_MODES.findIndex((b) => b.id === layer.blend),
-        layer.colour.undoMacDisplay ? 1 : 0, conversion.kind === 'apple-log' ? 1 : conversion.kind === 'lut' ? 2 : conversion.kind === 'hdr' ? (conversion.transfer === 'hlg' ? 3 : 4) : 0, lut?.size ?? 1, 0,
-        ...(lut?.min ?? [0, 0, 0]), 0,
-        ...(lut?.max ?? [1, 1, 1]), 0,
-        // WGSL matrices are column-major: column j holds row-major entries j, j+3, j+6.
-        gamut[0], gamut[3], gamut[6], 0,
-        gamut[1], gamut[4], gamut[7], 0,
-        gamut[2], gamut[5], gamut[8], 0
-      ])
-      const buffer = this.uniforms(index)
-      this.device.queue.writeBuffer(buffer, 0, data)
-      const pipeline = this.layerPipeline(layer.source.kind)
-      const entries: GPUBindGroupEntry[] = [
-        { binding: 1, resource: this.sampler },
-        { binding: 2, resource: { buffer } },
-        { binding: 3, resource: read.createView() },
-        { binding: 7, resource: (lut?.texture ?? this.noLut).createView({ dimension: '3d' }) }
-      ]
-      if (layer.source.kind === 'video') entries.push({ binding: 0, resource: this.device.importExternalTexture({ source: layer.source.frame }) })
-      else entries.push({ binding: 4, resource: layer.source.texture.createView() })
-      const bindGroup = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
-      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: write.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+  /** A scratch texture from the pool (kept between frames). */
+  private take(width: number, height: number): GPUTexture {
+    const key = `${width}x${height}`
+    const free = this.scratch.get(key)
+    const texture = free?.pop()
+    if (texture) return texture
+    return this.device.createTexture({
+      size: [width, height],
+      format: 'rgba16float',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    })
+  }
+
+  private release(texture: GPUTexture): void {
+    const key = `${texture.width}x${texture.height}`
+    const free = this.scratch.get(key) ?? []
+    free.push(texture)
+    this.scratch.set(key, free)
+  }
+
+  private layerUniform(layer: CompositeLayer, scale: number): Float32Array {
+    const data = new Float32Array(LAYER_BYTES / 4)
+    const m = layer.inverse
+    const conversion = layer.colour.conversion
+    const lut = conversion.kind === 'lut' ? conversion.lut : null
+    const gamut = conversion.kind === 'apple-log' ? conversion.gamut : ([1, 0, 0, 0, 1, 0, 0, 0, 1] as Matrix3)
+    data.set([
+      m.a, m.b, m.c, m.d, m.e, m.f, layer.width, layer.height,
+      scale, layer.opacity, layer.rotation, BLEND_MODES.findIndex((b) => b.id === layer.blend),
+      layer.colour.undoMacDisplay ? 1 : 0, conversion.kind === 'apple-log' ? 1 : conversion.kind === 'lut' ? 2 : conversion.kind === 'hdr' ? (conversion.transfer === 'hlg' ? 3 : 4) : 0, lut?.size ?? 1, 0,
+      ...(lut?.min ?? [0, 0, 0]), 0,
+      ...(lut?.max ?? [1, 1, 1]), 0,
+      // WGSL matrices are column-major: column j holds row-major entries j, j+3, j+6.
+      gamut[0], gamut[3], gamut[6], 0,
+      gamut[1], gamut[4], gamut[7], 0,
+      gamut[2], gamut[5], gamut[8], 0
+    ])
+    return data
+  }
+
+  /** One full-screen pass of a composite.wgsl entry point into `target`. */
+  private draw(encoder: GPUCommandEncoder, entryPoint: string, target: GPUTexture, resources: Partial<Record<number, GPUBindingResource>>): void {
+    const pipeline = this.pipeline(entryPoint)
+    const used: Record<string, number[]> = {
+      fsVideo: [0, 1, 2, 3, 7],
+      fsImage: [1, 2, 3, 4, 7],
+      fsSourceVideo: [0, 1, 2, 7],
+      fsSourceImage: [1, 2, 4, 7],
+      fsAdjust: [2, 3, 4]
+    }
+    const entries = used[entryPoint]!.map((binding) => ({ binding, resource: resources[binding]! }))
+    const bindGroup = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
+    pass.setPipeline(pipeline)
+    pass.setBindGroup(0, bindGroup)
+    pass.draw(3)
+    pass.end()
+  }
+
+  /** Runs effects on `input` (width × height), returning the result (`input` itself if there are none). */
+  private runEffects(encoder: GPUCommandEncoder, input: GPUTexture, effects: GpuEffect[], pixelScale: number): GPUTexture {
+    let current = input
+    for (const effect of effects) {
+      const output = this.take(input.width, input.height)
+      const pipeline = this.effectPipeline(effect.manifest)
+      const bindGroup = this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: current.createView() },
+          { binding: 1, resource: this.sampler },
+          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale)) } },
+          { binding: 3, resource: { buffer: this.uniform(packParams(effect.manifest, effect.params, pixelScale)) } }
+        ]
+      })
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, bindGroup)
       pass.draw(3)
       pass.end()
+      if (current !== input) this.release(current)
+      current = output
+    }
+    return current
+  }
+
+  /**
+   * Composites `steps` (bottom first) over black. `scale` is output pixels per sequence
+   * pixel. Must run in the task that produced the VideoFrames (external textures expire).
+   * Returns the texture holding the result.
+   */
+  render(steps: CompositeStep[], scale: number): GPUTexture {
+    if (!this.targets) throw new Error('Compositor has no size yet')
+    this.uniformUsed = 0
+    const encoder = this.device.createCommandEncoder({ label: 'composite' })
+    let [read, write] = this.targets
+    // Start from black.
+    encoder.beginRenderPass({ colorAttachments: [{ view: read.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }).end()
+    const lutView = (colour: LayerColour) => (colour.conversion.kind === 'lut' ? colour.conversion.lut.texture : this.noLut).createView({ dimension: '3d' })
+    const limit = this.device.limits.maxTextureDimension2D
+    for (const step of steps) {
+      if (isAdjustment(step)) {
+        if (step.effects.length === 0) continue
+        const effected = this.runEffects(encoder, read, step.effects, scale)
+        const uniform = new Float32Array(LAYER_BYTES / 4)
+        uniform[9] = step.opacity
+        uniform[11] = BLEND_MODES.findIndex((b) => b.id === step.blend)
+        this.draw(encoder, 'fsAdjust', write, { 2: { buffer: this.uniform(uniform) }, 3: read.createView(), 4: effected.createView() })
+        if (effected !== read) this.release(effected)
+        ;[read, write] = [write, read]
+        continue
+      }
+      let layer = step
+      let processed: GPUTexture | null = null
+      if (step.effects && step.effects.length > 0) {
+        // The clip at its own size (times the playback resolution), then its effects.
+        const s = Math.min(scale, limit / step.width, limit / step.height)
+        const source = this.take(Math.max(1, Math.round(step.width * s)), Math.max(1, Math.round(step.height * s)))
+        const sourceUniform = this.uniform(this.layerUniform(step, scale))
+        const resources: Partial<Record<number, GPUBindingResource>> = { 1: this.sampler, 2: { buffer: sourceUniform }, 7: lutView(step.colour) }
+        if (step.source.kind === 'video') resources[0] = this.device.importExternalTexture({ source: step.source.frame })
+        else resources[4] = step.source.texture.createView()
+        this.draw(encoder, step.source.kind === 'video' ? 'fsSourceVideo' : 'fsSourceImage', source, resources)
+        processed = this.runEffects(encoder, source, step.effects, s)
+        if (processed !== source) this.release(source)
+        // Already decoded, converted and turned upright.
+        layer = { ...step, source: { kind: 'image', texture: processed }, rotation: 0, colour: NO_COLOUR }
+      }
+      const resources: Partial<Record<number, GPUBindingResource>> = { 1: this.sampler, 2: { buffer: this.uniform(this.layerUniform(layer, scale)) }, 3: read.createView(), 7: lutView(layer.colour) }
+      if (layer.source.kind === 'video') resources[0] = this.device.importExternalTexture({ source: layer.source.frame })
+      else resources[4] = layer.source.texture.createView()
+      this.draw(encoder, layer.source.kind === 'video' ? 'fsVideo' : 'fsImage', write, resources)
+      if (processed) this.release(processed)
       ;[read, write] = [write, read]
-    })
+    }
     this.device.queue.submit([encoder.finish()])
     return read
   }
@@ -224,6 +377,8 @@ export class Compositor {
   destroy(): void {
     this.targets?.forEach((t) => t.destroy())
     this.uniformPool.forEach((b) => b.destroy())
+    for (const list of this.scratch.values()) list.forEach((t) => t.destroy())
+    this.scratch.clear()
     this.noLut.destroy()
   }
 }
