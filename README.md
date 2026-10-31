@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M4 · Playback (part 2).** Speed/Duration, reverse and frame holds, cross-dissolves, and Apple Log / Apple Log 2 conversion with input `.cube` LUTs, on top of part 1's playback with sound, WebGPU compositor, Effect Controls and A/V sync test. Built on M3's timeline, M2's media library and M1's projects. Next: HDR conversion on ginosa's own maths, and the Source Monitor on the new player (sound, colour).
+**M4 · Playback (parts 1–3).** Timeline playback with sound and a WebGPU compositor (Motion, opacity, blend modes), Effect Controls, Speed/Duration, reverse and frame holds, cross-dissolves, colour interpretation (Apple Log, Apple Log 2, HLG/PQ HDR on ginosa's own maths, input `.cube` LUTs), and a Source Monitor on the same player. Automated sync, speed and colour tests. Next: M5 (export).
 
 ## Setup (once)
 

@@ -1,11 +1,12 @@
 # Changelog
 
-## M4 · Playback (part 3, in progress)
+## M4 · Playback (part 3)
 
 - **HDR on ginosa's own maths** (decision 20): iPhone HLG and HDR10/PQ HEVC clips are converted to Rec.709 on the GPU with ginosa's HDR→SDR maths, not Chromium's tone-mapping. ginosa rewrites the stream's transfer tag as the file is read, so the raw values arrive.
 - **Colour check** now covers HLG and PQ (`npm run snapshot -- --scenario logview`).
+- **Source Monitor on the real player:** sound, colour conversion (log, HDR, LUTs), J/K/L, frame steps; starting one monitor stops the other. Mark Out now includes the frame on screen (Premiere). Checked by `npm run snapshot -- --scenario sourceplay` (Apple Log within 0.001; A/V sync p95 20 ms, 0 dropped).
 - **Your LUTs:** all 57 in `Reference Materials` load (17 log→Rec.709, 40 looks).
-- 181 tests.
+- 183 tests.
 
 ## M4 · Playback (part 2)
 

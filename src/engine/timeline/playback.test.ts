@@ -9,6 +9,7 @@ import { secondsToTicks } from '../time'
 import { placeMedia, resetMotion, setClipProperties, splitClips, type TimelineCommand } from './edits'
 import { applyAffine, defaultMotion, inverseMotion, motionMatrix } from './motion'
 import { audioSegments, dbToGain, videoLayersAt } from './render-plan'
+import { sourceSequence } from './source-sequence'
 
 let counter = 0
 const ids = () => `p-${++counter}`
@@ -171,5 +172,25 @@ describe('render plan', () => {
     const upgraded = parseProject(v3)
     expect(upgraded.sequence.clips.find((c) => c.kind === 'video')!.motion.scale).toBe(50)
     expect(upgraded).toEqual(t.history.state)
+  })
+})
+
+describe('Source Monitor sequence', () => {
+  it('plays a file at its own size and rate, picture fitted at 100% with its sound', () => {
+    const sequence = sourceSequence(UHD)!
+    expect(sequence.settings).toMatchObject({ width: 3840, height: 2160, frameRate: '30' })
+    const video = sequence.clips.find((c) => c.kind === 'video')!
+    const audio = sequence.clips.find((c) => c.kind === 'audio')!
+    expect(video.motion.scale).toBe(100)
+    expect(video.duration).toBe(secondsToTicks(30))
+    expect(audio.linkId).toBe(video.linkId)
+    expect(videoLayersAt(sequence, [UHD], secondsToTicks(12))[0]!.sourceTime).toBe(secondsToTicks(12))
+  })
+
+  it('stands a rotated phone clip upright, and plays sound-only files', () => {
+    const rotated = { ...PORTRAIT, info: { ...PORTRAIT.info, video: { ...PORTRAIT.info.video!, width: 1920, height: 1080, rotation: 90 } } }
+    expect(sourceSequence(rotated)!.settings).toMatchObject({ width: 1080, height: 1920 })
+    const song = sourceSequence(SONG)!
+    expect(song.clips.map((c) => c.kind)).toEqual(['audio'])
   })
 })

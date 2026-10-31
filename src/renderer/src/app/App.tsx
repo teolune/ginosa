@@ -6,6 +6,7 @@ import { addCrossDissolveAt, addFrameHold, addMarker, placeMedia, setClipPropert
 import { player } from '../playback/player'
 import { runSyncTest } from '../playback/sync-test'
 import { runSpeedTest } from '../playback/speed-test'
+import { sourcePlayer } from '../playback/source-player'
 import { probePatches, readPixels } from '../playback/colour-probe'
 import { appleLogToRec709 } from '@engine/colour/colour'
 import { hdrToSdr } from '@shared/colour/hdr-to-sdr'
@@ -124,6 +125,29 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'sourceplay': {
+      // The Source Monitor on the new player: Apple Log converted, then picture/sound sync.
+      const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_applelog\.mov$|sync_flash_beep\.mp4$/.test(f))
+      await mediaController.importPaths(files, null)
+      await wait(1500)
+      const media = projectController.project!.media
+      const log = media.find((m) => m.name === 'patches_applelog')!
+      const sync = media.find((m) => m.name === 'sync_flash_beep')!
+      workspaceController.open('source-monitor')
+      mediaController.openInSource(log.id)
+      await wait(1500)
+      const patches: Array<[number, number, number]> = [[0.2, 0.2, 0.2], [0.502, 0.502, 0.502], [0.6, 0.251, 0.149], [0.149, 0.451, 0.702], [0.949, 0.949, 0.949]]
+      const expected = patches.map((p) => appleLogToRec709(p, 'bt2020').map((v) => Math.round(v * 1000) / 1000))
+      const got = sourcePlayer.lastStill ? await readPixels(sourcePlayer.lastStill, [128, 384, 640, 896, 1152].map((x) => [x, 360] as [number, number])) : []
+      const colourError = got.length ? Math.max(...got.flatMap((g, i) => g.map((v, c) => Math.abs(v - expected[i]![c]!)))) : null
+      mediaController.openInSource(sync.id)
+      await wait(1500)
+      const report = await runSyncTest(6, secondsToTicks(1), sourcePlayer)
+      await window.ginosa.snapshot.report({ colour: { worstError: colourError, expected, got }, sync: report })
+      mediaController.openInSource(sync.id, secondsToTicks(3))
+      await wait(1000)
+      break
+    }
     case 'logview': {
       // Each patch clip through the real playback path: decoder request, detection, shader.
       const files = (await window.ginosa.snapshot.testMedia()).filter((f) => /patches_(applelog|applelog2|rec709|hlg|pq)\.mov$/.test(f))

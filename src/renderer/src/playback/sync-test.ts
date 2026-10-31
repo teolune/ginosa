@@ -1,6 +1,6 @@
 import { FRAME_RATES, ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
 import { getGpu } from '../gpu/shared'
-import { player } from './player'
+import { player as programPlayer, type Player } from './player'
 
 /**
  * The playback sync test (M4 "done when"). Plays the flash-and-beep clip and measures:
@@ -39,7 +39,7 @@ export interface SyncReport {
   outputLatencyMs: number | null
 }
 
-export async function runSyncTest(seconds: number, flashEvery: Ticks): Promise<SyncReport> {
+export async function runSyncTest(seconds: number, flashEvery: Ticks, player: Player = programPlayer): Promise<SyncReport> {
   const { device } = await getGpu()
   const probes: Array<Promise<{ timeline: Ticks; brightness: number }>> = []
   player.probe = (texture, timeline) => {

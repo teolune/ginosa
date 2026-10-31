@@ -145,11 +145,53 @@ npm run dev
 - [ ] Same with an **Apple Log 2** clip. If either is detected wrong, pick the right one from the menu and **send me that clip's `ffprobe` output** so I can fix the detection.
 - [ ] Right-click → Colour → **Input LUT…** and choose one of your Premiere log→Rec.709 `.cube` LUTs. It replaces the built-in conversion and is copied into the project's `luts` folder. **Remove Input LUT** goes back.
 - [ ] Compare a clip in ginosa and Premiere with the same LUT. They should match closely; tell me if not.
-- HDR (HLG/PQ) clips still use Chromium's own tone-mapping. See the note in DECISIONS: fixing that is next.
+- HDR (HLG/PQ) clips: see part 3 below.
+
+# M4 · Try this (part 3: HDR, Source Monitor)
+
+Part 3 adds HDR on ginosa's own maths, and moves the Source Monitor onto the real player (sound, colour). About 10 minutes.
+
+## In Terminal (part 3)
+
+New Terminal tab (Cmd+T), not the one running `npm run agent`. One line at a time:
+
+```
+cd ~/Desktop/video/Developer/Ginosa
+npm run check
+npm run test-media
+npm run snapshot -- --scenario logview
+cat renders/ui/logview.json
+npm run snapshot -- --scenario sourceplay
+cat renders/ui/sourceplay.json
+open renders/ui/sourceplay.png
+npm run dev
+```
+
+- [ ] `npm run check` ends with **Tests 183 passed (183)**. New tests cover:
+  - finding and rewriting the HDR tag in seven real and hand-built HEVC headers, at the same bit positions FFmpeg reports
+  - the Source Monitor's one-clip sequence (size, frame rate, rotation, sound-only files)
+- [ ] `npm run test-media` adds `patches_pq.mov`.
+- [ ] `logview.json` now includes `patches_hlg` and `patches_pq`, detected as `hlg` and `pq`. I measured worst errors of 0.011 and 0.02, both on the brightest patch; the other patches are within 0.002.
+- [ ] `sourceplay.json`:
+  - `colour.worstError` about 0.001: the Source Monitor converts Apple Log
+  - `sync.verdict` `"pass"`, `dropped` 0, `wrong` 0, `flashesSeen` 6: picture and sound in sync in the Source Monitor
+- [ ] `sourceplay.png` shows the Source Monitor parked on the white flash at 00:00:03:00.
+
+## HDR
+
+- [ ] Import an iPhone HDR clip (the normal Camera app, HDR on). Right-click → Colour should say **Auto (detected): HLG**. It should look like a normal, bright SDR picture with highlights rolled off softly, not washed out or clipped hard.
+- [ ] Compare it with Premiere's version of the same clip in a Rec.709 sequence. ginosa's look comes from its own conversion (reference white at 203 nits, soft shoulder above 75%), so it may differ a little. Tell me if it's far off.
+
+## Source Monitor
+
+- [ ] Double-click a clip in Media: it opens in the Source Monitor **with sound**. Space plays, J/K/L shuttle, ← → step a frame (Shift: 5), Home/End jump.
+- [ ] Log and HDR clips look converted here too, like on the timeline.
+- [ ] **Mark Out includes the frame on screen**, as in Premiere; the label shows that frame.
+- [ ] Playing one monitor stops the other.
+- [ ] Sound-only files show their waveform and play; click the waveform to jump.
 
 ## Not yet
 
-- Sound and colour conversion in the Source Monitor (next).
 - Audio crossfades; Maintain Audio Pitch; reversed sound.
 
 Still waiting: your log→Rec.709 and look LUTs in `Reference Materials`, and the `ffprobe` output for one Apple Log and one Apple Log 2 clip.

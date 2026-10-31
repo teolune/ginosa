@@ -1,20 +1,15 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { setMarks } from '@engine/project/media-commands'
-import { frameRateValue, type MediaItem } from '@engine/project/media'
-import { frameToTicks, nearestStandardRate, secondsToTicks, ticksToSeconds } from '@engine/time'
+import type { MediaItem } from '@engine/project/media'
+import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { Icon } from '../app/Icon'
 import { SOURCE_DRAG_TYPE } from '../timeline/drag-types'
 import { timelineController } from '../timeline/timeline-controller'
-import { getGpu } from '../gpu/shared'
 import { formatMediaTime } from '../media-panel/format'
-import { TestPlayer } from '../media/test-player'
+import { sourceHost, sourcePlayer } from '../playback/source-player'
 import { mediaController, type Waveform } from '../state/media-controller'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
-
-function itemRate(item: MediaItem) {
-  return nearestStandardRate(frameRateValue(item.info.video?.frameRate ?? null))
-}
 
 function timeLabel(item: MediaItem, seconds: number): string {
   return formatMediaTime(item, seconds)
@@ -73,59 +68,32 @@ function WaveformView({ waveform, duration, position, onSeek }: { waveform: Wave
   )
 }
 
-/** Shows the media item chosen in the Media panel; mark In and Out like Premiere's Source Monitor. */
+/**
+ * Shows the media item chosen in the Media panel and plays it with sound, through the
+ * same player and colour conversion as the Program monitor. Mark In and Out like
+ * Premiere's Source Monitor.
+ */
 export function SourceMonitorWindow() {
   useObservable(mediaController)
   useObservable(projectController)
-  const item = projectController.project?.media.find((m) => m.id === mediaController.sourceId) ?? null
+  useObservable(sourceHost)
+  useObservable(sourcePlayer)
+  const item = sourceHost.item()
   const runtime = item ? mediaController.get(item.id) : null
   const playable = item ? mediaController.playablePath(item) : null
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const playerRef = useRef<TestPlayer | null>(null)
-  const [, rerender] = useReducer((n: number) => n + 1, 0)
-  const [audioPosition, setAudioPosition] = useState(0)
 
-  // One GPU player for the window's lifetime.
   useEffect(() => {
-    let disposed = false
-    getGpu()
-      .then((gpu) => {
-        if (disposed || !canvasRef.current) return
-        const player = new TestPlayer(gpu, rerender)
-        player.attach(canvasRef.current)
-        playerRef.current = player
-        rerender()
-      })
-      .catch(() => rerender())
-    return () => {
-      disposed = true
-      playerRef.current?.dispose()
-      playerRef.current = null
-    }
-  }, [])
-
-  // Open the clip (or its optimised copy once ready).
-  const player = playerRef.current
-  useEffect(() => {
-    if (!player || !canvasRef.current || !item || item.kind !== 'video' || !playable) return
-    if (player.state.path === playable) return
-    void player.open(playable, canvasRef.current).then(() => {
-      const start = mediaController.sourceSeek?.at ?? item.marks.in
-      if (start !== null) void player.showFrame(Math.round(ticksToSeconds(start) * frameRateValue(item.info.video?.frameRate ?? null)))
-    })
-  }, [player, item, playable])
-
-  // Match Frame / double-click in the timeline: jump to that frame.
-  const seek = mediaController.sourceSeek
-  useEffect(() => {
-    if (!seek || !player || !item || item.kind !== 'video' || player.state.path !== playable) return
-    void player.showFrame(Math.round(ticksToSeconds(seek.at) * frameRateValue(item.info.video?.frameRate ?? null)))
-  }, [seek?.version, player, item, playable])
+    const canvas = canvasRef.current
+    if (!canvas) return
+    void sourcePlayer.attach(canvas)
+    return () => sourcePlayer.detach(canvas)
+    // The canvas exists only while a file is open.
+  }, [item !== null])
 
   useEffect(() => {
     if (item?.kind === 'audio' || item?.kind === 'video') mediaController.requestWaveform(item)
-    setAudioPosition(0)
-  }, [item])
+  }, [item?.id])
 
   if (!item || !runtime) {
     return (
@@ -136,50 +104,53 @@ export function SourceMonitorWindow() {
   }
 
   const isVideo = item.kind === 'video'
-  const fps = frameRateValue(item.info.video?.frameRate ?? null) || 25
-  const index = player?.state.index ?? 0
-  const position = isVideo ? index / fps : audioPosition
+  const isImage = item.kind === 'image'
+  const frame = sourceHost.frame()
+  const end = sourceHost.end()
+  const position = ticksToSeconds(sourceHost.playhead)
   const duration = item.info.durationSeconds
-  const frameCount = Math.max(1, player?.state.clip?.info.frameCount ?? Math.round(duration * fps))
+  const lastFrame = Math.max(0, Math.round(end / frame) - 1)
 
-  const positionTicks = () => {
-    const rate = itemRate(item)
-    return isVideo && rate ? frameToTicks(index, rate) : secondsToTicks(position)
-  }
-  const markIn = () => projectController.dispatch(setMarks(item.id, { in: positionTicks() }))
-  const markOut = () => projectController.dispatch(setMarks(item.id, { out: positionTicks() }))
+  const markIn = () => projectController.dispatch(setMarks(item.id, { in: sourceHost.playhead }))
+  // Like Premiere, the Out point includes the frame on screen (stored as the end of that frame).
+  const markOut = () => projectController.dispatch(setMarks(item.id, { out: sourceHost.playhead + frame }))
   const clearMarks = () => projectController.dispatch(setMarks(item.id, { in: null, out: null }))
+  const seekTo = (time: Ticks) => {
+    sourcePlayer.stop()
+    sourceHost.setPlayhead(time)
+  }
 
   let notice: string | null = null
   if (runtime.status === 'offline') notice = 'This file is offline. Right-click it in Media → Locate File…'
   else if (isVideo && !playable) {
     const job = runtime.job
     notice = job?.status === 'running' ? `Making an optimised copy… ${Math.round(job.progress * 100)}%` : job?.status === 'failed' ? `The optimised copy failed: ${job.error ?? ''}` : 'Preparing an optimised copy…'
-  }
+  } else if (sourcePlayer.message) notice = sourcePlayer.message
 
   return (
     <div
       className="source-monitor"
       tabIndex={0}
       onKeyDown={(event) => {
-        if (event.target instanceof HTMLInputElement) return
+        if (event.target instanceof HTMLInputElement || isImage) return
         const key = event.key.toLowerCase()
+        if (event.metaKey || event.ctrlKey || event.altKey) return
         if (key === 'i') markIn()
         else if (key === 'o') markOut()
-        else if (isVideo && player && event.key === 'ArrowRight') player.step(1)
-        else if (isVideo && player && event.key === 'ArrowLeft') player.step(-1)
-        else if (!isVideo && event.key === 'ArrowRight') setAudioPosition((p) => Math.min(duration, p + 0.1))
-        else if (!isVideo && event.key === 'ArrowLeft') setAudioPosition((p) => Math.max(0, p - 0.1))
-        else if (isVideo && player && event.key === ' ') {
-          if (player.state.playing) player.stop()
-          else void player.play()
-        } else return
+        else if (event.key === 'ArrowRight') seekTo(sourceHost.playhead + frame * (event.shiftKey ? 5 : 1))
+        else if (event.key === 'ArrowLeft') seekTo(sourceHost.playhead - frame * (event.shiftKey ? 5 : 1))
+        else if (event.key === 'Home') seekTo(0)
+        else if (event.key === 'End') seekTo(end)
+        else if (event.key === ' ') sourcePlayer.toggle()
+        else if (key === 'j' || key === 'k' || key === 'l') sourcePlayer.shuttle(key === 'l' ? 1 : key === 'j' ? -1 : 0)
+        else return
         event.preventDefault()
+        event.stopPropagation()
       }}
     >
       <div
         className="source-screen"
-        draggable={item.kind !== 'image' || runtime.status !== 'offline'}
+        draggable={!isImage || runtime.status !== 'offline'}
         title="Drag into the timeline (Cmd while dropping inserts)"
         onDragStart={(event) => {
           event.dataTransfer.setData(SOURCE_DRAG_TYPE, item.id)
@@ -190,45 +161,42 @@ export function SourceMonitorWindow() {
           timelineController.mediaDrag = null
         }}
       >
-        <canvas ref={canvasRef} width={1920} height={1080} style={{ display: isVideo && playable ? 'block' : 'none', aspectRatio: `${item.info.video?.width ?? 16} / ${item.info.video?.height ?? 9}` }} />
-        {item.kind === 'image' && runtime.status !== 'offline' && <img className="source-image" src={window.ginosa.mediaUrl(item.path)} alt={item.name} />}
-        {item.kind === 'audio' && <WaveformView waveform={runtime.waveform} duration={duration} position={audioPosition} onSeek={setAudioPosition} />}
+        <canvas
+          ref={canvasRef}
+          style={{ display: isVideo && playable ? 'block' : 'none', aspectRatio: `${sourceHost.scene()?.sequence.settings.width ?? 16} / ${sourceHost.scene()?.sequence.settings.height ?? 9}` }}
+        />
+        {isImage && runtime.status !== 'offline' && <img className="source-image" src={window.ginosa.mediaUrl(item.path)} alt={item.name} />}
+        {item.kind === 'audio' && <WaveformView waveform={runtime.waveform} duration={duration} position={position} onSeek={(seconds) => seekTo(secondsToTicks(seconds))} />}
         {notice && <p className="source-notice">{notice}</p>}
       </div>
-      {item.kind !== 'image' && (
+      {!isImage && (
         <div className="source-scrub">
           <MarkRange item={item} duration={duration} />
           <input
             className="scrubber"
             type="range"
             min={0}
-            max={isVideo ? frameCount - 1 : Math.max(0.01, duration)}
-            step={isVideo ? 1 : 0.01}
-            value={isVideo ? index : audioPosition}
-            disabled={isVideo && !playable}
-            onChange={(event) => {
-              if (isVideo) {
-                player?.stop()
-                void player?.showFrame(Number(event.target.value))
-              } else setAudioPosition(Number(event.target.value))
-            }}
+            max={lastFrame}
+            step={1}
+            value={Math.round(sourceHost.playhead / frame)}
+            disabled={!playable}
+            onChange={(event) => seekTo(Number(event.target.value) * frame)}
           />
         </div>
       )}
       <div className="source-bar">
-        <span className="mono timecode">{item.kind === 'image' ? 'Still' : timeLabel(item, position)}</span>
-        {isVideo && (
-          <button
-            className="button compact icon-only"
-            title={player?.state.playing ? 'Stop (Space)' : 'Play (Space)'}
-            disabled={!playable}
-            onClick={() => (player?.state.playing ? player.stop() : void player?.play())}
-          >
-            <Icon name={player?.state.playing ? 'stop' : 'play'} fallback={player?.state.playing ? 'Stop' : 'Play'} />
-          </button>
-        )}
-        {item.kind !== 'image' && (
+        <span className="mono timecode">{isImage ? 'Still' : timeLabel(item, position)}</span>
+        {!isImage && (
           <>
+            <button className="button compact icon-only" title="Back one frame (←)" disabled={!playable} onClick={() => seekTo(sourceHost.playhead - frame)}>
+              <Icon name="stepBack" fallback="◀︎" />
+            </button>
+            <button className="button compact icon-only" title={sourcePlayer.playing ? 'Stop (Space)' : 'Play (Space)'} disabled={!playable} onClick={() => sourcePlayer.toggle()}>
+              <Icon name={sourcePlayer.playing ? 'stop' : 'play'} fallback={sourcePlayer.playing ? 'Stop' : 'Play'} />
+            </button>
+            <button className="button compact icon-only" title="Forward one frame (→)" disabled={!playable} onClick={() => seekTo(sourceHost.playhead + frame)}>
+              <Icon name="stepForward" fallback="▶︎" />
+            </button>
             <button className="button compact" title="Mark In (I)" onClick={markIn}>
               Mark In
             </button>
@@ -243,13 +211,13 @@ export function SourceMonitorWindow() {
         <span className="spacer" />
         <span className="mono muted small">
           {item.marks.in !== null ? `In ${timeLabel(item, ticksToSeconds(item.marks.in))}` : ''}
-          {item.marks.out !== null ? `  Out ${timeLabel(item, ticksToSeconds(item.marks.out))}` : ''}
+          {item.marks.out !== null ? `  Out ${timeLabel(item, ticksToSeconds(Math.max(0, item.marks.out - frame)))}` : ''}
         </span>
       </div>
       <div className="source-footer muted small">
         <span className="item-name">{item.name}</span>
         <span>{runtime.optimisedPath ? 'Playing the optimised copy' : ''}</span>
-        <span>{item.kind === 'image' ? '' : 'Sound in the Source Monitor arrives in M4 part 2'}</span>
+        <span>{isImage ? '' : 'Space plays · J K L shuttle · I / O mark'}</span>
       </div>
     </div>
   )

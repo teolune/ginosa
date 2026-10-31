@@ -43,11 +43,28 @@ export interface PresentedFrame {
 }
 
 /**
+ * Where a player's picture comes from: the Program monitor plays the timeline; the
+ * Source Monitor plays one media file as a sequence of its own (source-sequence.ts).
+ */
+export interface PlayerHost {
+  /** What to play, or null. `preview` includes a timeline drag in progress (for the paused frame). */
+  scene(preview: boolean): { sequence: Sequence; media: MediaItem[] } | null
+  /** Where the paused frame is. */
+  readonly playhead: Ticks
+  setPlayhead(time: Ticks): void
+  /** Called whenever the scene or the playhead changes. */
+  subscribe(listener: () => void): () => void
+}
+
+/**
  * Timeline playback: Web Audio is the master clock; every display refresh the
  * player asks which time is being heard and composites the frames for it. Paused,
  * it renders the frame under the playhead with the same compositor.
  */
-class Player extends Observable {
+export class Player extends Observable {
+  /** Every player, so starting one stops the others (as Premiere's two monitors do). */
+  private static all = new Set<Player>()
+
   playing = false
   /** 1 = normal; 2, 4, 8 fast forward; negative = reverse (J). Sound plays at 1× only. */
   rate = 1
@@ -81,10 +98,10 @@ class Player extends Observable {
   /** Test hook: called with each composited frame during playback. */
   probe: ((result: GPUTexture, timeline: Ticks) => void) | null = null
 
-  constructor() {
+  constructor(private readonly host: PlayerHost) {
     super()
-    projectController.subscribe(() => this.onProjectChange())
-    timelineController.subscribe(() => this.onTimelineChange())
+    Player.all.add(this)
+    host.subscribe(() => this.onSceneChange())
   }
 
   // ---- Screen ----------------------------------------------------------------------
@@ -234,10 +251,10 @@ class Player extends Observable {
   }
 
   private async renderStill(duringPlayback = false): Promise<void> {
-    const project = projectController.project
+    const project = this.host.scene(true)
     if (!project || !this.compositor || !this.context) return
-    const sequence = timelineController.sequence ?? project.sequence
-    const time = timelineController.playhead
+    const sequence = project.sequence
+    const time = this.host.playhead
     const layers = videoLayersAt(sequence, project.media, time)
     const samples: VideoSample[] = []
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
@@ -282,17 +299,14 @@ class Player extends Observable {
     }
   }
 
-  private onTimelineChange(): void {
-    if (!this.playing) this.requestStill()
-  }
-
-  private onProjectChange(): void {
-    const project = projectController.project
+  private onSceneChange(): void {
+    const project = this.host.scene(false)
     if (!project) {
       this.stop()
       return
     }
-    if (this.playing && this.sequenceAtStart && project.sequence !== this.sequenceAtStart) {
+    if (this.playing) {
+      if (!this.sequenceAtStart || project.sequence === this.sequenceAtStart) return
       // The edit changed while playing: carry on from here with the new edit.
       const time = this.currentTime()
       if (project.sequence.tracks !== this.sequenceAtStart.tracks && project.sequence.clips === this.sequenceAtStart.clips) {
@@ -319,9 +333,10 @@ class Player extends Observable {
     return time
   }
 
-  async play(rate = 1, from: Ticks = timelineController.playhead): Promise<void> {
-    const project = projectController.project
+  async play(rate = 1, from: Ticks = this.host.playhead): Promise<void> {
+    const project = this.host.scene(false)
     if (!project || !this.compositor) return
+    for (const other of Player.all) if (other !== this) other.stop()
     this.stopStreams()
     this.audio?.stop()
     const end = sequenceEnd(project.sequence)
@@ -370,7 +385,7 @@ class Player extends Observable {
     this.audio?.stop()
     this.stopStreams()
     this.notify()
-    timelineController.setPlayhead(Math.max(0, time))
+    this.host.setPlayhead(Math.max(0, time))
     this.requestStill()
   }
 
@@ -384,7 +399,7 @@ class Player extends Observable {
     if (direction === 0) return this.stop()
     let rate: number = direction
     if (this.playing && Math.sign(this.rate) === direction) rate = Math.min(8, Math.abs(this.rate) * 2) * direction
-    void this.play(rate, this.playing ? this.currentTime() : timelineController.playhead)
+    void this.play(rate, this.playing ? this.currentTime() : this.host.playhead)
   }
 
   private stopStreams(): void {
@@ -394,7 +409,7 @@ class Player extends Observable {
 
   private tick(): void {
     if (!this.playing) return
-    const project = projectController.project
+    const project = this.host.scene(false)
     if (!project || !this.compositor || !this.context) return
     const sequence = project.sequence
     const rate = frameRateOf(sequence.settings)
@@ -402,7 +417,7 @@ class Player extends Observable {
     const end = sequenceEnd(sequence)
     let time = this.currentTime()
     if ((this.rate > 0 && time >= end) || (this.rate < 0 && time <= 0)) {
-      timelineController.setPlayhead(this.rate > 0 ? end : 0)
+      this.host.setPlayhead(this.rate > 0 ? end : 0)
       this.stop()
       return
     }
@@ -465,7 +480,7 @@ class Player extends Observable {
     }
     if (this.rate < 0) {
       // Reverse: decode each frame directly (slower; frames are skipped as needed).
-      timelineController.setPlayhead(shown, true)
+      this.host.setPlayhead(shown)
       this.renderStillWhilePlaying()
       return
     }
@@ -493,7 +508,7 @@ class Player extends Observable {
       this.statsWindowStart = performance.now()
       this.notify()
     }
-    timelineController.setPlayhead(shown, true)
+    this.host.setPlayhead(shown)
   }
 
   private reverseBusy = false
@@ -559,5 +574,23 @@ function expand1d(lut: CubeLut): Float32Array {
   return out
 }
 
-export const player = new Player()
+/** The Program monitor: plays the timeline. */
+export const player = new Player({
+  scene: (preview) => {
+    const project = projectController.project
+    return project ? { sequence: (preview ? timelineController.sequence : null) ?? project.sequence, media: project.media } : null
+  },
+  get playhead() {
+    return timelineController.playhead
+  },
+  setPlayhead: (time) => timelineController.setPlayhead(time),
+  subscribe: (listener) => {
+    const a = projectController.subscribe(listener)
+    const b = timelineController.subscribe(listener)
+    return () => {
+      a()
+      b()
+    }
+  }
+})
 timelineController.transport = player
