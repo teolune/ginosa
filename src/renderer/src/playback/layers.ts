@@ -3,11 +3,13 @@ import { parseCube, sampleCube, type CubeLut } from '@engine/colour/cube'
 import { effectiveColour, type MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
 import { inverseMotion, sourceSize } from '@engine/timeline/motion'
-import type { VideoLayer } from '@engine/timeline/render-plan'
+import type { FrameMasks, VideoLayer } from '@engine/timeline/render-plan'
+import { packMask, type ResolvedShape } from '@engine/masks/masks'
+import type { MaskRef } from '@engine/masks/types'
 import { projectController } from '../state/project-controller'
 import { effectById } from '../../../effects/registry'
 import type { EffectInstance } from '@engine/effects/types'
-import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, LayerColour } from './compositor'
+import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, GpuMask, LayerColour } from './compositor'
 
 /**
  * Turns the render plan's layers into compositor layers: Motion, opacity × transition
@@ -17,6 +19,8 @@ import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, Lay
 export class LayerBuilder {
   private luts = new Map<string, GpuLut | 'loading' | 'failed'>()
   private stills = new Map<string, GPUTexture>()
+  /** Masks packed this frame (a mask several effects share is packed once). */
+  private packed = new WeakMap<ResolvedShape[], { data: Float32Array; parts: number }>()
 
   constructor(
     private readonly compositor: Compositor,
@@ -26,16 +30,34 @@ export class LayerBuilder {
   ) {}
 
   /** The switched-on effects of a stack, ready for the GPU (effects missing from this version are skipped). */
-  effects(stack: EffectInstance[]): GpuEffect[] {
+  effects(stack: EffectInstance[], masks: FrameMasks): GpuEffect[] {
     return stack.flatMap((effect) => {
       const manifest = effect.enabled ? effectById(effect.effectId) : undefined
-      return manifest ? [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode }] : []
+      return manifest ? [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, masks) }] : []
     })
   }
 
-  /** An adjustment layer: its effects on everything beneath, with its opacity × transition weight. */
+  /** A mask reference ready for the GPU (null when there's none, or the mask is gone). */
+  mask(ref: MaskRef | null, masks: FrameMasks): GpuMask | null {
+    const shapes = ref ? masks.byId.get(ref.id) : undefined
+    if (!ref || !shapes) return null
+    let packed = this.packed.get(shapes)
+    if (!packed) {
+      packed = packMask(shapes)
+      this.packed.set(shapes, packed)
+    }
+    return { ...packed, invert: ref.invert, frame: masks.frame }
+  }
+
+  /** An adjustment layer: its effects on everything beneath, with its opacity × transition weight, within its mask. */
   adjustment(layer: VideoLayer): AdjustmentStep {
-    return { kind: 'adjustment', effects: this.effects(layer.clip.effects), opacity: (layer.clip.opacity / 100) * layer.weight, blend: layer.clip.blendMode }
+    return {
+      kind: 'adjustment',
+      effects: this.effects(layer.clip.effects, layer.masks),
+      opacity: (layer.clip.opacity / 100) * layer.weight,
+      blend: layer.clip.blendMode,
+      mask: this.mask(layer.clip.mask, layer.masks)
+    }
   }
 
   build(layer: VideoLayer, source: CompositeLayer['source'], sequence: Sequence): CompositeLayer | null {
@@ -52,7 +74,7 @@ export class LayerBuilder {
       opacity: (layer.clip.opacity / 100) * layer.weight,
       blend: layer.clip.blendMode,
       colour: this.colour(layer.item, source),
-      effects: this.effects(layer.clip.effects)
+      effects: this.effects(layer.clip.effects, layer.masks)
     }
   }
 

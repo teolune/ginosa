@@ -1,6 +1,7 @@
 import type { BlendMode } from '../project/model'
 import type { KeyframeMap } from '../keyframes/keyframes'
 import type { ModulationMap } from '../modulation/types'
+import type { MaskRef } from '../masks/types'
 
 /**
  * What an effect module declares (one folder per effect in src/effects/<id>/: a
@@ -96,6 +97,8 @@ export interface EffectInstance {
   keyframes: KeyframeMap
   /** Modulation links by parameter id ('mix' for Mix). */
   modulation: ModulationMap
+  /** The shared mask limiting where the effect shows (M9), or null for everywhere. */
+  mask: MaskRef | null
 }
 
 export interface ImageSize {

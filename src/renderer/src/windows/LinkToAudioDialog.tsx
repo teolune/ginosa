@@ -3,7 +3,9 @@ import { BANDS, type BandId } from '@engine/audio/analysis'
 import { propertySpec } from '@engine/keyframes/properties'
 import type { AudioSignal } from '@engine/modulation/types'
 import { linkToAudio } from '@engine/timeline/modulation-edits'
-import { modulationUi } from '../audio/modulation-ui'
+import { linkMaskToAudio } from '@engine/timeline/mask-edits'
+import { MASK_PARAMS } from '@engine/masks/types'
+import { isMaskRef, modulationUi } from '../audio/modulation-ui'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
@@ -30,13 +32,15 @@ export function LinkToAudioDialog() {
     if (ref) setSourceId((id) => (sources.some((s) => s.id === id) ? id : (sources[0]?.id ?? '')))
   }, [ref])
   if (!ref || !project) return null
-  const clip = project.sequence.clips.find((c) => c.id === ref.clipId)
-  const spec = clip ? propertySpec(clip, ref.effectId, ref.param) : null
+  const clip = isMaskRef(ref) ? undefined : project.sequence.clips.find((c) => c.id === ref.clipId)
+  const spec = isMaskRef(ref) ? MASK_PARAMS[ref.param] : clip ? propertySpec(clip, ref.effectId, ref.param) : null
   const close = () => modulationUi.openLinkToAudio(null)
   const link = () => {
     const picked = CHOICES.find((c) => c.id === choice)
     if (!picked || !sourceId) return
-    if (projectController.dispatch(linkToAudio(ref, sourceId, picked.signal, picked.band, timelineController.playhead))) close()
+    const playhead = timelineController.playhead
+    const command = isMaskRef(ref) ? linkMaskToAudio(ref, sourceId, picked.signal, picked.band, playhead) : linkToAudio(ref, sourceId, picked.signal, picked.band, playhead)
+    if (projectController.dispatch(command)) close()
   }
   return (
     <div className="modal-backdrop">

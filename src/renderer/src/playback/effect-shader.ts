@@ -3,6 +3,8 @@ import { DISPLAY_GAMMA } from '@engine/effects/colour-spaces'
 import type { EffectManifest, ParamValue } from '@engine/effects/types'
 import type { BlendMode } from '@engine/project/model'
 import blendSource from './blend.wgsl?raw'
+import maskSource from './mask.wgsl?raw'
+import type { Affine } from '@engine/timeline/motion'
 
 /**
  * Turns an effect's WGSL into a complete render pass: its parameters as a uniform
@@ -55,9 +57,29 @@ export function packParams(manifest: EffectManifest, params: Record<string, Para
   return new Float32Array(fields(manifest).map((f) => f.value(params, pixelScale)))
 }
 
-/** The frame uniform: image size, Mix (0–1), blend mode, pixel scale. */
-export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number): Float32Array {
-  return new Float32Array([width, height, mix, blendIndex(blend), pixelScale, 0, 0, 0])
+/** Where a pass's mask comes from: how many shapes, and how its pixels map onto the frame the mask is drawn on. */
+export interface PassMask {
+  parts: number
+  invert: boolean
+  /** Processed pixel → frame (sequence) pixel. */
+  toFrame: Affine
+  frame: { width: number; height: number }
+}
+
+/** Frame pixels one processed pixel covers (the softest a mask edge gets). */
+export function maskAa(toFrame: Affine): number {
+  return Math.max(1e-3, Math.sqrt(Math.abs(toFrame.a * toFrame.d - toFrame.b * toFrame.c)))
+}
+
+/** The frame uniform: image size, Mix (0–1), blend mode, pixel scale, then the mask's shape count, edge softness, invert and placement. */
+export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null): Float32Array {
+  const m = mask?.toFrame ?? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+  return new Float32Array([
+    width, height, mix, blendIndex(blend),
+    pixelScale, mask ? mask.parts : 0, mask ? maskAa(m) : 1, mask?.invert ? 1 : 0,
+    m.a, m.b, m.c, m.d,
+    m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height
+  ])
 }
 
 export function effectShaderSource(manifest: EffectManifest): string {
@@ -70,9 +92,11 @@ struct EffectFrame {
   mixAmount: f32,
   blendMode: f32,
   pixelScale: f32,
-  _a: f32,
-  _b: f32,
-  _c: f32,
+  maskParts: f32,
+  maskAa: f32,
+  maskInvert: f32,
+  toFrame0: vec4f, // a, b, c, d: processed pixel -> frame pixel
+  toFrame1: vec4f, // e, f, frame width, frame height
 };
 
 struct EffectParams {
@@ -83,6 +107,7 @@ ${params}
 @group(0) @binding(1) var linearSampler: sampler;
 @group(0) @binding(2) var<uniform> frame: EffectFrame;
 @group(0) @binding(3) var<uniform> params: EffectParams;
+@group(0) @binding(4) var<storage, read> maskData: array<vec4f>;
 
 const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
 
@@ -145,6 +170,8 @@ fn inputNearest(px: vec2f) -> vec4f { return inputLoad(vec2i(floor(px))); }
 
 ${blendSource}
 
+${maskSource}
+
 // ---- ${manifest.name} (src/effects/${manifest.id}) ----
 ${manifest.shader}
 // ----
@@ -171,7 +198,16 @@ fn fsEffect(in: VsOut) -> @location(0) vec4f {
   if (mode != 0u) {
     blended = vec4f(mix(src.rgb, blendRgb(src.rgb, result.rgb, mode), result.a), src.a);
   }
-  return mix(src, blended, clamp(frame.mixAmount, 0.0, 1.0));
+  // The shared mask (M9) limits where the effect shows.
+  var shown = 1.0;
+  let parts = u32(frame.maskParts + 0.5);
+  if (parts > 0u) {
+    let p = in.position.xy;
+    let fp = vec2f(frame.toFrame0.x * p.x + frame.toFrame0.z * p.y + frame.toFrame1.x, frame.toFrame0.y * p.x + frame.toFrame0.w * p.y + frame.toFrame1.y);
+    shown = maskAlpha(fp, parts, frame.toFrame1.zw, frame.maskAa, maskLuma(src.rgb));
+  }
+  if (frame.maskInvert > 0.5) { shown = 1.0 - shown; }
+  return mix(src, blended, clamp(frame.mixAmount, 0.0, 1.0) * shown);
 }
 `
 }

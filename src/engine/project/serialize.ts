@@ -6,6 +6,7 @@ import { syncLinkedRamps } from '../timeline/timeline'
 import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
 import { ModulationFormatError, parseModulation, parseModulators } from '../modulation/parse'
 import type { ModulationMap } from '../modulation/types'
+import { MaskFormatError, parseMaskRef, parseMasks } from '../masks/parse'
 import { effectById } from '../../effects/registry'
 import { sanitiseKeyframes, sanitiseParams, upgradeInstance } from '../effects/params'
 import { normaliseTrack, type Interpolation, type Keyframe, type KeyframeMap } from '../keyframes/keyframes'
@@ -131,6 +132,13 @@ function migrate(raw: Json): Json {
     const withModulation = (c: unknown) =>
       isObject(c) ? { ...c, modulation: {}, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, modulation: {} } : e)) : c['effects'] } : c
     data = { ...data, schemaVersion: 9, sequence: { ...sequence, clips: clips.map(withModulation), modulators: [] } }
+  }
+  if (version < 10) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    const withMasks = (c: unknown) =>
+      isObject(c) ? { ...c, mask: null, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, mask: null } : e)) : c['effects'] } : c
+    data = { ...data, schemaVersion: 10, sequence: { ...sequence, clips: clips.map(withMasks), masks: [] } }
   }
   return data
 }
@@ -332,7 +340,9 @@ function parseClip(value: unknown, index: number): Clip {
     effects: parseEffects(value['effects'], `${where}.effects`),
     adjustment: expectBoolean(value, 'adjustment', where),
     keyframes: parseKeyframes(value['keyframes'], `${where}.keyframes`),
-    modulation: wrap(() => parseModulation(value['modulation'], `${where}.modulation`))
+    modulation: wrap(() => parseModulation(value['modulation'], `${where}.modulation`)),
+    // Checked against the sequence's masks once they're read.
+    mask: (value['mask'] ?? null) as Clip['mask']
   }
 }
 
@@ -341,7 +351,7 @@ function wrap<T>(read: () => T): T {
   try {
     return read()
   } catch (error) {
-    if (error instanceof ModulationFormatError) throw new ProjectFormatError(error.message)
+    if (error instanceof ModulationFormatError || error instanceof MaskFormatError) throw new ProjectFormatError(error.message)
     throw error
   }
 }
@@ -406,7 +416,8 @@ function parseEffects(value: unknown, where: string): EffectInstance[] {
       blendMode: parseBlendMode(raw['blendMode'], `${at}.blendMode`),
       params: Object.fromEntries(Object.entries(params).map(([key, v]) => [key, parseParamValue(v, `${at}.params.${key}`)])),
       keyframes: parseKeyframes(raw['keyframes'], `${at}.keyframes`),
-      modulation: wrap(() => parseModulation(raw['modulation'], `${at}.modulation`))
+      modulation: wrap(() => parseModulation(raw['modulation'], `${at}.modulation`)),
+      mask: (raw['mask'] ?? null) as EffectInstance['mask']
     }
   })
 }
@@ -542,8 +553,17 @@ export function parseProject(input: string | unknown): Project {
       effect.modulation = keepLinks(effect.modulation, modulatorIds, (key) => key === 'mix' || !manifest || manifest.params.some((p) => p.id === key && p.type !== 'choice' && p.type !== 'toggle'))
     }
   }
+  // Masks: their links to missing modulators are dropped, as are references to missing masks.
+  const masks = wrap(() => parseMasks(sequence['masks'], parseKeyframes, parseModulation))
+  for (const mask of masks) for (const shape of mask.shapes) shape.modulation = keepLinks(shape.modulation, modulatorIds, () => true)
+  const maskIds = new Set(masks.map((m) => m.id))
+  clips.forEach((clip, i) => {
+    // Only adjustment layers use a mask of their own.
+    clip.mask = clip.adjustment ? wrap(() => parseMaskRef(clip.mask, `sequence.clips[${i}].mask`, maskIds)) : null
+    clip.effects.forEach((effect, j) => (effect.mask = wrap(() => parseMaskRef(effect.mask, `sequence.clips[${i}].effects[${j}].mask`, maskIds))))
+  })
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators })
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -564,7 +584,8 @@ export function parseProject(input: string | unknown): Project {
       markers,
       audioSources,
       beatGrid,
-      modulators
+      modulators,
+      masks
     },
     media,
     bins

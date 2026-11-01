@@ -129,7 +129,8 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
       effects: [],
       adjustment: false,
       keyframes: {},
-      modulation: {}
+      modulation: {},
+      mask: null
     }
   })
 }
@@ -544,6 +545,7 @@ export interface ClipboardClip {
   adjustment: boolean
   keyframes: Clip['keyframes']
   modulation: Clip['modulation']
+  mask: Clip['mask']
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -570,13 +572,17 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     effects: c.effects.map((e) => cloneEffect(e)),
     adjustment: c.adjustment,
     keyframes: cloneKeyframeMap(c.keyframes),
-    modulation: cloneModulationMap(c.modulation)
+    modulation: cloneModulationMap(c.modulation),
+    mask: c.mask ? { ...c.mask } : null
   }))
 }
 
 export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: ClipboardClip[], at: Ticks, mode: EditMode, ctx: EditContext): Clip[] {
   const start = toFrame(at, frameTicks(sequence))
   const links = new Map<string, string>()
+  // A mask deleted since the copy is let go of.
+  const maskIds = new Set(sequence.masks.map((m) => m.id))
+  const keepMask = (ref: Clip['mask']) => (ref && maskIds.has(ref.id) ? { ...ref } : null)
   const clips: Clip[] = clipboard.map((c) => {
     if (!c.adjustment && !media.some((m) => m.id === c.mediaId)) throw new CommandError(`"${c.name}" is no longer in the project`)
     const track = findTrack(sequence, c.trackId)
@@ -605,10 +611,11 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
       transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
       // Pasted effects get fresh ids so they can be told apart from the originals.
-      effects: c.effects.map((e) => cloneEffect(e, ctx.newId())),
+      effects: c.effects.map((e) => ({ ...cloneEffect(e, ctx.newId()), mask: keepMask(e.mask) })),
       adjustment: c.adjustment,
       keyframes: cloneKeyframeMap(c.keyframes),
-      modulation: cloneModulationMap(c.modulation)
+      modulation: cloneModulationMap(c.modulation),
+      mask: c.adjustment ? keepMask(c.mask) : null
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]

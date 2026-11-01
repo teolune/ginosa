@@ -55,7 +55,8 @@ export function addEffect(clipIds: string[], effectId: string, index: number | n
         blendMode: 'normal',
         params: defaultParams(manifest, effectImageSize(clip, draft.media, sequence)),
         keyframes: {},
-        modulation: {}
+        modulation: {},
+        mask: null
       }
       const at = index === null ? clip.effects.length : Math.max(0, Math.min(clip.effects.length, index))
       clip.effects.splice(at, 0, instance)
@@ -148,7 +149,9 @@ export function pasteEffects(clipIds: string[], effects: EffectInstance[], label
     for (const clip of clips) {
       assertUnlocked(findTrack(draft.sequence, clip.trackId))
       const fitted = madeOn ? rescaleEffects(effects, madeOn, effectImageSize(clip, draft.media, draft.sequence)) : effects
-      clip.effects.push(...fitted.map((e) => cloneEffect(e, newId())))
+      // A mask reference survives only if the mask is still in the sequence (a preset never has one).
+      const maskIds = new Set(draft.sequence.masks.map((m) => m.id))
+      clip.effects.push(...fitted.map((e) => ({ ...cloneEffect(e, newId()), mask: e.mask && maskIds.has(e.mask.id) ? { ...e.mask } : null })))
     }
   })
 }
@@ -191,7 +194,8 @@ export function addAdjustmentLayer(request: AdjustmentRequest, newId: IdFactory 
       effects: [],
       adjustment: true,
       keyframes: {},
-      modulation: {}
+      modulation: {},
+      mask: null
     })
     command.notice = undefined
   })

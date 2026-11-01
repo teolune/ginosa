@@ -16,6 +16,9 @@ import { modulationUi } from '../audio/modulation-ui'
 import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
+import { runMaskGpuTest } from '../playback/mask-gpu-test'
+import { maskTest } from '../masks/mask-test'
+import { buildMaskUiTimeline } from '../masks/mask-ui-demo'
 import { sourcePlayer } from '../playback/source-player'
 import { openMedia } from '../playback/sources'
 import { probePatches, readPixels } from '../playback/colour-probe'
@@ -288,6 +291,23 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     }
     case 'effectsgpu': {
       await window.ginosa.snapshot.report(await runEffectGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'exportmasks':
+    case 'masksui': {
+      // M9 masks: exported and checked against their keyframes, or shown being edited.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /square_1080\.png$|patches_rec709\.mov$/.test(f)), null)
+      await wait(1500)
+      if (scenario === 'exportmasks') {
+        await window.ginosa.snapshot.report(await maskTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+        break
+      }
+      await buildMaskUiTimeline()
+      await wait(1500)
+      break
+    }
+    case 'masksgpu': {
+      await window.ginosa.snapshot.report(await runMaskGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'sourceplay': {

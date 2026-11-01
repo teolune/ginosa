@@ -3,14 +3,15 @@ import type { Bin, MediaItem } from './media'
 import type { EffectInstance } from '../effects/types'
 import type { KeyframeMap } from '../keyframes/keyframes'
 import type { ModulationMap, Modulator } from '../modulation/types'
+import type { Mask, MaskRef } from '../masks/types'
 
 /**
  * The project document. Everything the user can undo lives here; window layouts,
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. */
-export const PROJECT_SCHEMA_VERSION = 9
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. */
+export const PROJECT_SCHEMA_VERSION = 10
 
 export type TrackKind = 'video' | 'audio'
 
@@ -128,6 +129,8 @@ export interface Clip {
   keyframes: KeyframeMap
   /** Modulation links by property (same keys as keyframes): which modulators drive it and how. */
   modulation: ModulationMap
+  /** Adjustment layers: the shared mask limiting where they apply (M9). Always null on other clips. */
+  mask: MaskRef | null
 }
 
 export interface Transition {
@@ -163,6 +166,8 @@ export interface Sequence {
   beatGrid: BeatGrid | null
   /** Modulators: signals (audio, tempo, LFO, random) shaped into 0–1 movement for linked values. */
   modulators: Modulator[]
+  /** Shared masks (M9), used by effects and adjustment layers. */
+  masks: Mask[]
 }
 
 /**
@@ -261,7 +266,8 @@ export function createProject({ name, settings, createId = defaultId, now = () =
       markers: [],
       audioSources: [],
       beatGrid: null,
-      modulators: []
+      modulators: [],
+      masks: []
     },
     media: [],
     bins: []

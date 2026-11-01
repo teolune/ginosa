@@ -67,6 +67,7 @@ export function cloneEffect(effect: EffectInstance, id = effect.id): EffectInsta
     id,
     params: Object.fromEntries(Object.entries(effect.params).map(([k, v]) => [k, Array.isArray(v) ? ([v[0], v[1]] as [number, number]) : v])),
     keyframes: cloneKeyframeMap(effect.keyframes),
-    modulation: cloneModulationMap(effect.modulation ?? {})
+    modulation: cloneModulationMap(effect.modulation ?? {}),
+    mask: effect.mask ? { ...effect.mask } : null
   }
 }

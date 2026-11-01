@@ -65,7 +65,7 @@ export function newModulator(id: string, name: string, source: ModSource): Modul
   }
 }
 
-function sameSource(a: ModSource, b: ModSource): boolean {
+export function sameSource(a: ModSource, b: ModSource): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
@@ -157,6 +157,7 @@ export function removeModulator(id: string): TimelineCommand {
       strip(clip.modulation)
       for (const effect of clip.effects) strip(effect.modulation)
     }
+    for (const mask of sequence.masks) for (const shape of mask.shapes) strip(shape.modulation)
     if (links > 0) command.notice = `Removed it from the ${links} value${links === 1 ? '' : 's'} it drove.`
   })
 }

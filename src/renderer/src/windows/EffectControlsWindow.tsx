@@ -24,6 +24,9 @@ import { Icon } from '../app/Icon'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
+import { addMaskTo, setAdjustmentMask, setEffectMask } from '@engine/timeline/mask-edits'
+import type { MaskRef } from '@engine/masks/types'
+import { maskController } from '../masks/mask-controller'
 
 interface ScrubProps {
   value: number
@@ -297,6 +300,57 @@ function formatLive(value: ParamValue | null): string {
   return typeof value === 'number' ? value.toFixed(1) : String(value)
 }
 
+/**
+ * The shared mask an effect (or an adjustment layer) uses: None, any of the sequence's
+ * masks, or a new one; Invert uses its outside; Edit opens it in the Masks window.
+ */
+function MaskRow({ clip, effectId, value, locked }: { clip: Clip; effectId: string | null; value: MaskRef | null; locked: boolean }) {
+  useObservable(maskController)
+  const masks = projectController.project?.sequence.masks ?? []
+  const set = (ref: MaskRef | null) => projectController.dispatch(effectId === null ? setAdjustmentMask(clip.id, ref) : setEffectMask(clip.id, effectId, ref))
+  const create = () => {
+    const command = addMaskTo(clip.id, effectId, 'rectangle')
+    if (projectController.dispatch(command)) maskController.edit(command.maskId)
+  }
+  return (
+    <div className="fx-row fx-mask-row" title={effectId === null ? 'Where this adjustment layer applies' : 'Where this effect shows'}>
+      <span className="fx-label">Mask</span>
+      <span className="fx-values">
+        <select
+          className="input compact"
+          aria-label="Mask"
+          value={value?.id ?? ''}
+          disabled={locked}
+          onChange={(event) => {
+            const id = event.target.value
+            if (id === '__new') create()
+            else set(id ? { id, invert: value?.invert ?? false } : null)
+          }}
+        >
+          <option value="">None (everywhere)</option>
+          {masks.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+          <option disabled>──────────</option>
+          <option value="__new">New Mask…</option>
+        </select>
+        {value && (
+          <>
+            <label className="mod-check" title="Show outside the mask instead">
+              <input type="checkbox" checked={value.invert} disabled={locked} onChange={(event) => set({ ...value, invert: event.target.checked })} /> Invert
+            </label>
+            <button className={`button compact ${maskController.maskId === value.id ? 'active' : ''}`} title="Edit this mask (Masks window and Program monitor)" onClick={() => maskController.edit(value.id)}>
+              Edit
+            </button>
+          </>
+        )}
+      </span>
+    </div>
+  )
+}
+
 /** Blend modes in Photoshop's menu order, grouped. */
 export function BlendSelect({ value, onChange, disabled, label }: { value: BlendMode; onChange(mode: BlendMode): void; disabled?: boolean; label: string }) {
   return (
@@ -441,6 +495,7 @@ function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; ef
               <Row label="Blend Mode">
                 <BlendSelect label="Effect blend mode" value={effect.blendMode} disabled={locked} onChange={(blendMode) => change({ blendMode })} />
               </Row>
+              <MaskRow clip={clip} effectId={effect.id} value={effect.mask} locked={locked} />
               {manifest.params.map((spec) => (
                 <PropertyRow key={spec.id} clip={clip} effectId={effect.id} param={spec.id} label={spec.label} locked={locked} help={spec.help}>
                   {(value, onChange) => <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} />}
@@ -530,6 +585,7 @@ function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
       <Row label="Blend Mode">
         <BlendSelect label="Blend mode" value={clip.blendMode} disabled={locked} onChange={(blendMode) => projectController.dispatch(setClipProperties([clip.id], { blendMode }))} />
       </Row>
+      {clip.adjustment && <MaskRow clip={clip} effectId={null} value={clip.mask} locked={locked} />}
     </Section>
   )
 }

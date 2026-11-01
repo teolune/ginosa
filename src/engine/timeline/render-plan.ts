@@ -4,6 +4,7 @@ import type { Ticks } from '../time'
 import { evaluate } from '../keyframes/keyframes'
 import { resolveClip } from '../keyframes/properties'
 import type { ModulationContext } from '../modulation/types'
+import { resolveMasks, type FrameSize, type ResolvedShape } from '../masks/masks'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -22,6 +23,14 @@ export interface VideoLayer {
   sourceTime: Ticks
   /** Transition weight (0–1), multiplied into the clip's opacity. */
   weight: number
+  /** The masks this moment's layers use, worked out once for the frame (shared by every layer). */
+  masks: FrameMasks
+}
+
+/** Masks at one moment, by id, with the frame size they're drawn on. */
+export interface FrameMasks {
+  frame: FrameSize
+  byId: ReadonlyMap<string, ResolvedShape[]>
 }
 
 /** A transition's length, kept within the clips it joins. */
@@ -109,6 +118,7 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
   const soloed = tracks.some((t) => t.solo)
   const frame = frameTicks(sequence)
   const layers: VideoLayer[] = []
+  const masks: { frame: FrameSize; byId: Map<string, ResolvedShape[]> } = { frame: { width: sequence.settings.width, height: sequence.settings.height }, byId: new Map() }
   for (const track of tracks) {
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
@@ -116,13 +126,17 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
       if (clip.opacity <= 0 || weight <= 0) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
-        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight) })
+        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks })
         continue
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight) })
+      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks })
     }
+  }
+  if (sequence.masks.length > 0) {
+    const used = layers.flatMap((l) => [l.clip.mask?.id, ...l.clip.effects.map((e) => (e.enabled ? e.mask?.id : undefined))]).filter((id): id is string => id !== undefined)
+    for (const [id, shapes] of resolveMasks(sequence.masks, used, time, modulation)) masks.byId.set(id, shapes)
   }
   return layers
 }

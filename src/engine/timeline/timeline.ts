@@ -123,7 +123,8 @@ export function cloneClip(clip: Clip): Clip {
     // Effects are copied with their ids (ids only need to be unique within a clip).
     effects: clip.effects.map((e) => cloneEffect(e)),
     keyframes: cloneKeyframeMap(clip.keyframes),
-    modulation: cloneModulationMap(clip.modulation)
+    modulation: cloneModulationMap(clip.modulation),
+    mask: clip.mask ? { ...clip.mask } : null
   }
 }
 

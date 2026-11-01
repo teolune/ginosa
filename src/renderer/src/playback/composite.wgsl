@@ -20,6 +20,8 @@ struct Layer {
 @group(0) @binding(3) var dst: texture_2d<f32>;
 @group(0) @binding(4) var srcImage: texture_2d<f32>;
 @group(0) @binding(7) var lut: texture_3d<f32>;
+// Adjustment layers' shared mask (mask.wgsl); fsAdjust's Layer carries its placement.
+@group(0) @binding(8) var<storage, read> maskData: array<vec4f>;
 
 // ---- Colour: working values are the file's own Rec.709 code values ----
 
@@ -211,7 +213,17 @@ fn fsAdjust(in: VsOut) -> @location(0) vec4f {
   let fx = textureLoad(srcImage, vec2i(in.position.xy), 0);
   let mode = u32(layer.params.w + 0.5);
   let blended = blendRgb(below.rgb, fx.rgb * fx.a, mode);
-  return vec4f(mix(below.rgb, blended, clamp(layer.params.y, 0.0, 1.0)), 1.0);
+  // The layer's mask (M9): inverse0/inverse1 hold processed pixel -> frame pixel and the
+  // frame size; colour holds the shape count, edge softness and invert.
+  var shown = 1.0;
+  let parts = u32(layer.colour.x + 0.5);
+  if (parts > 0u) {
+    let p = in.position.xy;
+    let fp = vec2f(layer.inverse0.x * p.x + layer.inverse0.z * p.y + layer.inverse1.x, layer.inverse0.y * p.x + layer.inverse0.w * p.y + layer.inverse1.y);
+    shown = maskAlpha(fp, parts, layer.inverse1.zw, layer.colour.y, maskLuma(below.rgb));
+  }
+  if (layer.colour.z > 0.5) { shown = 1.0 - shown; }
+  return vec4f(mix(below.rgb, blended, clamp(layer.params.y, 0.0, 1.0) * shown), 1.0);
 }
 
 // Final copy of the composite to the screen (or an export target).

@@ -52,7 +52,7 @@ export async function runEffectGpuTest() {
   const fx = (id: string, params: Record<string, ParamValue>, mix = 1, blend: BlendMode = 'normal'): GpuEffect => {
     const manifest = effectById(id)!
     const defaults = Object.fromEntries(manifest.params.map((p) => [p.id, p.type === 'point' ? [p.default[0] * W, p.default[1] * H] : p.default]))
-    return { manifest, params: { ...defaults, ...params } as Record<string, ParamValue>, mix, blend }
+    return { manifest, params: { ...defaults, ...params } as Record<string, ParamValue>, mix, blend, mask: null }
   }
   const render = async (steps: CompositeStep[], y = 32) => readPixels(compositor.render(steps, 1), xs.map((x) => [x, y] as [number, number]))
   const worst = (got: number[][], expected: Rgb[]) => Math.max(...got.flatMap((g, i) => g.map((v, c) => Math.abs(v - expected[i]![c]!))))
@@ -97,7 +97,7 @@ export async function runEffectGpuTest() {
   check('transform scale 50% nearest', halved, xs.map((x) => (x < 160 || x >= 480 ? [0, 0, 0] : COLOURS[Math.floor((2 * (x - 320) + 320) / 64)]!) as Rgb))
 
   // Adjustment layers: on everything beneath, with opacity and blend mode.
-  const adjust = (effects: GpuEffect[], opacity = 1, blend: BlendMode = 'normal'): CompositeStep => ({ kind: 'adjustment', effects, opacity, blend })
+  const adjust = (effects: GpuEffect[], opacity = 1, blend: BlendMode = 'normal'): CompositeStep => ({ kind: 'adjustment', effects, opacity, blend, mask: null })
   const inverted = COLOURS.map((c) => c.map((v) => 1 - v) as Rgb)
   check('adjustment invert', await render([clip(), adjust([fx('invert', {})])]), inverted)
   check('adjustment 40% opacity', await render([clip(), adjust([fx('invert', {})], 0.4)]), COLOURS.map((c) => c.map((v) => v + (1 - 2 * v) * 0.4) as Rgb))

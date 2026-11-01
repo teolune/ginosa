@@ -104,8 +104,9 @@ export function parsePresets(raw: unknown): EffectPreset[] {
         blendMode: blend,
         params,
         keyframes: parseKeyframes(e['keyframes']),
-        // Modulators belong to a project, so presets never carry links to them.
-        modulation: {}
+        // Modulators and masks belong to a project, so presets never carry links to them.
+        modulation: {},
+        mask: null
       })
     }
     const width = Number(p['size']['width'])

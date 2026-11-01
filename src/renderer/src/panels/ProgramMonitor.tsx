@@ -4,6 +4,7 @@ import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { player, type PlaybackResolution } from '../playback/player'
 import { timelineController } from '../timeline/timeline-controller'
+import { MaskOverlay } from '../masks/MaskOverlay'
 
 const RESOLUTIONS: Array<{ value: PlaybackResolution; label: string }> = [
   { value: 1, label: 'Full' },
@@ -41,6 +42,7 @@ export function ProgramMonitor() {
       <div className="monitor-area" onDoubleClick={() => player.toggleStats()}>
         <div className="monitor-frame" style={{ aspectRatio: `${settings.width} / ${settings.height}` }}>
           <canvas ref={canvasRef} className="monitor-canvas" width={settings.width} height={settings.height} />
+          <MaskOverlay width={settings.width} height={settings.height} />
           {player.message && <span className="monitor-message small">{player.message}</span>}
           {player.showStats && (
             <div className="monitor-stats mono">

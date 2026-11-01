@@ -9,7 +9,11 @@ import { AUDIO_SIGNAL_LABELS, addLink, addModulator, describeSource, linksTo, re
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { confirmKeyframeRemoval } from '../app/warnings'
 import { modulationController } from '../audio/modulation-controller'
-import { modulationUi } from '../audio/modulation-ui'
+import { isMaskRef, modulationUi } from '../audio/modulation-ui'
+import { addMaskLink, maskLinksTo, removeMaskLinks, updateMaskLink, type MaskValueRef } from '@engine/timeline/mask-edits'
+import { MASK_KIND_LABELS, MASK_PARAMS } from '@engine/masks/types'
+import type { ModLink } from '@engine/modulation/types'
+import { maskController } from '../masks/mask-controller'
 import { analysisController } from '../audio/analysis-controller'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -366,17 +370,51 @@ function OutputPreview({ m, sequence }: { m: Modulator; sequence: Sequence }) {
   )
 }
 
+/** One driven value as the Links list shows it: where it is, its link, how to change and show it. */
+interface DrivenValue {
+  link: ModLink
+  name: string
+  unit: string
+  update(changes: Parameters<typeof updateLink>[2]): void
+  remove(): void
+  show(): void
+}
+
+/** Everything a modulator drives: clip and effect values, then mask settings. */
+function drivenValues(sequence: Sequence, modulatorId: string): DrivenValue[] {
+  const values: DrivenValue[] = linksTo(sequence, modulatorId).map(({ ref, link, clip }) => {
+    const spec = propertySpec(clip, ref.effectId, ref.param)
+    const effect = ref.effectId ? findEffect(clip, ref.effectId) : null
+    return {
+      link,
+      name: `${clip.name} › ${effect ? `${effectById(effect.effectId)?.name ?? 'Effect'} › ` : ''}${spec?.label ?? ref.param}`,
+      unit: spec?.unit ? ` ${spec.unit}` : '',
+      update: (changes) => dispatch(updateLink(ref, link.id, changes)),
+      remove: () => dispatch(removeLinks(ref, link.id)),
+      show: () => (tl.select([clip.id], 'replace'), workspaceController.focus('effect-controls'))
+    }
+  })
+  for (const { ref, link, mask, shape } of maskLinksTo(sequence, modulatorId)) {
+    const spec = MASK_PARAMS[ref.param]
+    values.push({
+      link,
+      name: `${mask.name} › ${MASK_KIND_LABELS[shape.kind]} › ${spec.label}`,
+      unit: spec.unit ? ` ${spec.unit}` : '',
+      update: (changes) => dispatch(updateMaskLink(ref, link.id, changes)),
+      remove: () => dispatch(removeMaskLinks(ref, link.id)),
+      show: () => (maskController.select(mask.id, shape.id), maskController.edit(mask.id), maskController.selectShape(shape.id))
+    })
+  }
+  return values
+}
+
 /** Every value the modulator drives, each with its own mapping. */
 function Links({ m, sequence }: { m: Modulator; sequence: Sequence }) {
-  const links = linksTo(sequence, m.id)
-  if (links.length === 0) return <p className="muted small mod-empty">It doesn't drive anything yet. Right-click a value in Effect Controls › Modulate Parameter…, or Link to Audio.</p>
+  const links = drivenValues(sequence, m.id)
+  if (links.length === 0) return <p className="muted small mod-empty">It doesn't drive anything yet. Right-click a value in Effect Controls or the Masks window › Modulate Parameter…, or Link to Audio.</p>
   return (
     <div className="mod-links">
-      {links.map(({ ref, link, clip }) => {
-        const spec = propertySpec(clip, ref.effectId, ref.param)
-        const effect = ref.effectId ? findEffect(clip, ref.effectId) : null
-        const name = `${clip.name} › ${effect ? `${effectById(effect.effectId)?.name ?? 'Effect'} › ` : ''}${spec?.label ?? ref.param}`
-        const unit = spec?.unit ? ` ${spec.unit}` : ''
+      {links.map(({ link, name, unit, update, remove, show }) => {
         const range = (which: 'min' | 'max') =>
           link[which].map((v, c) => (
             <ScrubNumber
@@ -386,22 +424,22 @@ function Links({ m, sequence }: { m: Modulator; sequence: Sequence }) {
               step={link.mode === 'multiply' ? 0.01 : 0.5}
               decimals={link.mode === 'multiply' ? 2 : 1}
               unit={link.mode === 'multiply' ? '×' : unit}
-              onChange={(next) => dispatch(updateLink(ref, link.id, { [which]: link[which].map((x, i) => (i === c ? next : x)) }))}
+              onChange={(next) => update({ [which]: link[which].map((x, i) => (i === c ? next : x)) })}
             />
           ))
         return (
           <div key={link.id} className="mod-link">
             <div className="mod-link-head">
-              <button className="link-button" title="Select it in the timeline" onClick={() => (tl.select([clip.id], 'replace'), workspaceController.focus('effect-controls'))}>
+              <button className="link-button" title="Show it" onClick={show}>
                 {name}
               </button>
               <span className="spacer" />
-              <button className="icon-button" title="Stop modulating this value" onClick={() => dispatch(removeLinks(ref, link.id))}>
+              <button className="icon-button" title="Stop modulating this value" onClick={remove}>
                 ✕
               </button>
             </div>
             <div className="mod-link-body">
-              <select className="input compact" value={link.mode} onChange={(e) => dispatch(updateLink(ref, link.id, { mode: e.target.value as 'add' }))}>
+              <select className="input compact" value={link.mode} onChange={(e) => update({ mode: e.target.value as 'add' })}>
                 <option value="add">Add</option>
                 <option value="multiply">Multiply</option>
                 <option value="replace">Replace</option>
@@ -411,15 +449,26 @@ function Links({ m, sequence }: { m: Modulator; sequence: Sequence }) {
               <span className="muted small">to</span>
               {range('max')}
               <label className="mod-check">
-                <input type="checkbox" checked={link.invert} onChange={(e) => dispatch(updateLink(ref, link.id, { invert: e.target.checked }))} /> Invert
+                <input type="checkbox" checked={link.invert} onChange={(e) => update({ invert: e.target.checked })} /> Invert
               </label>
-              <ScrubNumber label="Amount" value={link.amount} min={0} max={100} step={0.5} decimals={0} unit="%" onChange={(amount) => dispatch(updateLink(ref, link.id, { amount }))} />
+              <ScrubNumber label="Amount" value={link.amount} min={0} max={100} step={0.5} decimals={0} unit="%" onChange={(amount) => update({ amount })} />
             </div>
           </div>
         )
       })}
     </div>
   )
+}
+
+function clipTargetLabel(sequence: Sequence, ref: { clipId: string; effectId: string | null; param: string }): string | null {
+  const clip = sequence.clips.find((c) => c.id === ref.clipId)
+  return clip ? `${clip.name} › ${propertySpec(clip, ref.effectId, ref.param)?.label ?? ref.param}` : null
+}
+
+function maskTargetLabel(sequence: Sequence, ref: MaskValueRef): string | null {
+  const mask = sequence.masks.find((m) => m.id === ref.maskId)
+  const shape = mask?.shapes.find((s) => s.id === ref.shapeId)
+  return mask && shape ? `${mask.name} › ${MASK_KIND_LABELS[shape.kind]} › ${MASK_PARAMS[ref.param].label}` : null
 }
 
 export function ModulationWindow() {
@@ -440,8 +489,7 @@ export function ModulationWindow() {
     if (dispatch(command)) modulationUi.select(command.modulatorId)
   }
   const target = modulationUi.target
-  const targetClip = target ? sequence.clips.find((c) => c.id === target.clipId) : null
-  const targetLabel = target && targetClip ? `${targetClip.name} › ${propertySpec(targetClip, target.effectId, target.param)?.label ?? target.param}` : null
+  const targetLabel = !target ? null : isMaskRef(target) ? maskTargetLabel(sequence, target) : clipTargetLabel(sequence, target)
   const newItems: MenuEntry[] = [
     ...sequence.audioSources.map((a): MenuEntry => ({ label: `${a.name} · Bass level`, onSelect: () => make({ kind: 'audio', sourceId: a.id, signal: 'level', band: 'bass' }, `${a.name} · Bass`) })),
     ...(sequence.audioSources.length === 0 ? [{ label: 'Audio (add a source in Audio Analysis first)', disabled: true, onSelect: () => undefined }] : []),
@@ -466,7 +514,7 @@ export function ModulationWindow() {
         {mods.length === 0 && <p className="muted small aa-hint">A modulator turns a signal (your song's bass, the beat, an LFO) into movement. Right-click any value › Link to Audio is the quickest start.</p>}
         {mods.map((m) => {
           const v = modulationController.valueAt(m.id, tl.playhead)
-          const count = linksTo(sequence, m.id).length
+          const count = linksTo(sequence, m.id).length + maskLinksTo(sequence, m.id).length
           return (
             <div key={m.id} className={`aa-source ${current?.id === m.id ? 'selected' : ''}`} onClick={() => modulationUi.select(m.id)}>
               <div className="aa-source-name">{m.name}</div>
@@ -489,7 +537,7 @@ export function ModulationWindow() {
             <button
               className="button compact primary"
               disabled={!current}
-              onClick={() => current && dispatch(addLink(target, current.id, tl.playhead)) && modulationUi.modulate(null)}
+              onClick={() => current && dispatch(isMaskRef(target) ? addMaskLink(target, current.id, tl.playhead) : addLink(target, current.id, tl.playhead)) && modulationUi.modulate(null)}
             >
               Link
             </button>

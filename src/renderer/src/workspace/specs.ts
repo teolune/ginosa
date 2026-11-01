@@ -103,6 +103,17 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'masks',
+    title: 'Masks',
+    shortcut: 'Alt+Shift+3',
+    // Over the Media panel, so the Program monitor (where shapes are dragged) stays in view.
+    defaultRect: { x: 12, y: 56, w: 600, h: 620 },
+    minSize: { w: 400, h: 320 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

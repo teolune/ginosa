@@ -1,6 +1,14 @@
 import type { ParamValue } from '@engine/effects/types'
 import type { PropertyRef } from '@engine/keyframes/properties'
+import type { MaskValueRef } from '@engine/timeline/mask-edits'
 import { Observable } from '../state/observable'
+
+/** A value that can be modulated: a clip's or effect's, or a mask shape's setting. */
+export type ValueRef = PropertyRef | MaskValueRef
+
+export function isMaskRef(ref: ValueRef): ref is MaskValueRef {
+  return 'maskId' in ref
+}
 
 /**
  * What the modulation windows are doing: which modulator is open in the Modulation
@@ -10,9 +18,9 @@ import { Observable } from '../state/observable'
 class ModulationUi extends Observable {
   selected: string | null = null
   /** A value to link to a modulator chosen in the Modulation window. */
-  target: PropertyRef | null = null
+  target: ValueRef | null = null
   /** The Link to Audio picker, open for this value. */
-  linkToAudio: PropertyRef | null = null
+  linkToAudio: ValueRef | null = null
   copied: { kind: 'number' | 'point' | 'stepped'; value: ParamValue; label: string } | null = null
 
   select(id: string | null): void {
@@ -20,12 +28,12 @@ class ModulationUi extends Observable {
     this.notify()
   }
 
-  modulate(ref: PropertyRef | null): void {
+  modulate(ref: ValueRef | null): void {
     this.target = ref
     this.notify()
   }
 
-  openLinkToAudio(ref: PropertyRef | null): void {
+  openLinkToAudio(ref: ValueRef | null): void {
     this.linkToAudio = ref
     this.notify()
   }

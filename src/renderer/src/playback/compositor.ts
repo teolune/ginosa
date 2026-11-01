@@ -4,9 +4,20 @@ import type { Matrix3 } from '@engine/colour/colour'
 import type { EffectManifest, ParamValue } from '@engine/effects/types'
 import blendSource from './blend.wgsl?raw'
 import compositeSource from './composite.wgsl?raw'
-import { effectShaderSource, packFrame, packParams } from './effect-shader'
+import maskSource from './mask.wgsl?raw'
+import { effectShaderSource, maskAa, packFrame, packParams } from './effect-shader'
+import { invertAffine } from '@engine/timeline/motion'
 
-const shaderSource = `${blendSource}\n${compositeSource}`
+const shaderSource = `${blendSource}\n${compositeSource}\n${maskSource}`
+
+/** A shared mask packed for the GPU (packMask), and whether its outside is used instead. */
+export interface GpuMask {
+  data: Float32Array
+  parts: number
+  invert: boolean
+  /** The frame (sequence size) it's drawn on. */
+  frame: { width: number; height: number }
+}
 
 /** An effect ready to run: its manifest, values, and the shared Mix (0–1) and blend mode. */
 export interface GpuEffect {
@@ -14,6 +25,8 @@ export interface GpuEffect {
   params: Record<string, ParamValue>
   mix: number
   blend: BlendMode
+  /** Where it shows (null: everywhere). */
+  mask: GpuMask | null
 }
 
 /** One layer to composite: a decoded frame or a still, how it's placed, and how it blends. */
@@ -39,6 +52,8 @@ export interface AdjustmentStep {
   effects: GpuEffect[]
   opacity: number
   blend: BlendMode
+  /** Where the layer applies (null: everywhere). */
+  mask: GpuMask | null
 }
 
 export type CompositeStep = CompositeLayer | AdjustmentStep
@@ -98,6 +113,9 @@ export class Compositor {
   private presentPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
   private targets: [GPUTexture, GPUTexture] | null = null
   private uniformPool: GPUBuffer[] = []
+  private storagePool: GPUBuffer[] = []
+  private storageUsed = 0
+  private readonly noMask: GPUBuffer
   private readonly noLut: GPUTexture
   width = 0
   height = 0
@@ -106,6 +124,7 @@ export class Compositor {
     this.module = device.createShaderModule({ label: 'composite.wgsl', code: shaderSource })
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' })
     this.noLut = device.createTexture({ size: [1, 1, 1], dimension: '3d', format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING })
+    this.noMask = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE })
   }
 
   /** Sets the size of the composite in pixels (sequence size × playback resolution). */
@@ -150,7 +169,8 @@ export class Compositor {
               { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
               { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
               { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-              { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+              { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+              { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } }
             ]
           })
         ]
@@ -189,6 +209,21 @@ export class Compositor {
     }
     const buffer = this.uniformPool[this.uniformUsed++]!
     this.device.queue.writeBuffer(buffer, 0, data)
+    return buffer
+  }
+
+  /** A mask's data for one pass (pooled like uniforms; grown when a mask needs more). */
+  private maskBuffer(mask: GpuMask | null): GPUBuffer {
+    if (!mask || mask.parts === 0) return this.noMask
+    const bytes = Math.max(256, 2 ** Math.ceil(Math.log2(mask.data.byteLength)))
+    let buffer = this.storagePool[this.storageUsed]
+    if (!buffer || buffer.size < mask.data.byteLength) {
+      buffer?.destroy()
+      buffer = this.device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+      this.storagePool[this.storageUsed] = buffer
+    }
+    this.storageUsed++
+    this.device.queue.writeBuffer(buffer, 0, mask.data)
     return buffer
   }
 
@@ -240,7 +275,7 @@ export class Compositor {
       fsImage: [1, 2, 3, 4, 7],
       fsSourceVideo: [0, 1, 2, 7],
       fsSourceImage: [1, 2, 4, 7],
-      fsAdjust: [2, 3, 4]
+      fsAdjust: [2, 3, 4, 8]
     }
     const entries = used[entryPoint]!.map((binding) => ({ binding, resource: resources[binding]! }))
     const bindGroup = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
@@ -251,10 +286,14 @@ export class Compositor {
     pass.end()
   }
 
-  /** Runs effects on `input` (width × height), returning the result (`input` itself if there are none). */
-  private runEffects(encoder: GPUCommandEncoder, input: GPUTexture, effects: GpuEffect[], pixelScale: number): GPUTexture {
+  /**
+   * Runs effects on `input` (width × height), returning the result (`input` itself if there
+   * are none). `toFrame` maps the input's pixels onto the frame, where masks are drawn.
+   */
+  private runEffects(encoder: GPUCommandEncoder, input: GPUTexture, effects: GpuEffect[], pixelScale: number, toFrame: Affine): GPUTexture {
     let current = input
     for (const effect of effects) {
+      const mask = effect.mask ? { parts: effect.mask.parts, invert: effect.mask.invert, toFrame, frame: effect.mask.frame } : null
       const output = this.take(input.width, input.height)
       const pipeline = this.effectPipeline(effect.manifest)
       const bindGroup = this.device.createBindGroup({
@@ -262,8 +301,9 @@ export class Compositor {
         entries: [
           { binding: 0, resource: current.createView() },
           { binding: 1, resource: this.sampler },
-          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale)) } },
-          { binding: 3, resource: { buffer: this.uniform(packParams(effect.manifest, effect.params, pixelScale)) } }
+          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask)) } },
+          { binding: 3, resource: { buffer: this.uniform(packParams(effect.manifest, effect.params, pixelScale)) } },
+          { binding: 4, resource: { buffer: this.maskBuffer(effect.mask) } }
         ]
       })
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -285,6 +325,7 @@ export class Compositor {
   render(steps: CompositeStep[], scale: number): GPUTexture {
     if (!this.targets) throw new Error('Compositor has no size yet')
     this.uniformUsed = 0
+    this.storageUsed = 0
     const encoder = this.device.createCommandEncoder({ label: 'composite' })
     let [read, write] = this.targets
     // Start from black.
@@ -294,11 +335,17 @@ export class Compositor {
     for (const step of steps) {
       if (isAdjustment(step)) {
         if (step.effects.length === 0) continue
-        const effected = this.runEffects(encoder, read, step.effects, scale)
+        // The composite is the frame times `scale`.
+        const toFrame: Affine = { a: 1 / scale, b: 0, c: 0, d: 1 / scale, e: 0, f: 0 }
+        const effected = this.runEffects(encoder, read, step.effects, scale, toFrame)
         const uniform = new Float32Array(LAYER_BYTES / 4)
         uniform[9] = step.opacity
         uniform[11] = BLEND_MODES.findIndex((b) => b.id === step.blend)
-        this.draw(encoder, 'fsAdjust', write, { 2: { buffer: this.uniform(uniform) }, 3: read.createView(), 4: effected.createView() })
+        if (step.mask) {
+          uniform.set([toFrame.a, toFrame.b, toFrame.c, toFrame.d, toFrame.e, toFrame.f, step.mask.frame.width, step.mask.frame.height], 0)
+          uniform.set([step.mask.parts, maskAa(toFrame), step.mask.invert ? 1 : 0], 12)
+        }
+        this.draw(encoder, 'fsAdjust', write, { 2: { buffer: this.uniform(uniform) }, 3: read.createView(), 4: effected.createView(), 8: { buffer: this.maskBuffer(step.mask) } })
         if (effected !== read) this.release(effected)
         ;[read, write] = [write, read]
         continue
@@ -314,7 +361,10 @@ export class Compositor {
         if (step.source.kind === 'video') resources[0] = this.device.importExternalTexture({ source: step.source.frame })
         else resources[4] = step.source.texture.createView()
         this.draw(encoder, step.source.kind === 'video' ? 'fsSourceVideo' : 'fsSourceImage', source, resources)
-        processed = this.runEffects(encoder, source, step.effects, s)
+        // Processed pixel → source pixel (÷ s) → frame pixel (the layer's Motion).
+        const motion = invertAffine(step.inverse) ?? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+        const toFrame: Affine = { a: motion.a / s, b: motion.b / s, c: motion.c / s, d: motion.d / s, e: motion.e, f: motion.f }
+        processed = this.runEffects(encoder, source, step.effects, s, toFrame)
         if (processed !== source) this.release(source)
         // Already decoded, converted and turned upright.
         layer = { ...step, source: { kind: 'image', texture: processed }, rotation: 0, colour: NO_COLOUR }
@@ -377,6 +427,8 @@ export class Compositor {
   destroy(): void {
     this.targets?.forEach((t) => t.destroy())
     this.uniformPool.forEach((b) => b.destroy())
+    this.storagePool.forEach((b) => b.destroy())
+    this.noMask.destroy()
     for (const list of this.scratch.values()) list.forEach((t) => t.destroy())
     this.scratch.clear()
     this.noLut.destroy()
