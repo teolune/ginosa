@@ -175,6 +175,22 @@ export async function runMaskGpuTest() {
     return (processed(i, j) * (1 - fx) + processed(i + 1, j) * fx) * (1 - fy) + (processed(i, j + 1) * (1 - fx) + processed(i + 1, j + 1) * fx) * fy
   })
 
+  // Follow clip: the same moved clip, but the mask is on the clip's picture (here, a frame-sized
+  // source whose default Motion is no change), so it moves and turns with the clip.
+  const onPicture = (i: number, j: number) => {
+    const v = column(i)
+    return inverted(v, maskAlpha(MASK_B, i + 0.5, j + 0.5, v, frame, 1))
+  }
+  await compare('moved clip, Follow clip: the mask moves with it', [clip([invertFx({ ...gpuMask(MASK_B), onClip: identity })], inverse)], 1, (x, y) => {
+    const p = applyAffine(inverse, x, y)
+    if (p.x < 1.5 || p.y < 1.5 || p.x > W - 1.5 || p.y > H - 1.5) return null
+    const i = Math.floor(p.x - 0.5)
+    const j = Math.floor(p.y - 0.5)
+    const fx = p.x - 0.5 - i
+    const fy = p.y - 0.5 - j
+    return (onPicture(i, j) * (1 - fx) + onPicture(i + 1, j) * fx) * (1 - fy) + (onPicture(i, j + 1) * (1 - fx) + onPicture(i + 1, j + 1) * fx) * fy
+  })
+
   // Adjustment layers: the layer's own mask (and its effects' masks), at full and half resolution.
   const below = (x: number, scale: number) => {
     // The ramp drawn at `scale`: bilinear between columns.

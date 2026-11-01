@@ -176,12 +176,12 @@ export function CacheManagerWindow() {
             {!project.projectExists && <span className="status-pill warn" title={project.projectPath ?? ''}>Project not found</span>}
             <span className="spacer" />
             <span className="mono">{formatBytes(project.total)}</span>
-            <span title="For a finished project: deletes everything ginosa made for it (thumbnails, waveforms, optimised copies, previews, analysis). The project file and your media stay.">
+            <span title="For a finished project: deletes everything ginosa made for it (thumbnails, waveforms, optimised copies, previews, analysis). The project file and your media stay. The open project is saved and closed first. Autosaves too: Cache › Clean Up Finished Project and Autosaves.">
               <ConfirmButton
                 label="Clean Up Finished Project"
                 confirmLabel="Delete all its cache? Click again"
                 disabled={project.total === 0}
-                onConfirm={() => void clear(project.projectId, 'all')}
+                onConfirm={() => void (project.projectId === currentId ? projectController.cleanUpFinished(false).then(() => refresh()) : clear(project.projectId, 'all'))}
               />
             </span>
           </div>

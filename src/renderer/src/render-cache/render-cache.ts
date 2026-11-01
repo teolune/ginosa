@@ -6,6 +6,7 @@ import type { ModulationContext } from '@engine/modulation/types'
 import { videoLayersAt } from '@engine/timeline/render-plan'
 import { checkpointEvery } from '@engine/timeline/temporal'
 import { frameTicks } from '@engine/timeline/timeline'
+import { markedRange } from '@engine/timeline/sequence-marks'
 import { modulationController } from '../audio/modulation-controller'
 import { getGpu } from '../gpu/shared'
 import { readTexture } from '../gpu/readback'
@@ -187,9 +188,10 @@ class RenderCacheController extends Observable {
   }
 
   /**
-   * Enter: renders every frame with effects that isn't cached, within the selected clips'
-   * span (or the whole sequence), in order. Stateful effects catch up from their reset or
-   * a checkpoint first, unseen. Returns how many frames were written.
+   * Enter: renders every frame with effects that isn't cached, between In and Out if
+   * either is set, otherwise within the selected clips' span (or the whole sequence), in
+   * order. Stateful effects catch up from their reset or a checkpoint first, unseen.
+   * Returns how many frames were written.
    */
   async renderSection(clipIds: readonly string[] = [...timelineController.selection], span: { from: number; to: number } | null = null): Promise<number> {
     if (this.rendering) return 0
@@ -201,6 +203,7 @@ class RenderCacheController extends Observable {
     const media = ready.basis.media
     const modulation = modulationController.context
     const frame = frameTicks(sequence)
+    span ??= markedRange(sequence)
     const selected = sequence.clips.filter((c) => clipIds.includes(c.id))
     const from = span ? Math.floor(span.from / frame) : selected.length ? Math.floor(Math.min(...selected.map((c) => c.start)) / frame) : 0
     const to = span ? Math.ceil(span.to / frame) : selected.length ? Math.ceil(Math.max(...selected.map((c) => c.start + c.duration)) / frame) : ready.keys.length

@@ -11,6 +11,8 @@ export interface WarningRequest {
   title: string
   message: string
   confirm: string
+  /** False for questions that should always be asked (deleting files). */
+  silenceable: boolean
   resolve(ok: boolean, dontAskAgain: boolean): void
 }
 
@@ -35,6 +37,26 @@ class WarningController extends Observable {
     return this.silenced.has(id)
   }
 
+  /** Always asks (no "Don't ask me again"): for deleting files. */
+  confirm(title: string, message: string, confirm: string): Promise<boolean> {
+    this.request?.resolve(false, false)
+    return new Promise((resolve) => {
+      this.request = {
+        id: 'confirm',
+        title,
+        message,
+        confirm,
+        silenceable: false,
+        resolve: (ok) => {
+          this.request = null
+          this.notify()
+          resolve(ok)
+        }
+      }
+      this.notify()
+    })
+  }
+
   /** Asks, unless this warning was silenced; resolves true to go ahead. */
   ask(id: string, title: string, message: string, confirm: string): Promise<boolean> {
     if (this.silenced.has(id)) return Promise.resolve(true)
@@ -45,6 +67,7 @@ class WarningController extends Observable {
         title,
         message,
         confirm,
+        silenceable: true,
         resolve: (ok, dontAskAgain) => {
           this.request = null
           if (ok && dontAskAgain) {

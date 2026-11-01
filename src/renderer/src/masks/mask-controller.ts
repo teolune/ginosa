@@ -13,6 +13,8 @@ class MaskController extends Observable {
   point: number | null = null
   /** Draw the selected shape on the Program monitor for editing. */
   overlay = true
+  /** The clip the mask is being edited on: with Follow clip, it's drawn where it lands on that clip. */
+  clipId: string | null = null
 
   constructor() {
     super()
@@ -58,9 +60,15 @@ class MaskController extends Observable {
     this.notify()
   }
 
-  /** Opens a mask in the Masks window, with its outline on the monitor. */
-  edit(maskId: string): void {
+  setClip(clipId: string | null): void {
+    this.clipId = clipId
+    this.notify()
+  }
+
+  /** Opens a mask in the Masks window, with its outline on the monitor (on `clipId`, if it follows that clip). */
+  edit(maskId: string, clipId: string | null = null): void {
     this.select(maskId)
+    this.clipId = clipId
     this.overlay = true
     workspaceController.open('masks')
     workspaceController.focus('masks')

@@ -17,6 +17,12 @@ export interface GpuMask {
   invert: boolean
   /** The frame (sequence size) it's drawn on. */
   frame: { width: number; height: number }
+  /**
+   * Follow clip (decision 58): the clip's source pixels → mask pixels (where the clip sits
+   * with its default Motion), so the mask moves with the clip's Motion. Null: the mask
+   * stays on the frame.
+   */
+  onClip?: Affine | null
 }
 
 /** An effect ready to run: its manifest, values, and the shared Mix (0–1) and blend mode. */
@@ -93,6 +99,11 @@ export interface GpuLut {
 const LAYER_BYTES = 144
 const UNIFORM_BYTES = 256
 const NO_COLOUR: LayerColour = { undoMacDisplay: false, conversion: { kind: 'none' } }
+
+/** `m` applied to pixels of an image processed at `scale` (pixel ÷ scale first). */
+function scaledAffine(m: Affine, scale: number): Affine {
+  return { a: m.a / scale, b: m.b / scale, c: m.c / scale, d: m.d / scale, e: m.e, f: m.f }
+}
 
 /** float32 → IEEE half, for 16-bit float textures. */
 function toHalf(value: number): number {
@@ -354,7 +365,7 @@ export class Compositor {
         current = output
         continue
       }
-      const mask = effect.mask ? { parts: effect.mask.parts, invert: effect.mask.invert, toFrame, frame: effect.mask.frame } : null
+      const mask = effect.mask ? { parts: effect.mask.parts, invert: effect.mask.invert, toFrame: effect.mask.onClip ? scaledAffine(effect.mask.onClip, pixelScale) : toFrame, frame: effect.mask.frame } : null
       const previous = effect.state?.previous(input.width, input.height) ?? null
       const temporal = effect.state ? { hasPrevious: previous !== null, frames: effect.state.frames } : null
       const output = this.take(input.width, input.height)

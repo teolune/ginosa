@@ -544,7 +544,7 @@ export function TimelinePanel() {
         ) : (
           <button
             className="button compact"
-            title="Render previews (Enter): the frames with effects that aren't cached yet, in the selected clips or the whole sequence. Yellow on the ruler: rendered live; green: cached."
+            title="Render previews (Enter): the frames with effects that aren't cached yet, between In and Out (I, O), else in the selected clips or the whole sequence. Yellow on the ruler: rendered live; green: cached."
             onClick={() => void renderCache.renderSection()}
           >
             Render

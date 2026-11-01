@@ -27,6 +27,7 @@ import {
 } from '@engine/timeline/edits'
 import { DEFAULT_STILL_SECONDS, clipEnd, editPoints, findTrack, frameTicks, sequenceEnd, toFrame, topVideoClipAt, withLinked } from '@engine/timeline/timeline'
 import { mediaController } from '../state/media-controller'
+import { setSequenceMarks } from '@engine/timeline/sequence-marks'
 import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
@@ -555,6 +556,17 @@ class TimelineController extends Observable {
     if (focus !== 'timeline') return false
 
     const shift = event.shiftKey
+    // In and Out (decision 59): I and O at the playhead; ⌥I, ⌥O, ⌥X clear; Shift+I, Shift+O go there.
+    if (!cmd && (lower === 'i' || lower === 'o' || (lower === 'x' && event.altKey)) && !(shift && event.altKey)) {
+      const marks = projectController.project?.sequence.marks
+      if (lower === 'x') projectController.dispatch(setSequenceMarks({ in: null, out: null }))
+      else if (shift) {
+        const at = lower === 'i' ? marks?.in : marks?.out !== null && marks?.out !== undefined ? marks.out - this.frame() : null
+        if (at !== null && at !== undefined) this.movePlayhead(at)
+      } else if (event.altKey) projectController.dispatch(setSequenceMarks(lower === 'i' ? { in: null } : { out: null }))
+      else projectController.dispatch(setSequenceMarks(lower === 'i' ? { in: this.playhead } : { out: this.playhead + this.frame() }))
+      return true
+    }
     if (key === 'Enter' && plain && !shift && this.previews) {
       void this.previews.renderSection()
       return true

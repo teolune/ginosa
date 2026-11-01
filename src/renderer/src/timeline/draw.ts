@@ -64,6 +64,8 @@ const COLOURS = {
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22',
   keyframe: '#e8e8ea',
+  marked: 'rgba(91,140,255,0.16)',
+  markEdge: '#5b8cff',
   renderLive: '#d9b23c',
   renderCached: '#3fae5c',
   beat: 'rgba(232,176,74,0.55)',
@@ -115,6 +117,7 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
     const x = Math.round((s - view.scroll) * view.pps)
     ctx.fillText(scene.timecode(secondsToTicks(s)), x + 3, 4)
   }
+  drawMarks(ctx, scene)
   drawRenderBar(ctx, scene)
   drawBeatGrid(ctx, scene)
   // Markers
@@ -124,6 +127,29 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
   ctx.moveTo(0, RULER_HEIGHT - 0.5)
   ctx.lineTo(width, RULER_HEIGHT - 0.5)
   ctx.stroke()
+}
+
+/** The timeline's In and Out: the span shaded on the ruler, with a bracket at each mark. */
+function drawMarks(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const marks = scene.sequence.marks
+  if (marks.in === null && marks.out === null) return
+  const { view, width } = scene
+  const x0 = marks.in !== null ? timeToX(marks.in, view) : 0
+  const x1 = marks.out !== null ? timeToX(marks.out, view) : width
+  ctx.fillStyle = COLOURS.marked
+  ctx.fillRect(x0, 0, x1 - x0, RULER_HEIGHT)
+  ctx.strokeStyle = COLOURS.markEdge
+  ctx.lineWidth = 1.5
+  const bracket = (x: number, dir: 1 | -1) => {
+    ctx.beginPath()
+    ctx.moveTo(x + 5 * dir, 4)
+    ctx.lineTo(x, 4)
+    ctx.lineTo(x, RULER_HEIGHT - 4)
+    ctx.lineTo(x + 5 * dir, RULER_HEIGHT - 4)
+    ctx.stroke()
+  }
+  if (marks.in !== null) bracket(Math.round(x0) + 0.5, 1)
+  if (marks.out !== null) bracket(Math.round(x1) - 0.5, -1)
 }
 
 /** Along the top of the ruler: yellow where frames have effects rendered live, green where they're cached. */

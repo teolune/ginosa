@@ -209,6 +209,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('project:autosave', (_event, json: string) => projects.autosave(json))
+  ipcMain.handle('project:deleteAutosaves', () => projects.deleteAutosaves())
   ipcMain.on('project:journal', (_event, entry: JournalEntry) => {
     void projects.appendJournal(entry).catch((error: Error) => console.error(`[project] journal: ${error.message}`))
   })

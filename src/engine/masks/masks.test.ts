@@ -220,6 +220,18 @@ describe('mask commands', () => {
     expect(adjustment().mask).toEqual({ id: made.maskId, invert: false })
   })
 
+  it('Follow clip is kept on a clip’s effect, dropped where there’s no Motion, and saved', () => {
+    const { history, run, video, adjustment } = setup()
+    const { maskId } = run(addMask('ellipse', null, ids))
+    run(setEffectMask(video().id, video().effects[0]!.id, { id: maskId, invert: false, followClip: true }))
+    run(setEffectMask(adjustment().id, adjustment().effects[0]!.id, { id: maskId, invert: false, followClip: true }))
+    run(setAdjustmentMask(adjustment().id, { id: maskId, invert: true, followClip: true }))
+    expect(video().effects[0]!.mask).toEqual({ id: maskId, invert: false, followClip: true })
+    expect(adjustment().effects[0]!.mask).toEqual({ id: maskId, invert: false })
+    expect(adjustment().mask).toEqual({ id: maskId, invert: true })
+    expect(parseProject(serializeProject(history.state)).sequence.clips).toEqual(history.state.sequence.clips)
+  })
+
   it('shapes are added, ordered, combined, inverted and removed', () => {
     const { run, masks } = setup()
     const { maskId, shapeId } = run(addMask('rectangle', 'Frame', ids))

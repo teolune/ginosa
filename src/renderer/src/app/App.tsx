@@ -20,8 +20,9 @@ import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runFeedbackGpuTest } from '../playback/feedback-gpu-test'
 import { feedbackTest } from '../playback/feedback-test'
 import { renderCacheDemo } from '../render-cache/render-cache-demo'
+import { renderCache } from '../render-cache/render-cache'
 import { maskTest } from '../masks/mask-test'
-import { buildMaskUiTimeline } from '../masks/mask-ui-demo'
+import { buildFollowUi, buildMaskUiTimeline } from '../masks/mask-ui-demo'
 import { sourcePlayer } from '../playback/source-player'
 import { openMedia } from '../playback/sources'
 import { probePatches, readPixels } from '../playback/colour-probe'
@@ -294,6 +295,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     }
     case 'effectsgpu': {
       await window.ginosa.snapshot.report(await runEffectGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'followui': {
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /patches_rec709\.mov$/.test(f)), null)
+      await wait(1500)
+      await buildFollowUi()
+      await wait(1500)
       break
     }
     case 'exportmasks':
@@ -678,6 +686,37 @@ export function App() {
           return workspaceController.apply(command.name)
         case 'workspace-reset':
           return workspaceController.reset()
+        case 'render-previews':
+          void renderCache.renderSection()
+          return
+        case 'delete-previews': {
+          const project = projectController.project
+          if (!project) return
+          void warnings.confirm('Delete this project’s previews?', 'The rendered previews of this project are deleted. Frames with effects play live again until you render them (Enter).', 'Delete Previews').then(async (ok) => {
+            if (!ok) return
+            await window.ginosa.cache.clear(project.id, 'renders')
+            renderCache.reload()
+            projectController.showMessage('Previews deleted')
+          })
+          return
+        }
+        case 'clean-up-project': {
+          const project = projectController.project
+          if (!project) return
+          const what = command.autosaves ? 'its cache and its autosave snapshots' : 'its cache'
+          void warnings
+            .confirm(
+              `Clean up “${project.name}”?`,
+              `For a finished project: ginosa saves it if needed, closes it, and deletes ${what}: thumbnails, waveforms, optimised copies, previews and analysis${command.autosaves ? ', plus the crash-recovery snapshots in the project folder' : ''}. Your project file, its LUTs and your media stay. Everything deleted is made again if you open it later (optimised copies take a while).`,
+              'Clean Up'
+            )
+            .then(async (ok) => {
+              if (!ok) return
+              const done = await projectController.cleanUpFinished(command.autosaves)
+              if (done) projectController.showMessage(`Cleaned up “${project.name}”${command.autosaves ? ` (${done.autosaves} autosave${done.autosaves === 1 ? '' : 's'} removed)` : ''}`)
+            })
+          return
+        }
         case 'show-warnings': {
           const count = warnings.showAllAgain()
           projectController.showMessage(count > 0 ? `ginosa will ask again before the ${count} kind${count === 1 ? '' : 's'} of change you'd silenced` : 'No warnings were silenced')

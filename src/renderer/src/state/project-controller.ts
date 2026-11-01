@@ -297,6 +297,22 @@ export class ProjectController extends Observable {
     await this.refreshRecent()
   }
 
+  /**
+   * Cache › Clean Up Finished Project (decision 60): saves the project if needed (and, with
+   * `autosaves`, deletes its autosave snapshots), closes it, then deletes everything ginosa
+   * generated for it. Closed first, so nothing is made again straight away.
+   */
+  async cleanUpFinished(autosaves: boolean): Promise<{ autosaves: number } | null> {
+    const project = this.project
+    if (!project) return null
+    if (this.isDirty && !(await this.save())) return null
+    const removed = autosaves ? await window.ginosa.project.deleteAutosaves() : 0
+    await this.closeQuietly()
+    await window.ginosa.cache.clear(project.id, 'all')
+    await this.refreshRecent()
+    return { autosaves: removed }
+  }
+
   private async closeQuietly(): Promise<void> {
     if (!this.history) return
     this.clearAutosaveTimers()

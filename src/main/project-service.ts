@@ -141,6 +141,22 @@ export class ProjectService {
     })
   }
 
+  /** Clean Up Finished Project and Autosaves (decision 60): this project's autosave snapshots, and nothing else. */
+  deleteAutosaves(): Promise<number> {
+    return this.enqueue(async () => {
+      const dir = join(this.requirePath(), AUTOSAVE_DIR)
+      let files: string[] = []
+      try {
+        files = (await readdir(dir)).filter((f) => /^autosave-[0-9TZ-]+\.json$/.test(f))
+      } catch {
+        return 0
+      }
+      // Only ever deletes autosave snapshots inside this project's autosave folder.
+      for (const file of files) await rm(join(dir, file), { force: true })
+      return files.length
+    })
+  }
+
   appendJournal(entry: JournalEntry): Promise<void> {
     return this.enqueue(async () => {
       if (!this.currentPath) return

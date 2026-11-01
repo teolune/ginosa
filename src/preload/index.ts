@@ -34,6 +34,7 @@ const bridge: GinosaBridge = {
     save: (json: string) => ipcRenderer.invoke('project:save', json),
     saveAs: (json: string) => ipcRenderer.invoke('project:saveAs', json),
     autosave: (json: string) => ipcRenderer.invoke('project:autosave', json),
+    deleteAutosaves: () => ipcRenderer.invoke('project:deleteAutosaves'),
     journal: (entry: JournalEntry) => ipcRenderer.send('project:journal', entry),
     discardRecovery: () => ipcRenderer.invoke('project:discardRecovery'),
     close: () => ipcRenderer.invoke('project:close'),

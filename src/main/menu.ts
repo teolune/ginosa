@@ -93,6 +93,19 @@ export class AppMenu {
         ]
       },
       {
+        // Previews and cleanup (decision 60).
+        label: 'Cache',
+        submenu: [
+          { label: 'Render Previews', accelerator: 'Enter', registerAccelerator: false, enabled: s.hasProject, click: () => this.send({ type: 'render-previews' }) },
+          { label: 'Delete This Project’s Previews…', enabled: s.hasProject, click: () => this.send({ type: 'delete-previews' }) },
+          { type: 'separator' },
+          { label: 'Clean Up Finished Project…', enabled: s.hasProject, click: () => this.send({ type: 'clean-up-project', autosaves: false }) },
+          { label: 'Clean Up Finished Project and Autosaves…', enabled: s.hasProject, click: () => this.send({ type: 'clean-up-project', autosaves: true }) },
+          { type: 'separator' },
+          { label: 'Cache Manager', enabled: s.hasProject, click: () => this.send({ type: 'toggle-window', id: 'cache-manager' }) }
+        ]
+      },
+      {
         label: 'Window',
         submenu: [
           ...s.windows.map(

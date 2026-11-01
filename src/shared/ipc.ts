@@ -155,6 +155,9 @@ export type MenuCommand =
   | { type: 'workspace-save-as' }
   | { type: 'workspace-reset' }
   | { type: 'show-warnings' }
+  | { type: 'render-previews' }
+  | { type: 'delete-previews' }
+  | { type: 'clean-up-project'; autosaves: boolean }
 
 /** What the renderer tells the main process so the native menu can reflect it. */
 export interface MenuState {
@@ -192,6 +195,8 @@ export interface GinosaBridge {
     save(json: string): Promise<void>
     saveAs(json: string): Promise<string | null>
     autosave(json: string): Promise<void>
+    /** Deletes the open project's autosave snapshots; returns how many. */
+    deleteAutosaves(): Promise<number>
     journal(entry: JournalEntry): void
     discardRecovery(): Promise<void>
     close(): Promise<void>

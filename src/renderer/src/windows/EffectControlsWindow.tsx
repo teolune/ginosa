@@ -324,7 +324,7 @@ function MaskRow({ clip, effectId, value, locked }: { clip: Clip; effectId: stri
           onChange={(event) => {
             const id = event.target.value
             if (id === '__new') create()
-            else set(id ? { id, invert: value?.invert ?? false } : null)
+            else set(id ? { id, invert: value?.invert ?? false, followClip: value?.followClip } : null)
           }}
         >
           <option value="">None (everywhere)</option>
@@ -341,7 +341,16 @@ function MaskRow({ clip, effectId, value, locked }: { clip: Clip; effectId: stri
             <label className="mod-check" title="Show outside the mask instead">
               <input type="checkbox" checked={value.invert} disabled={locked} onChange={(event) => set({ ...value, invert: event.target.checked })} /> Invert
             </label>
-            <button className={`button compact ${maskController.maskId === value.id ? 'active' : ''}`} title="Edit this mask (Masks window and Program monitor)" onClick={() => maskController.edit(value.id)}>
+            {effectId !== null && !clip.adjustment && (
+              <label className="mod-check" title="Follow clip: the mask moves, scales and turns with this clip's Motion. Off: it stays where it is on the frame.">
+                <input type="checkbox" checked={value.followClip === true} disabled={locked} onChange={(event) => set({ ...value, followClip: event.target.checked })} /> Follow clip
+              </label>
+            )}
+            <button
+              className={`button compact ${maskController.maskId === value.id ? 'active' : ''}`}
+              title="Edit this mask (Masks window and Program monitor)"
+              onClick={() => maskController.edit(value.id, value.followClip ? clip.id : null)}
+            >
               Edit
             </button>
           </>

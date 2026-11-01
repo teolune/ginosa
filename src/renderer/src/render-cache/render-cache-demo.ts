@@ -1,6 +1,7 @@
 import { secondsToTicks } from '@engine/time'
 import { addAdjustmentLayer, addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { placeMedia } from '@engine/timeline/edits'
+import { setSequenceMarks } from '@engine/timeline/sequence-marks'
 import { player } from '../playback/player'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
@@ -10,7 +11,7 @@ import { renderCache } from './render-cache'
 /**
  * The cacheui snapshot: real footage (the 1080p test pattern) under a Feedback tunnel on
  * an adjustment layer; the first 4 s rendered to the cache (green), the rest still live
- * (yellow). Reports the render speed and preview size on footage.
+ * (yellow), between In and Out. Reports the render speed and preview size on footage.
  */
 export async function renderCacheDemo() {
   const s = secondsToTicks
@@ -24,8 +25,11 @@ export async function renderCacheDemo() {
   projectController.dispatch(addEffect([layer], 'feedback'))
   const effect = projectController.project!.sequence.clips.find((c) => c.id === layer)!.effects[0]!.id
   projectController.dispatch(setEffectValues(layer, effect, { params: { amount: 88, zoom: 101.5, rotation: 0.8 } }))
+  // In and Out at 0 and 4 s: Enter renders between them (decision 59).
+  projectController.dispatch(setSequenceMarks({ in: 0 }))
+  projectController.dispatch(setSequenceMarks({ out: s(4) }))
   await renderCache.settle()
-  const rendered = await renderCache.renderSection([], { from: 0, to: s(4) })
+  const rendered = await renderCache.renderSection([])
   const last = renderCache.last!
   timelineController.select([layer], 'replace')
   timelineController.zoomToFit()

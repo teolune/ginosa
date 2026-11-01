@@ -2,7 +2,7 @@ import { APPLE_WIDE_GAMUT_TO_REC709, BT2020_TO_REC709 } from '@engine/colour/col
 import { parseCube, sampleCube, type CubeLut } from '@engine/colour/cube'
 import { effectiveColour, type MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
-import { inverseMotion, sourceSize } from '@engine/timeline/motion'
+import { defaultMotion, inverseMotion, motionMatrix, sourceSize, type Affine } from '@engine/timeline/motion'
 import type { FrameMasks, VideoLayer } from '@engine/timeline/render-plan'
 import { packMask, type ResolvedShape } from '@engine/masks/masks'
 import type { MaskRef } from '@engine/masks/types'
@@ -39,12 +39,12 @@ export class LayerBuilder {
       if (!manifest) return []
       const t = layer.temporal
       const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
-      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks), state }]
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state }]
     })
   }
 
   /** A mask reference ready for the GPU (null when there's none, or the mask is gone). */
-  mask(ref: MaskRef | null, masks: FrameMasks): GpuMask | null {
+  mask(ref: MaskRef | null, masks: FrameMasks, layer: VideoLayer | null = null): GpuMask | null {
     const shapes = ref ? masks.byId.get(ref.id) : undefined
     if (!ref || !shapes) return null
     let packed = this.packed.get(shapes)
@@ -52,7 +52,7 @@ export class LayerBuilder {
       packed = packMask(shapes)
       this.packed.set(shapes, packed)
     }
-    return { ...packed, invert: ref.invert, frame: masks.frame }
+    return { ...packed, invert: ref.invert, frame: masks.frame, onClip: ref.followClip && layer?.item ? clipMaskSpace(layer, masks.frame) : null }
   }
 
   /** An adjustment layer: its effects on everything beneath, with its opacity × transition weight, within its mask. */
@@ -167,4 +167,13 @@ function expand1d(lut: CubeLut): Float32Array {
         out[at + 2] = value[2]
       }
   return out
+}
+
+/**
+ * Follow clip (decision 58): the clip's source pixels → mask pixels, through the Motion the
+ * clip gets by default (centred, fitted to the frame). With Motion untouched, the mask is
+ * exactly where it is in frame terms; as the clip moves, scales or turns, the mask goes too.
+ */
+export function clipMaskSpace(layer: VideoLayer, frame: { width: number; height: number }): Affine {
+  return motionMatrix(defaultMotion(layer.item ?? undefined, { width: frame.width, height: frame.height, frameRate: '25', sampleRate: 48_000 }))
 }

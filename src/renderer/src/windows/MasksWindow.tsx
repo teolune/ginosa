@@ -156,14 +156,26 @@ function UsedBy({ sequence, mask }: { sequence: Sequence; mask: Mask }) {
         const effect = effectId ? clip.effects.find((e) => e.id === effectId) : null
         const ref = effect ? effect.mask : clip.mask
         return (
-          <button key={`${clipId}:${effectId}`} className="link-button" title="Select it in the timeline" onClick={() => (tl.select([clipId], 'replace'), workspaceController.focus('effect-controls'))}>
+          <button
+            key={`${clipId}:${effectId}`}
+            className="link-button"
+            title={ref?.followClip ? 'Select it in the timeline, and show the mask where it lands on this clip' : 'Select it in the timeline'}
+            onClick={() => (tl.select([clipId], 'replace'), maskController.setClip(ref?.followClip ? clipId : null), workspaceController.focus('effect-controls'))}
+          >
             {clip.name} › {effect ? (effectById(effect.effectId)?.name ?? 'Effect') : 'whole layer'}
             {ref?.invert ? ' (outside)' : ''}
+            {ref?.followClip ? ' (follows the clip)' : ''}
           </button>
         )
       })}
     </div>
   )
+}
+
+/** The clip the mask is shown on, when it's being edited on a clip that uses it with Follow clip. */
+function followName(sequence: Sequence, maskId: string): string | null {
+  const clip = maskController.clipId ? sequence.clips.find((c) => c.id === maskController.clipId) : undefined
+  return clip && clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip) ? clip.name : null
 }
 
 export function MasksWindow() {
@@ -260,6 +272,7 @@ export function MasksWindow() {
                 + Shape
               </button>
             </div>
+            {followName(sequence, mask.id) && <p className="small mask-follow mask-hint">Shown where it lands on {followName(sequence, mask.id)}, whose Motion it follows (Follow clip).</p>}
             <div className="mask-shapes">
               {mask.shapes.length === 0 && <p className="muted small mask-hint">No shapes: whatever uses this mask shows everywhere.</p>}
               {mask.shapes.map((s, index) => (

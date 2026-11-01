@@ -112,10 +112,12 @@ export function WarningDialog() {
       >
         <h2>{request.title}</h2>
         <p>{request.message}</p>
-        <label className="check-row">
-          <input type="checkbox" checked={dontAsk} onChange={(event) => setDontAsk(event.target.checked)} />
-          <span>Don’t ask me again</span>
-        </label>
+        {request.silenceable && (
+          <label className="check-row">
+            <input type="checkbox" checked={dontAsk} onChange={(event) => setDontAsk(event.target.checked)} />
+            <span>Don’t ask me again</span>
+          </label>
+        )}
         <div className="modal-actions">
           <button type="button" className="button" onClick={() => request.resolve(false, false)}>
             Cancel

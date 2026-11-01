@@ -100,5 +100,6 @@ export function parseMaskRef(value: unknown, where: string, masks: ReadonlySet<s
   if (value === null || value === undefined) return null
   if (!isObject(value)) throw new MaskFormatError(`${where} should be a mask reference`)
   const id = str(value, 'id', where)
-  return masks.has(id) ? { id, invert: value['invert'] === true } : null
+  if (!masks.has(id)) return null
+  return value['followClip'] === true ? { id, invert: value['invert'] === true, followClip: true } : { id, invert: value['invert'] === true }
 }

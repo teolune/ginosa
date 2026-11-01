@@ -3,6 +3,10 @@ import { placePoint, resolveShape, shapeValueAt, unplacePoint, type ResolvedShap
 import type { MaskShape, PathPoint } from '@engine/masks/types'
 import { hasLinks } from '@engine/modulation/apply'
 import { setPathPoints, setShapeValues } from '@engine/timeline/mask-edits'
+import { resolveClip } from '@engine/keyframes/properties'
+import { applyAffine, defaultMotion, invertAffine, motionMatrix, type Affine } from '@engine/timeline/motion'
+import { clipEnd } from '@engine/timeline/timeline'
+import type { Project } from '@engine/project/model'
 import { modulationController } from '../audio/modulation-controller'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -122,6 +126,28 @@ function outline(shape: MaskShape, r: ResolvedShape, scale: number, className: s
   return null
 }
 
+const IDENTITY: Affine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+
+function compose(m: Affine, n: Affine): Affine {
+  // m after n.
+  return { a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b, c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d, e: m.a * n.e + m.c * n.f + m.e, f: m.b * n.e + m.d * n.f + m.f }
+}
+
+/**
+ * Mask pixels → frame pixels as the mask is seen: on the frame (identity), or, when the
+ * clip it's being edited on uses it with Follow clip, through that clip's Motion at the
+ * playhead relative to its default Motion (decision 58).
+ */
+function maskView(project: Project, maskId: string, clipId: string | null, playhead: number): { view: Affine; clipName: string | null } {
+  const clip = clipId ? project.sequence.clips.find((c) => c.id === clipId) : undefined
+  if (!clip || clip.adjustment || !clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip)) return { view: IDENTITY, clipName: null }
+  const item = project.media.find((m) => m.id === clip.mediaId)
+  const at = Math.min(Math.max(playhead, clip.start), clipEnd(clip) - 1)
+  const motion = resolveClip(clip, at, modulationController.context).motion
+  const home = invertAffine(motionMatrix(defaultMotion(item, project.sequence.settings)))
+  return home ? { view: compose(motionMatrix(motion), home), clipName: clip.name } : { view: IDENTITY, clipName: null }
+}
+
 export function MaskOverlay({ width, height }: { width: number; height: number }) {
   useObservable(maskController)
   useObservable(projectController)
@@ -138,8 +164,10 @@ export function MaskOverlay({ width, height }: { width: number; height: number }
   const scaleNow = Number(shapeValueAt(shape, 'scale', playhead))
   const live = hasLinks(shape.modulation) ? resolveShape(shape, playhead, modulationController.context) : null
   const svg = svgRef.current
-  // Frame pixels per screen pixel, so handles stay the same size on screen.
-  const k = svg ? width / Math.max(1, svg.getBoundingClientRect().width) : 2
+  const { view } = maskView(projectController.project!, mask.id, maskController.clipId, playhead)
+  const unview = invertAffine(view) ?? IDENTITY
+  // Mask pixels per screen pixel, so handles stay the same size on screen.
+  const k = (svg ? width / Math.max(1, svg.getBoundingClientRect().width) : 2) / Math.sqrt(Math.max(1e-6, Math.abs(view.a * view.d - view.b * view.c)))
   const handle = 5 * k
   const dispatch = projectController.dispatch.bind(projectController)
   const setValues = (values: Parameters<typeof setShapeValues>[2]) => dispatch(setShapeValues(mask.id, shape.id, values, playhead))
@@ -149,7 +177,9 @@ export function MaskOverlay({ width, height }: { width: number; height: number }
     point.x = event.clientX
     point.y = event.clientY
     const p = point.matrixTransform(el.getScreenCTM()!.inverse())
-    return [p.x, p.y]
+    // Into mask pixels (the same as frame pixels unless the mask follows a clip).
+    const m = applyAffine(unview, p.x, p.y)
+    return [m.x, m.y]
   }
   const pathPoint = (p: Pt): Pt => unplacePoint(p[0], p[1], r.position, scaleNow, r.rotation)
   const begin = (event: ReactPointerEvent, d: Drag) => {
@@ -245,6 +275,7 @@ export function MaskOverlay({ width, height }: { width: number; height: number }
         }
       }}
     >
+      <g transform={`matrix(${view.a} ${view.b} ${view.c} ${view.d} ${view.e} ${view.f})`}>
       {others.map((s) => (
         <g key={s.id} opacity={0.45}>
           {outline(s, resolveShape(s, playhead), Number(shapeValueAt(s, 'scale', playhead)), 'mask-outline live')}
@@ -367,6 +398,7 @@ export function MaskOverlay({ width, height }: { width: number; height: number }
           onPointerDown={(event) => begin(event, { kind: 'edge' })}
         />
       )}
+      </g>
     </svg>
   )
 }

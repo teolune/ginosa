@@ -1,6 +1,7 @@
 import { secondsToTicks } from '@engine/time'
 import { addAdjustmentLayer, addEffect, setEffectValues } from '@engine/timeline/effect-edits'
-import { placeMedia } from '@engine/timeline/edits'
+import { placeMedia, setClipProperties } from '@engine/timeline/edits'
+import { setSequenceMarks } from '@engine/timeline/sequence-marks'
 import { addMaskTo, addShape, setEffectMask, setShapeMode, setShapeValues } from '@engine/timeline/mask-edits'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
@@ -37,5 +38,32 @@ export async function buildMaskUiTimeline(): Promise<void> {
   maskController.edit(made.maskId)
   maskController.selectShape(made.shapeId)
   maskController.selectPoint(1)
+  workspaceController.open('effect-controls')
+}
+
+/**
+ * The followui snapshot (decisions 58 and 59): a shrunk, turned, moved clip whose Invert uses
+ * an ellipse with Follow clip on (drawn where it lands on the clip), with In and Out set.
+ */
+export async function buildFollowUi(): Promise<void> {
+  const s = secondsToTicks
+  const project = projectController.project!
+  const [v1] = project.sequence.tracks.filter((t) => t.kind === 'video').map((t) => t.id)
+  const patches = project.media.find((m) => m.name === 'patches_rec709')!
+  projectController.dispatch(placeMedia({ mediaId: patches.id, sourceIn: 0, sourceOut: s(2), at: 0, videoTrackId: v1!, audioTrackId: null, mode: 'overwrite' }))
+  const clip = projectController.project!.sequence.clips.find((c) => c.kind === 'video')!
+  projectController.dispatch(setClipProperties([clip.id], { motion: { positionX: 1250, positionY: 600, scale: clip.motion.scale * 0.6, rotation: 12 } }))
+  projectController.dispatch(addEffect([clip.id], 'invert'))
+  const effectId = projectController.project!.sequence.clips.find((c) => c.id === clip.id)!.effects[0]!.id
+  const made = addMaskTo(clip.id, effectId, 'ellipse')
+  projectController.dispatch(made)
+  projectController.dispatch(setShapeValues(made.maskId, made.shapeId, { position: [700, 400], size: [500, 300], feather: 20 }, 0))
+  projectController.dispatch(setEffectMask(clip.id, effectId, { id: made.maskId, invert: false, followClip: true }))
+  projectController.dispatch(setSequenceMarks({ in: s(0.4) }))
+  projectController.dispatch(setSequenceMarks({ out: s(1.6) }))
+  timelineController.select([clip.id], 'replace')
+  timelineController.zoomToFit()
+  timelineController.setPlayhead(s(1))
+  maskController.edit(made.maskId, clip.id)
   workspaceController.open('effect-controls')
 }

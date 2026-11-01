@@ -131,6 +131,20 @@ describe('ProjectService', () => {
     expect((await readdir(join(path, 'autosave'))).filter((f) => f.endsWith('.json'))).toHaveLength(20)
   })
 
+  it('Clean Up … and Autosaves deletes the autosave snapshots and nothing else', async () => {
+    const service = new ProjectService()
+    const json = serializeProject(createProject({ name: 'Test' }))
+    await service.create(path, json)
+    await service.autosave(json)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await service.autosave(json)
+    await writeFile(join(path, 'autosave', 'notes.txt'), 'mine')
+    expect(await service.deleteAutosaves()).toBe(2)
+    expect(await readdir(join(path, 'autosave'))).toEqual(['notes.txt'])
+    expect((await readdir(path)).sort()).toEqual(['autosave', 'journal.jsonl', 'project.json', 'session.lock'])
+    await service.close()
+  })
+
   it('refuses to turn an unrelated existing folder into a project', async () => {
     const other = join(dir, 'Holiday photos.ginosa')
     await (await import('node:fs/promises')).mkdir(other)

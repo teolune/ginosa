@@ -19,12 +19,16 @@
   - Playback and the paused frame show previews; export always renders.
   - **Render bar** on the ruler: yellow (effects, live), green (cached).
 - **Cache Manager:** a size limit for preview renders across projects (least recently used go first), and **Clean Up Finished Project**.
+- **After your answers (decisions 58–60):**
+  - **Follow clip**: a mask on a clip's effect can move, scale and turn with the clip's Motion. It's shown and edited where it lands.
+  - **In and Out on the timeline**: I, O, Shift+I/O, ⌥I/O/X. Enter renders between them.
+  - **Cache menu** in the menu bar: Render Previews, Delete This Project's Previews, Clean Up Finished Project (with or without autosaves; saves and closes it first), Cache Manager.
 - **Export and catch-up** now share one exact renderer (`exact-render.ts`).
 - **Tests:**
   - the done-when test: Feedback exports as "this frame over the last" within 0.0016; playback matches the export within 0.0012; seven jumps within 0.0011; an edit re-renders its state; rendering to the cache (51 fps), cached frames within 0.0047, an edit invalidating exactly frames 101–199, undo bringing them back
   - masks on the GPU vs the reference maths over every pixel (0.0017); a keyframed edge mask exported within 0.12 px of its keyframes
-  - 25 new unit tests (288 in all)
-- **Project format v10.**
+  - 29 new unit tests (292 in all)
+- **Project format v11** (v10: masks; v11: timeline In and Out).
 
 ## M8 · Audio and modulation
 

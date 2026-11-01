@@ -500,3 +500,5 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 /* Render cache (M9) */
 .render-progress { display: inline-flex; align-items: center; gap: 6px; color: #d9b23c; font-variant-numeric: tabular-nums; }
 .cache-limit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mask-follow { color: #e8b04a; }
+.masks-window .fx-stack-head .mod-check { white-space: nowrap; }

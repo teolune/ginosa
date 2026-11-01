@@ -301,7 +301,8 @@ export function setEffectMask(clipId: string, effectId: string, mask: MaskRef | 
     const effect = findEffect(clip, effectId)
     if (!effect) throw new CommandError('That effect is no longer on the clip')
     if (mask) findMask(sequence, mask.id)
-    effect.mask = mask ? { ...mask } : null
+    // Follow clip needs the clip's Motion: adjustment layers have none.
+    effect.mask = mask ? (mask.followClip && !clip.adjustment ? { id: mask.id, invert: mask.invert, followClip: true } : { id: mask.id, invert: mask.invert }) : null
   })
 }
 
@@ -313,7 +314,7 @@ export function setAdjustmentMask(clipId: string, mask: MaskRef | null): Timelin
     if (!clip.adjustment) throw new CommandError('Only adjustment layers have a mask of their own; effects each have one')
     assertUnlocked(findTrack(sequence, clip.trackId))
     if (mask) findMask(sequence, mask.id)
-    clip.mask = mask ? { ...mask } : null
+    clip.mask = mask ? { id: mask.id, invert: mask.invert } : null
   })
 }
 

@@ -56,10 +56,17 @@ export interface MaskShape {
   modulation: ModulationMap
 }
 
-/** Where an effect or adjustment layer uses a mask; `invert` uses its outside instead (the same mask can drive one effect inside and another outside). */
+/**
+ * Where an effect or adjustment layer uses a mask; `invert` uses its outside instead (the
+ * same mask can drive one effect inside and another outside). `followClip` (decision 58):
+ * the mask is drawn on the clip's own picture, so it moves, scales and turns with the
+ * clip's Motion; otherwise it stays where it is on the frame. Adjustment layers have no
+ * Motion, so it means nothing there.
+ */
 export interface MaskRef {
   id: string
   invert: boolean
+  followClip?: boolean
 }
 
 export interface Mask {

@@ -140,6 +140,10 @@ function migrate(raw: Json): Json {
       isObject(c) ? { ...c, mask: null, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, mask: null } : e)) : c['effects'] } : c
     data = { ...data, schemaVersion: 10, sequence: { ...sequence, clips: clips.map(withMasks), masks: [] } }
   }
+  if (version < 11) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    data = { ...data, schemaVersion: 11, sequence: { ...sequence, marks: { in: null, out: null } } }
+  }
   return data
 }
 
@@ -456,6 +460,15 @@ function parseBeatGrid(value: unknown): BeatGrid | null {
   }
 }
 
+/** The timeline's In and Out; a mark that isn't a time is dropped, and an Out before the In too. */
+function parseSequenceMarks(value: unknown): { in: number | null; out: number | null } {
+  if (!isObject(value)) return { in: null, out: null }
+  const time = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_TICKS ? v : null)
+  const marks = { in: time(value['in']), out: time(value['out']) }
+  if (marks.in !== null && marks.out !== null && marks.out <= marks.in) marks.out = null
+  return marks
+}
+
 function parseMarker(value: unknown, index: number): Marker {
   const where = `sequence.markers[${index}]`
   if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
@@ -563,7 +576,8 @@ export function parseProject(input: string | unknown): Project {
     clip.effects.forEach((effect, j) => (effect.mask = wrap(() => parseMaskRef(effect.mask, `sequence.clips[${i}].effects[${j}].mask`, maskIds))))
   })
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks })
+  const marks = parseSequenceMarks(sequence['marks'])
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -585,7 +599,8 @@ export function parseProject(input: string | unknown): Project {
       audioSources,
       beatGrid,
       modulators,
-      masks
+      masks,
+      marks
     },
     media,
     bins
