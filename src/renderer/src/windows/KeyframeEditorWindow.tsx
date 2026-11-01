@@ -155,7 +155,8 @@ export function KeyframeEditorWindow() {
       isSelected: (ref) => keyframeController.isSelected(ref),
       isFocused: (ref) => keyframeController.isFocused(ref),
       marquee: d?.type === 'marquee' ? d : null,
-      markers: sequence.markers.map((m) => m.time)
+      markers: sequence.markers.map((m) => m.time),
+      grid: sequence.beatGrid
     })
   })
 

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AudioAnalysisWindow } from '../windows/AudioAnalysisWindow'
 import { CacheManagerWindow } from '../windows/CacheManagerWindow'
 import { DiagnosticsWindow } from '../windows/DiagnosticsWindow'
 import { EffectControlsWindow } from '../windows/EffectControlsWindow'
@@ -29,6 +30,8 @@ export function renderWindow(id: string): ReactNode {
       return <EffectsLibraryWindow />
     case 'keyframe-editor':
       return <KeyframeEditorWindow />
+    case 'audio-analysis':
+      return <AudioAnalysisWindow />
     case 'cache-manager':
       return <CacheManagerWindow />
     case 'playback-test':

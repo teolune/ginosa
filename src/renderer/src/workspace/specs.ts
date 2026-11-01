@@ -83,6 +83,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'audio-analysis',
+    title: 'Audio Analysis',
+    shortcut: 'Alt+Shift+1',
+    defaultRect: { x: 200, y: 340, w: 920, h: 380 },
+    minSize: { w: 560, h: 260 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

@@ -3,6 +3,7 @@ import type { Clip, Marker, Sequence } from '@engine/project/model'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
 import { clipEnd, sourceTimeAt, speedRamp } from '@engine/timeline/timeline'
+import { barNumber, beatLength, beatsBetween } from '@engine/audio/beat-grid'
 import type { MediaRuntime } from '../state/media-controller'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
 import type { GapSelection } from './timeline-controller'
@@ -60,7 +61,10 @@ const COLOURS = {
   fxBadge: '#a07cff',
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22',
-  keyframe: '#e8e8ea'
+  keyframe: '#e8e8ea',
+  beat: 'rgba(232,176,74,0.55)',
+  bar: '#e8b04a',
+  barGrid: 'rgba(232,176,74,0.07)'
 }
 
 /** Premiere's speed badge: [200%], reversed as [-100%], or a frame hold. */
@@ -107,6 +111,7 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
     const x = Math.round((s - view.scroll) * view.pps)
     ctx.fillText(scene.timecode(secondsToTicks(s)), x + 3, 4)
   }
+  drawBeatGrid(ctx, scene)
   // Markers
   for (const marker of scene.sequence.markers) drawMarker(ctx, scene, marker)
   ctx.strokeStyle = '#26282d'
@@ -114,6 +119,47 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
   ctx.moveTo(0, RULER_HEIGHT - 0.5)
   ctx.lineTo(width, RULER_HEIGHT - 0.5)
   ctx.stroke()
+}
+
+/** Bars (numbered) and beats along the bottom of the ruler, once there's a beat grid. */
+function drawBeatGrid(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const grid = scene.sequence.beatGrid
+  if (!grid) return
+  const { view, width } = scene
+  const beatPx = (beatLength(grid) / secondsToTicks(1)) * view.pps
+  const barPx = beatPx * grid.beatsPerBar
+  if (barPx < 3) return
+  // Number every bar, or every 2nd, 4th… when they're close together.
+  let every = 1
+  while (barPx * every < 26) every *= 2
+  const beats = beatsBetween(grid, secondsToTicks(view.scroll), secondsToTicks(view.scroll + width / view.pps))
+  ctx.font = '600 9px -apple-system, BlinkMacSystemFont, sans-serif'
+  ctx.textBaseline = 'top'
+  for (const b of beats) {
+    const x = Math.round((b.time / secondsToTicks(1) - view.scroll) * view.pps) + 0.5
+    if (b.bar) {
+      const n = barNumber(grid, b.time)
+      ctx.fillStyle = COLOURS.bar
+      ctx.fillRect(x - 0.5, RULER_HEIGHT - 9, 1, 9)
+      if ((((n - 1) % every) + every) % every === 0) ctx.fillText(String(n), x + 3, RULER_HEIGHT - 11)
+    } else if (beatPx >= 5) {
+      ctx.fillStyle = COLOURS.beat
+      ctx.fillRect(x - 0.5, RULER_HEIGHT - 4, 1, 4)
+    }
+  }
+}
+
+/** Faint bar lines through the tracks, so clips can be lined up with the music by eye. */
+function drawBarLines(ctx: CanvasRenderingContext2D, scene: Scene, height: number): void {
+  const grid = scene.sequence.beatGrid
+  if (!grid) return
+  const { view, width } = scene
+  const barPx = (beatLength(grid) / secondsToTicks(1)) * view.pps * grid.beatsPerBar
+  if (barPx < 8) return
+  ctx.fillStyle = COLOURS.barGrid
+  for (const b of beatsBetween(grid, secondsToTicks(view.scroll), secondsToTicks(view.scroll + width / view.pps))) {
+    if (b.bar) ctx.fillRect(Math.round((b.time / secondsToTicks(1) - view.scroll) * view.pps), 0, 1, height)
+  }
 }
 
 function drawMarker(ctx: CanvasRenderingContext2D, scene: Scene, marker: Marker): void {
@@ -367,6 +413,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, scene: Scene): void 
   for (let s = Math.floor(view.scroll / major) * major; s <= view.scroll + width / view.pps; s += major) {
     ctx.fillRect(Math.round((s - view.scroll) * view.pps), 0, 1, rows.height)
   }
+  drawBarLines(ctx, scene, rows.height)
 
   if (scene.gap) {
     const row = rows.rows.find((r) => r.track.id === scene.gap!.trackId)

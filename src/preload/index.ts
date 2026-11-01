@@ -80,6 +80,10 @@ const bridge: GinosaBridge = {
     read: () => ipcRenderer.invoke('presets:read'),
     write: (data) => ipcRenderer.invoke('presets:write', data)
   },
+  analysis: {
+    read: (projectId, key) => ipcRenderer.invoke('analysis:read', projectId, key),
+    write: (projectId, key, data) => ipcRenderer.invoke('analysis:write', projectId, key, data)
+  },
   export: {
     chooseFile: (suggestedName, extension) => ipcRenderer.invoke('export:chooseFile', suggestedName, extension),
     begin: (request) => ipcRenderer.invoke('export:begin', request),

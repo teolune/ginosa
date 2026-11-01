@@ -150,12 +150,15 @@ export function audibleTracks(sequence: Sequence): Set<string> {
   return new Set(tracks.filter((t) => !t.muted && (!soloed || t.solo)).map((t) => t.id))
 }
 
-/** Audio clips overlapping [from, to) on audible tracks. */
-export function audioSegments(sequence: Sequence, media: MediaItem[], from: Ticks, to: Ticks): AudioSegment[] {
+/**
+ * Audio clips overlapping [from, to) on audible tracks; or, with `only`, exactly those
+ * clips whether their tracks are muted or not (an analysis source, e.g. a sidechain).
+ */
+export function audioSegments(sequence: Sequence, media: MediaItem[], from: Ticks, to: Ticks, only: ReadonlySet<string> | null = null): AudioSegment[] {
   const audible = audibleTracks(sequence)
   const segments: AudioSegment[] = []
   for (const clip of sequence.clips) {
-    if (clip.kind !== 'audio' || !audible.has(clip.trackId)) continue
+    if (clip.kind !== 'audio' || (only ? !only.has(clip.id) : !audible.has(clip.trackId))) continue
     if (clipEnd(clip) <= from || clip.start >= to) continue
     const item = media.find((m) => m.id === clip.mediaId)
     // Reversed and frame-hold audio is silent (Premiere plays reversed audio; that's planned).

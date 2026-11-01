@@ -36,7 +36,7 @@ interface ScrubProps {
  * A Premiere-style number: drag left/right to change it (Shift = ×10, Option = ÷10),
  * or click to type. A drag is one undo step.
  */
-function ScrubNumber({ value, onChange, step = 1, decimals = 1, unit, min = -Infinity, max = Infinity, disabled, label }: ScrubProps) {
+export function ScrubNumber({ value, onChange, step = 1, decimals = 1, unit, min = -Infinity, max = Infinity, disabled, label }: ScrubProps) {
   const [editing, setEditing] = useState(false)
   const drag = useRef<{ x: number; start: number; moved: boolean } | null>(null)
   const clamp = (v: number) => Math.min(max, Math.max(min, v))

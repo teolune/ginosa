@@ -8,8 +8,8 @@ import type { KeyframeMap } from '../keyframes/keyframes'
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. */
-export const PROJECT_SCHEMA_VERSION = 7
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. */
+export const PROJECT_SCHEMA_VERSION = 8
 
 export type TrackKind = 'video' | 'audio'
 
@@ -154,6 +154,33 @@ export interface Sequence {
   /** Every clip on every track, in no particular order. */
   clips: Clip[]
   markers: Marker[]
+  /** Sounds analysed for tempo and (from M8 part 2) modulation, each with a name such as "Song" or "Drums". */
+  audioSources: AudioSource[]
+  /** The tempo grid: beats and bars on the ruler, and snapping targets. Null until set. */
+  beatGrid: BeatGrid | null
+}
+
+/**
+ * A sound to analyse: one audio clip, every clip on a track (even a muted one, used as a
+ * sidechain), or the mix as heard. Analysis results live in the cache; this is just the
+ * choice, so clearing the cache loses nothing.
+ */
+export interface AudioSource {
+  id: string
+  name: string
+  kind: 'clip' | 'track' | 'mix'
+  /** The clip or track; null for the mix. */
+  target: string | null
+}
+
+/** A constant tempo. Your corrections (BPM, downbeat) live here, in the project, never in the cache. */
+export interface BeatGrid {
+  bpm: number
+  /** Sequence time of the first beat of a bar (any bar: the grid runs both ways from it). */
+  downbeat: Ticks
+  beatsPerBar: number
+  /** The source whose detected tempo this started from, or null when entered by hand. */
+  sourceId: string | null
 }
 
 export interface Project {
@@ -226,7 +253,9 @@ export function createProject({ name, settings, createId = defaultId, now = () =
         createTrack('audio', 2, createId)
       ],
       clips: [],
-      markers: []
+      markers: [],
+      audioSources: [],
+      beatGrid: null
     },
     media: [],
     bins: []

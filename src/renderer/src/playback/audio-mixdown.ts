@@ -17,8 +17,33 @@ export async function renderMixdown(
   sampleRate: number,
   resolvePath: (item: MediaItem) => string | null
 ): Promise<Float32Array> {
+  const rendered = await renderAudio(sequence, media, from, to, sampleRate, 2, null, resolvePath)
+  const left = rendered.getChannelData(0)
+  const right = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : left
+  const out = new Float32Array(rendered.length * 2)
+  for (let i = 0; i < rendered.length; i++) {
+    out[i * 2] = left[i]!
+    out[i * 2 + 1] = right[i]!
+  }
+  return out
+}
+
+/**
+ * A stretch of the timeline mixed offline: the audible tracks, or with `only`, exactly
+ * those clips (muted or not), down-mixed to `channels`.
+ */
+export async function renderAudio(
+  sequence: Sequence,
+  media: MediaItem[],
+  from: Ticks,
+  to: Ticks,
+  sampleRate: number,
+  channels: 1 | 2,
+  only: ReadonlySet<string> | null,
+  resolvePath: (item: MediaItem) => string | null
+): Promise<AudioBuffer> {
   const length = Math.max(1, Math.round(ticksToSeconds(to - from) * sampleRate))
-  const ctx = new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate })
+  const ctx = new OfflineAudioContext({ numberOfChannels: channels, length, sampleRate })
   const master = ctx.createGain()
   master.connect(ctx.destination)
   const tracks = new Map<string, GainNode>()
@@ -31,7 +56,7 @@ export async function renderMixdown(
       let node = tracks.get(trackId)
       if (!node) {
         node = ctx.createGain()
-        node.gain.value = audible.has(trackId) ? 1 : 0
+        node.gain.value = only || audible.has(trackId) ? 1 : 0
         node.connect(master)
         tracks.set(trackId, node)
       }
@@ -39,7 +64,7 @@ export async function renderMixdown(
     },
     noteScheduled: () => undefined
   }
-  const segments: AudioSegment[] = audioSegments(sequence, media, from, to)
+  const segments: AudioSegment[] = audioSegments(sequence, media, from, to, only)
   const feeders: ClipFeeder[] = []
   for (const segment of segments) {
     const path = resolvePath(segment.item)
@@ -50,13 +75,5 @@ export async function renderMixdown(
   await Promise.all(feeders.map((f) => f.pump(Number.POSITIVE_INFINITY)))
   const failed = feeders.find((f) => f.error)
   if (failed) throw new Error(`Sound from ${failed.segment.item.name}: ${failed.error}`)
-  const rendered = await ctx.startRendering()
-  const left = rendered.getChannelData(0)
-  const right = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : left
-  const out = new Float32Array(rendered.length * 2)
-  for (let i = 0; i < rendered.length; i++) {
-    out[i * 2] = left[i]!
-    out[i * 2 + 1] = right[i]!
-  }
-  return out
+  return ctx.startRendering()
 }

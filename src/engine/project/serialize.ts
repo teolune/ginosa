@@ -1,8 +1,9 @@
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid } from './model'
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { syncLinkedRamps } from '../timeline/timeline'
+import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
 import { effectById } from '../../effects/registry'
 import { sanitiseKeyframes, sanitiseParams, upgradeInstance } from '../effects/params'
 import { normaliseTrack, type Interpolation, type Keyframe, type KeyframeMap } from '../keyframes/keyframes'
@@ -117,6 +118,10 @@ function migrate(raw: Json): Json {
     const withKeyframes = (c: unknown) =>
       isObject(c) ? { ...c, keyframes: {}, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, keyframes: {} } : e)) : c['effects'] } : c
     data = { ...data, schemaVersion: 7, sequence: { ...sequence, clips: clips.map(withKeyframes) } }
+  }
+  if (version < 8) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    data = { ...data, schemaVersion: 8, sequence: { ...sequence, audioSources: [], beatGrid: null } }
   }
   return data
 }
@@ -385,6 +390,30 @@ function parseEffects(value: unknown, where: string): EffectInstance[] {
   })
 }
 
+function parseAudioSource(value: unknown, index: number): AudioSource {
+  const where = `sequence.audioSources[${index}]`
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const kind = value['kind']
+  if (kind !== 'clip' && kind !== 'track' && kind !== 'mix') throw new ProjectFormatError(`${where}.kind should be clip, track or mix`)
+  const target = value['target']
+  return { id: expectString(value, 'id', where), name: expectString(value, 'name', where), kind, target: typeof target === 'string' ? target : null }
+}
+
+function parseBeatGrid(value: unknown): BeatGrid | null {
+  if (value === null || value === undefined) return null
+  const where = 'sequence.beatGrid'
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const bpm = expectNumber(value, 'bpm', where)
+  if (!(bpm >= MIN_BPM && bpm <= MAX_BPM)) throw new ProjectFormatError(`${where}.bpm should be between ${MIN_BPM} and ${MAX_BPM}`)
+  const sourceId = value['sourceId']
+  return {
+    bpm,
+    downbeat: expectInteger(value, 'downbeat', where, -MAX_TICKS, MAX_TICKS),
+    beatsPerBar: expectInteger(value, 'beatsPerBar', where, 1, 16),
+    sourceId: typeof sourceId === 'string' ? sourceId : null
+  }
+}
+
 function parseMarker(value: unknown, index: number): Marker {
   const where = `sequence.markers[${index}]`
   if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
@@ -466,8 +495,14 @@ export function parseProject(input: string | unknown): Project {
     clip.keyframes = keyframes
   }
   const markers = markersRaw.map(parseMarker)
+  const sourcesRaw = sequence['audioSources']
+  if (!Array.isArray(sourcesRaw)) throw new ProjectFormatError('sequence.audioSources should be a list')
+  const audioSources = sourcesRaw.map(parseAudioSource)
+  if (new Set(audioSources.map((s) => s.id)).size !== audioSources.length) throw new ProjectFormatError('Two audio sources share the same id')
+  const beatGrid = parseBeatGrid(sequence['beatGrid'])
+  if (beatGrid?.sourceId && !audioSources.some((s) => s.id === beatGrid.sourceId)) beatGrid.sourceId = null
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers })
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -485,7 +520,9 @@ export function parseProject(input: string | unknown): Project {
       },
       tracks,
       clips,
-      markers
+      markers,
+      audioSources,
+      beatGrid
     },
     media,
     bins

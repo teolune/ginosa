@@ -1,6 +1,7 @@
 import { components, evaluate, type Keyframe } from '@engine/keyframes/keyframes'
 import { animatedRefs, findEffect, keyframesOf, propertySpec, staticValue, type PropertyRef, type PropertySpec } from '@engine/keyframes/properties'
-import type { Clip, Sequence } from '@engine/project/model'
+import type { BeatGrid, Clip, Sequence } from '@engine/project/model'
+import { beatsBetween } from '@engine/audio/beat-grid'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import type { KeyframeRef } from '@engine/timeline/keyframe-edits'
 import { clipEnd } from '@engine/timeline/timeline'
@@ -236,6 +237,7 @@ export interface DrawState {
   isFocused(ref: PropertyRef): boolean
   marquee: { x0: number; y0: number; x1: number; y1: number } | null
   markers: Ticks[]
+  grid: BeatGrid | null
 }
 
 function shape(ctx: CanvasRenderingContext2D, k: Keyframe, x: number, y: number, r: number): void {
@@ -274,6 +276,17 @@ function drawRuler(ctx: CanvasRenderingContext2D, s: DrawState): void {
   for (let t = Math.floor(start / major) * major; t <= end; t += major) {
     const x = Math.round(LABEL_W + (t - start) * s.view.pps)
     if (x >= LABEL_W) ctx.fillText(s.timecode(secondsToTicks(t)), x + 3, 4)
+  }
+  // Beats and bars along the bottom, once there's a beat grid.
+  if (s.grid) {
+    const beats = beatsBetween(s.grid, secondsToTicks(start), secondsToTicks(end))
+    const spacing = beats.length > 1 ? timeToX(beats[1]!.time, s.view) - timeToX(beats[0]!.time, s.view) : Infinity
+    for (const b of beats) {
+      if (!b.bar && spacing < 5) continue
+      const x = Math.round(timeToX(b.time, s.view)) + 0.5
+      ctx.fillStyle = b.bar ? '#e8b04a' : 'rgba(232,176,74,0.55)'
+      ctx.fillRect(x - 0.5, RULER_H - (b.bar ? 7 : 3), 1, b.bar ? 7 : 3)
+    }
   }
   ctx.fillStyle = '#e8b04a'
   for (const m of s.markers) {

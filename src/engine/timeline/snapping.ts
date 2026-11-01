@@ -1,8 +1,9 @@
+import { beatSnapTargets } from '../audio/beat-grid'
 import type { Sequence } from '../project/model'
-import type { Ticks } from '../time'
-import { clipEnd } from './timeline'
+import { secondsToTicks, type Ticks } from '../time'
+import { clipEnd, frameTicks, sequenceEnd } from './timeline'
 
-/** Where things snap: the playhead, clip edges, markers and the sequence start. */
+/** Where things snap: the playhead, clip edges, markers, the sequence start, and beats (rounded to frames) once there's a beat grid. */
 export function snapTargets(sequence: Sequence, options: { playhead: Ticks | null; exclude: Set<string> }): Ticks[] {
   const targets = new Set<Ticks>([0])
   if (options.playhead !== null) targets.add(options.playhead)
@@ -12,6 +13,7 @@ export function snapTargets(sequence: Sequence, options: { playhead: Ticks | nul
     targets.add(clipEnd(clip))
   }
   for (const marker of sequence.markers) targets.add(marker.time)
+  if (sequence.beatGrid) for (const beat of beatSnapTargets(sequence.beatGrid, 0, sequenceEnd(sequence) + secondsToTicks(60), frameTicks(sequence))) targets.add(beat)
   return [...targets].sort((a, b) => a - b)
 }
 

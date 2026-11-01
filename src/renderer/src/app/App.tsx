@@ -9,6 +9,8 @@ import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
 import { exportColourTest, exportEffectsTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
 import { exporter } from '../playback/exporter'
 import { buildKeyframeTimeline, exportKeyframesTest, exportRampSyncTest } from '../playback/keyframe-test'
+import { analysisTest } from '../audio/analysis-test'
+import { analysisController } from '../audio/analysis-controller'
 import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
@@ -116,6 +118,22 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'analysis': {
+      // M8 part 1: tempo detection on the 128 BPM drums, on a muted track, and the Audio Analysis window.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /beat_128bpm\.wav$/.test(f)), null)
+      await wait(1500)
+      try {
+        await window.ginosa.snapshot.report(await analysisTest())
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      workspaceController.open('audio-analysis')
+      workspaceController.focus('audio-analysis')
+      timelineController.zoomToFit()
+      timelineController.setPlayhead(secondsToTicks(5))
+      await wait(1500)
+      break
+    }
     case 'exportkeyframes':
     case 'exportrampsync':
     case 'keyframeswarning':
@@ -343,7 +361,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'speed':
     case 'speeddialog': {
       const all = await window.ginosa.snapshot.testMedia()
-      const special = (f: string) => /sync_flash_beep\.mp4$|framecode_h264\.mp4$|patches_[a-z0-9]+\.mov$|square_1080\.png$|tone_1khz\.wav$/.test(f)
+      const special = (f: string) => /sync_flash_beep\.mp4$|framecode_h264\.mp4$|patches_[a-z0-9]+\.mov$|square_1080\.png$|tone_1khz\.wav$|beat_128bpm\.wav$/.test(f)
       const files =
         scenario === 'sync' ? all.filter((f) => f.endsWith('sync_flash_beep.mp4')) : scenario === 'speed' || scenario === 'speeddialog' ? all.filter((f) => f.endsWith('framecode_h264.mp4')) : all.filter((f) => !special(f))
       await mediaController.importPaths(files, null)
@@ -484,6 +502,8 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
   await wait(1500)
   await window.ginosa.snapshot.ready()
 }
+
+void analysisController
 
 export function App() {
   useObservable(projectController)

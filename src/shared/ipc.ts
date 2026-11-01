@@ -240,6 +240,11 @@ export interface GinosaBridge {
     read(): Promise<unknown>
     write(data: unknown): Promise<void>
   }
+  /** Audio analysis results in the project's cache (M8). */
+  analysis: {
+    read(projectId: string, key: string): Promise<ArrayBuffer | null>
+    write(projectId: string, key: string, data: ArrayBuffer): Promise<void>
+  }
   export: {
     chooseFile(suggestedName: string, extension: string): Promise<string | null>
     begin(request: ExportBegin): Promise<string>

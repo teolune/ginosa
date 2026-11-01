@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { PROJECT_EXTENSION } from '../../shared/ipc'
 import { parseCube } from '../../engine/colour/cube'
@@ -63,6 +63,25 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     (_event, request: { projectId: string; mediaId: string; path: string; kind: MediaKind; fingerprint: MediaFingerprint; durationSeconds: number }) =>
       ensureWaveform(cache, request)
   )
+
+  // Audio analysis results (M8): computed in the renderer, kept in the project's cache as `<key>.bin`.
+  const analysisFile = async (projectId: string, key: string) => {
+    if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad analysis key')
+    return join(await cache.categoryDir(projectId, 'analysis'), `${key}.bin`)
+  }
+  ipcMain.handle('analysis:read', async (_event, projectId: string, key: string) => {
+    try {
+      const data = await readFile(await analysisFile(projectId, key))
+      return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+    } catch {
+      return null
+    }
+  })
+  ipcMain.handle('analysis:write', async (_event, projectId: string, key: string, data: ArrayBuffer) => {
+    const file = await analysisFile(projectId, key)
+    await writeFile(`${file}.partial`, Buffer.from(data))
+    await rename(`${file}.partial`, file)
+  })
 
   ipcMain.handle('media:checkFiles', async (_event, items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>) =>
     Promise.all(items.map(async (item) => ({ id: item.id, status: await checkFile(item.path, item.fingerprint) })))

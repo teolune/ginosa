@@ -85,6 +85,9 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=black:s=1920x1080:d=
 echo "Tone: 8 s of 1 kHz at half level, mono (for the volume keyframe test)"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.5*sin(2*PI*1000*t)':sample_rate=48000:duration=8" -c:a pcm_s24le "$out/tone_1khz.wav"
 
+echo "Beat: 30 s of drums at 128 BPM, first bar at 0.4 s (accented kick on 1, snare on 2 and 4, hats on 8ths), for tempo detection"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='if(gte(t\,0.4)\,(0.6+0.3*eq(mod(floor((t-0.4)/0.46875)\,4)\,0))*sin(2*PI*(48*mod(t-0.4\,0.46875)+2.4*(1-exp(-mod(t-0.4\,0.46875)/0.03))))*exp(-mod(t-0.4\,0.46875)/0.12)+0.1*(2*random(0)-1)*exp(-mod(t-0.4\,0.234375)/0.012)+0.3*eq(mod(floor((t-0.4)/0.46875)\,2)\,1)*(2*random(1)-1)*exp(-mod(t-0.4\,0.46875)/0.05)\,0)':sample_rate=48000:duration=30" -c:a pcm_s24le "$out/beat_128bpm.wav"
+
 echo "4K still image"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
 
