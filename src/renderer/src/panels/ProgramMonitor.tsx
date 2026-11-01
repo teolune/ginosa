@@ -51,6 +51,11 @@ export function ProgramMonitor() {
               <div>render {stats.renderMs.toFixed(1)} ms</div>
               <div>A/V {stats.lagMs >= 0 ? '+' : ''}{stats.lagMs.toFixed(0)} ms</div>
               <div>{player.resolution === 1 ? 'Full' : player.resolution === 0.5 ? '1/2' : '1/4'} resolution</div>
+              {player.temporal && player.temporal.bytes() > 0 && (
+                <div title="Stateful effects' kept frames and checkpoints; approximate frames carried on from an older state after a drop">
+                  states {Math.round(player.temporal.bytes() / 1e6)} MB{player.temporal.stats.approximate > 0 ? ` · ${player.temporal.stats.approximate} approx` : ''}
+                </div>
+              )}
             </div>
           )}
         </div>

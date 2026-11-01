@@ -5,6 +5,7 @@ import { evaluate } from '../keyframes/keyframes'
 import { resolveClip } from '../keyframes/properties'
 import type { ModulationContext } from '../modulation/types'
 import { resolveMasks, type FrameSize, type ResolvedShape } from '../masks/masks'
+import { hasStatefulEffect, stateFrame, stateKey } from './temporal'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -25,6 +26,17 @@ export interface VideoLayer {
   weight: number
   /** The masks this moment's layers use, worked out once for the frame (shared by every layer). */
   masks: FrameMasks
+  /** Clips with stateful effects (M9): frames since their state's reset, and what that state depends on. */
+  temporal: LayerTemporal | null
+}
+
+export interface LayerTemporal {
+  /** Frames since the reset (0 on the first frame the clip is seen). */
+  frame: number
+  /** When the reset is (sequence time). */
+  resetAt: Ticks
+  /** Changes whenever anything the state depends on changes. */
+  key: string
 }
 
 /** Masks at one moment, by id, with the frame size they're drawn on. */
@@ -123,15 +135,21 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
       const clip = resolveClip(stored, time, modulation)
-      if (clip.opacity <= 0 || weight <= 0) continue
+      let temporal: LayerTemporal | null = null
+      if (hasStatefulEffect(stored)) {
+        const resetAt = visibleFrom(sequence, stored)
+        temporal = { frame: stateFrame(time, resetAt, frame), resetAt, key: `${stateKey(sequence, media, stored, resetAt)}:${modulation?.id ?? 'none'}` }
+      }
+      // An invisible layer is skipped, unless its effects keep state (that state must still run).
+      if ((clip.opacity <= 0 || weight <= 0) && !temporal) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
-        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks })
+        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal })
         continue
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks })
+      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal })
     }
   }
   if (sequence.masks.length > 0) {

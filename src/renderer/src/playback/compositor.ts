@@ -27,6 +27,20 @@ export interface GpuEffect {
   blend: BlendMode
   /** Where it shows (null: everywhere). */
   mask: GpuMask | null
+  /** Stateful effects: their state from the frame before, and where this frame's goes. */
+  state?: EffectState | null
+}
+
+/** A stateful effect's state, as one pass sees it (temporal.ts keeps it between frames). */
+export interface EffectState {
+  /** Frames since the reset. */
+  frames: number
+  /** This frame's output, if it's already kept exactly (a checkpoint, or the frame just rendered): no need to run the effect. */
+  kept(width: number, height: number): GPUTexture | null
+  /** The effect's output on the frame before, for a pass this size; null on the first frame (or if none is kept). */
+  previous(width: number, height: number): GPUTexture | null
+  /** Keeps this frame's output (copied within the same command encoder). */
+  commit(encoder: GPUCommandEncoder, output: GPUTexture): void
 }
 
 /** One layer to composite: a decoded frame or a still, how it's placed, and how it blends. */
@@ -116,6 +130,7 @@ export class Compositor {
   private storagePool: GPUBuffer[] = []
   private storageUsed = 0
   private readonly noMask: GPUBuffer
+  private readonly noPrevious: GPUTexture
   private readonly noLut: GPUTexture
   width = 0
   height = 0
@@ -125,6 +140,7 @@ export class Compositor {
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' })
     this.noLut = device.createTexture({ size: [1, 1, 1], dimension: '3d', format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING })
     this.noMask = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE })
+    this.noPrevious = device.createTexture({ size: [1, 1], format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING })
   }
 
   /** Sets the size of the composite in pixels (sequence size × playback resolution). */
@@ -170,7 +186,8 @@ export class Compositor {
               { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
               { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
               { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-              { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } }
+              { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+              { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
             ]
           })
         ]
@@ -236,7 +253,8 @@ export class Compositor {
     return this.device.createTexture({
       size: [width, height],
       format: 'rgba16float',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+      // COPY_DST: a stateful effect's kept output is copied in instead of running it again.
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
     })
   }
 
@@ -293,7 +311,17 @@ export class Compositor {
   private runEffects(encoder: GPUCommandEncoder, input: GPUTexture, effects: GpuEffect[], pixelScale: number, toFrame: Affine): GPUTexture {
     let current = input
     for (const effect of effects) {
+      const kept = effect.state?.kept(input.width, input.height) ?? null
+      if (kept) {
+        const output = this.take(input.width, input.height)
+        encoder.copyTextureToTexture({ texture: kept }, { texture: output }, [input.width, input.height])
+        if (current !== input) this.release(current)
+        current = output
+        continue
+      }
       const mask = effect.mask ? { parts: effect.mask.parts, invert: effect.mask.invert, toFrame, frame: effect.mask.frame } : null
+      const previous = effect.state?.previous(input.width, input.height) ?? null
+      const temporal = effect.state ? { hasPrevious: previous !== null, frames: effect.state.frames } : null
       const output = this.take(input.width, input.height)
       const pipeline = this.effectPipeline(effect.manifest)
       const bindGroup = this.device.createBindGroup({
@@ -301,9 +329,10 @@ export class Compositor {
         entries: [
           { binding: 0, resource: current.createView() },
           { binding: 1, resource: this.sampler },
-          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask)) } },
+          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal)) } },
           { binding: 3, resource: { buffer: this.uniform(packParams(effect.manifest, effect.params, pixelScale)) } },
-          { binding: 4, resource: { buffer: this.maskBuffer(effect.mask) } }
+          { binding: 4, resource: { buffer: this.maskBuffer(effect.mask) } },
+          { binding: 5, resource: (previous ?? this.noPrevious).createView() }
         ]
       })
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -311,6 +340,7 @@ export class Compositor {
       pass.setBindGroup(0, bindGroup)
       pass.draw(3)
       pass.end()
+      effect.state?.commit(encoder, output)
       if (current !== input) this.release(current)
       current = output
     }
@@ -429,6 +459,7 @@ export class Compositor {
     this.uniformPool.forEach((b) => b.destroy())
     this.storagePool.forEach((b) => b.destroy())
     this.noMask.destroy()
+    this.noPrevious.destroy()
     for (const list of this.scratch.values()) list.forEach((t) => t.destroy())
     this.scratch.clear()
     this.noLut.destroy()

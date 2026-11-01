@@ -17,6 +17,8 @@ import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
+import { runFeedbackGpuTest } from '../playback/feedback-gpu-test'
+import { feedbackTest } from '../playback/feedback-test'
 import { maskTest } from '../masks/mask-test'
 import { buildMaskUiTimeline } from '../masks/mask-ui-demo'
 import { sourcePlayer } from '../playback/source-player'
@@ -304,6 +306,18 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       }
       await buildMaskUiTimeline()
       await wait(1500)
+      break
+    }
+    case 'feedback': {
+      // M9 "done when": a Feedback effect exports, plays and scrubs exactly.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /square_1080\.png$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await feedbackTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      timelineController.zoomToFit()
+      break
+    }
+    case 'feedbackgpu': {
+      await window.ginosa.snapshot.report(await runFeedbackGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'masksgpu': {

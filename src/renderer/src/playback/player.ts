@@ -17,6 +17,9 @@ import { Compositor, type CompositeLayer, type CompositeStep } from './composito
 import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
+import { TemporalStore } from './temporal'
+import { ExactRenderer } from './exact-render'
+import { checkpointEvery } from '@engine/timeline/temporal'
 
 export type PlaybackResolution = 1 | 0.5 | 0.25
 
@@ -82,6 +85,12 @@ export class Player extends Observable {
   private format: GPUTextureFormat = 'bgra8unorm'
   private streams = new Map<string, FrameSource>()
   private layers: LayerBuilder | null = null
+  /** Stateful effects' state between frames, and the renderer that catches it up after a jump. */
+  temporal: TemporalStore | null = null
+  private catchUp: ExactRenderer | null = null
+  private sequenceId: string | null = null
+  /** The last catch-up before a still: how many frames it rendered, and how long it took. */
+  lastCatchUp: { frames: number; ms: number } | null = null
   private frameHandle = 0
   private wallStart = 0
   private startTime: Ticks = 0
@@ -112,14 +121,17 @@ export class Player extends Observable {
     this.device = gpu.device
     if (!this.compositor) {
       this.compositor = new Compositor(gpu.device)
+      this.temporal = new TemporalStore(gpu.device)
       this.layers = new LayerBuilder(
         this.compositor,
         () => this.requestStill(),
         (message) => {
           this.message = message
           this.notify()
-        }
+        },
+        this.temporal
       )
+      this.catchUp = new ExactRenderer(this.compositor, this.layers, (item) => this.path(item))
     }
     this.canvas = canvas
     this.context = canvas.getContext('webgpu')
@@ -154,6 +166,13 @@ export class Player extends Observable {
   private prepareTarget(sequence: Sequence): number {
     const { width, height, scale } = this.sizeFor(sequence)
     this.compositor!.resize(width, height)
+    if (this.temporal) {
+      // Another sequence (or project): its states are no use here.
+      if (this.sequenceId !== sequence.id) this.temporal.clear()
+      this.sequenceId = sequence.id
+      this.temporal.scale = scale
+      this.temporal.checkpointEvery = checkpointEvery(sequence)
+    }
     if (this.canvas && (this.canvas.width !== width || this.canvas.height !== height)) {
       this.canvas.width = width
       this.canvas.height = height
@@ -186,12 +205,66 @@ export class Player extends Observable {
     })
   }
 
+  /**
+   * Stateful effects need their exact state from the frame before `time`: if it isn't
+   * kept, the frames from the nearest checkpoint (or their reset) are rendered first,
+   * unseen. Returns false if a newer request came in meanwhile (what was rendered so far
+   * is kept, so the next try starts from there).
+   */
+  private async catchUpTo(sequence: Sequence, media: MediaItem[], time: Ticks, layers: VideoLayer[], interruptible: boolean): Promise<boolean> {
+    if (!this.temporal || !this.catchUp) return true
+    const frame = ticksPerFrame(frameRateOf(sequence.settings))
+    const scale = this.prepareTarget(sequence)
+    this.temporal.mode = 'exact'
+    const from = this.temporal.catchUpFrom(layers, frame)
+    if (from === null || from >= time) {
+      this.lastCatchUp = { frames: 0, ms: 0 }
+      return true
+    }
+    const total = Math.round((time - from) / frame)
+    const started = performance.now()
+    const modulation = this.host.modulation?.() ?? null
+    let done = 0
+    let lastNote = 0
+    try {
+      for (let t = from; t < time - frame / 2; t += frame) {
+        if (interruptible && this.stillRender.again) return false
+        await this.catchUp.render(sequence, media, t, modulation, scale)
+        done++
+        if (total > 10 && performance.now() - lastNote > 250) {
+          lastNote = performance.now()
+          this.message = `Stateful effects: catching up ${done} of ${total} frames…`
+          this.notify()
+        }
+      }
+    } catch (error) {
+      this.message = `Couldn't catch up: ${(error as Error).message}`
+      this.notify()
+      return true
+    }
+    // Timed to the end of the GPU work, not just its recording.
+    await this.device?.queue.onSubmittedWorkDone()
+    this.lastCatchUp = { frames: done, ms: performance.now() - started }
+    if (total > 10) {
+      this.message = null
+      this.notify()
+    }
+    return true
+  }
+
+  /** Resolves once the paused frame has been rendered (and nothing more is waiting). */
+  async settled(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    while (this.stillRender.busy || this.stillRender.again) await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+
   private async renderStill(duringPlayback = false): Promise<void> {
     const project = this.host.scene(true)
     if (!project || !this.compositor || !this.context) return
     const sequence = project.sequence
     const time = this.host.playhead
     const layers = videoLayersAt(sequence, project.media, time, this.host.modulation?.() ?? null)
+    if (layers.some((l) => l.temporal) && !(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
     const samples: VideoSample[] = []
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
     let message: string | null = null
@@ -224,6 +297,7 @@ export class Player extends Observable {
       return
     }
     const scale = this.prepareTarget(sequence)
+    if (this.temporal) this.temporal.mode = 'exact'
     const composite = prepared.flatMap((p): CompositeStep[] => {
       if (!p.layer.item) return [this.layers!.adjustment(p.layer)]
       const layer = p.source ? this.layers!.build(p.layer, p.source, sequence) : null
@@ -294,6 +368,13 @@ export class Player extends Observable {
     this.renderTotal = 0
     this.statsWindowStart = performance.now()
     this.lastShownFrame = -1
+    // Stateful effects start from their exact state at the first frame.
+    const first = videoLayersAt(project.sequence, project.media, from, this.host.modulation?.() ?? null)
+    if (rate > 0 && first.some((l) => l.temporal)) {
+      await this.catchUpTo(project.sequence, project.media, Math.floor(from / ticksPerFrame(frameRateOf(project.sequence.settings))) * ticksPerFrame(frameRateOf(project.sequence.settings)), first, false)
+      if (!this.playing) return
+    }
+    if (this.temporal) this.temporal.mode = 'live'
     // Start decoding the first frames before the clock starts, so playback doesn't begin with a drop.
     if (rate > 0) {
       const starting: Array<Promise<void>> = []
@@ -323,6 +404,7 @@ export class Player extends Observable {
     if (!this.playing) return
     const time = this.currentTime()
     this.playing = false
+    if (this.temporal) this.temporal.mode = 'exact'
     cancelAnimationFrame(this.frameHandle)
     this.audio?.stop()
     this.stopStreams()

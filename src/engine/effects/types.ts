@@ -11,8 +11,15 @@ import type { MaskRef } from '../masks/types'
 /** The colour an effect's shader works in. The engine converts in and out. */
 export type EffectColourSpace = 'display' | 'linear' | 'oklab'
 
-/** How an effect uses time. Only per-frame effects exist so far; the others arrive with M9. */
-export type TimeBehaviour = 'per-frame'
+/**
+ * How an effect uses time (M9). `per-frame`: each frame from its own input. `stateful`:
+ * each frame also reads the effect's own output on the frame before (feedback, datamosh),
+ * so a frame depends on every frame back to the clip's first (its reset); the engine
+ * keeps that state, checkpoints it every second and replays from the nearest checkpoint
+ * when you jump. (`reads other times`, for Posterize Time and echoes, arrives with its
+ * first effect.)
+ */
+export type TimeBehaviour = 'per-frame' | 'stateful'
 
 export type ParamValue = number | boolean | string | [number, number]
 
@@ -77,6 +84,9 @@ export interface EffectManifest {
    * (straight alpha, in its colour space) for output pixel `px`. Helpers:
    * `inputAt(px)` (bilinear, in the effect's space), `inputNearest(px)`, `imageSize()`,
    * and `params.<id>` (choices are option indexes; points are `<id>_x`, `<id>_y`).
+   * Stateful effects also get `previousAt(px)` (their own output on the frame before,
+   * bilinear, transparent outside the image), `hasPrevious()` (false on the first frame)
+   * and `framesSinceReset()`.
    */
   shader: string
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>

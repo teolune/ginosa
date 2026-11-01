@@ -10,6 +10,7 @@ import { projectController } from '../state/project-controller'
 import { effectById } from '../../../effects/registry'
 import type { EffectInstance } from '@engine/effects/types'
 import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, GpuMask, LayerColour } from './compositor'
+import type { TemporalStore } from './temporal'
 
 /**
  * Turns the render plan's layers into compositor layers: Motion, opacity × transition
@@ -26,14 +27,19 @@ export class LayerBuilder {
     private readonly compositor: Compositor,
     /** A LUT finished loading (redraw). */
     private readonly onLoaded: () => void = () => undefined,
-    private readonly onError: (message: string) => void = () => undefined
+    private readonly onError: (message: string) => void = () => undefined,
+    /** Where stateful effects keep their state between frames (none: they run as if every frame were their first). */
+    readonly temporal: TemporalStore | null = null
   ) {}
 
-  /** The switched-on effects of a stack, ready for the GPU (effects missing from this version are skipped). */
-  effects(stack: EffectInstance[], masks: FrameMasks): GpuEffect[] {
-    return stack.flatMap((effect) => {
+  /** A layer's switched-on effects, ready for the GPU (effects missing from this version are skipped). */
+  effects(layer: VideoLayer): GpuEffect[] {
+    return layer.clip.effects.flatMap((effect) => {
       const manifest = effect.enabled ? effectById(effect.effectId) : undefined
-      return manifest ? [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, masks) }] : []
+      if (!manifest) return []
+      const t = layer.temporal
+      const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks), state }]
     })
   }
 
@@ -53,7 +59,7 @@ export class LayerBuilder {
   adjustment(layer: VideoLayer): AdjustmentStep {
     return {
       kind: 'adjustment',
-      effects: this.effects(layer.clip.effects, layer.masks),
+      effects: this.effects(layer),
       opacity: (layer.clip.opacity / 100) * layer.weight,
       blend: layer.clip.blendMode,
       mask: this.mask(layer.clip.mask, layer.masks)
@@ -74,7 +80,7 @@ export class LayerBuilder {
       opacity: (layer.clip.opacity / 100) * layer.weight,
       blend: layer.clip.blendMode,
       colour: this.colour(layer.item, source),
-      effects: this.effects(layer.clip.effects, layer.masks)
+      effects: this.effects(layer)
     }
   }
 

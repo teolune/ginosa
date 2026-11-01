@@ -1,20 +1,21 @@
 import { FORMATS, type ExportSettings } from '@engine/export/export-settings'
 import type { MediaItem } from '@engine/project/media'
-import { frameRateOf, type Clip, type Project } from '@engine/project/model'
+import { frameRateOf, type Project } from '@engine/project/model'
 import { ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
-import { audioSegments, videoLayersAt } from '@engine/timeline/render-plan'
+import { audioSegments } from '@engine/timeline/render-plan'
 import { sequenceEnd } from '@engine/timeline/timeline'
 import type { ExportResult } from '@shared/ipc'
-import type { VideoSample } from 'mediabunny'
 import { getGpu } from '../gpu/shared'
 import { mediaController } from '../state/media-controller'
 import { Observable } from '../state/observable'
 import { renderMixdown } from './audio-mixdown'
 import { modulationController } from '../audio/modulation-controller'
 import type { ModulationContext } from '@engine/modulation/types'
-import { Compositor, type CompositeStep } from './compositor'
+import { Compositor } from './compositor'
 import { LayerBuilder } from './layers'
-import { openMedia, openStill, type OpenedMedia } from './sources'
+import { ExactRenderer } from './exact-render'
+import { TemporalStore } from './temporal'
+import { checkpointEvery } from '@engine/timeline/temporal'
 import { YuvConverter } from './yuv'
 
 export type ExportState =
@@ -23,58 +24,6 @@ export type ExportState =
   | { kind: 'done'; result: ExportResult; seconds: number; fps: number }
   | { kind: 'failed'; error: string; output: string }
   | { kind: 'cancelled' }
-
-/**
- * Frames for one clip, exactly, with no deadline. Forward clips decode in order;
- * reversed clips and holds fetch each frame they need.
- */
-class ExactFrames {
-  private iterator: AsyncGenerator<VideoSample, void, unknown> | null = null
-  private current: VideoSample | null = null
-  private peek: VideoSample | null | undefined = undefined
-  private held: { seconds: number; sample: VideoSample } | null = null
-
-  constructor(
-    private readonly media: OpenedMedia,
-    private readonly clip: Clip
-  ) {}
-
-  async frameAt(seconds: number): Promise<VideoSample | null> {
-    const sink = this.media.videoSink
-    if (!sink) return null
-    const due = this.media.origin + seconds + 1e-6
-    if (this.clip.speed === 0 || this.clip.reverse) {
-      if (this.held && Math.abs(this.held.seconds - seconds) < 1e-9) return this.held.sample
-      const sample = await sink.getSample(due)
-      this.held?.sample.close()
-      this.held = sample ? { seconds, sample } : null
-      return sample
-    }
-    if (!this.iterator) {
-      this.iterator = sink.samples(this.media.origin + Math.max(0, seconds))
-      this.peek = undefined
-    }
-    if (this.peek === undefined) this.peek = (await this.iterator.next()).value ?? null
-    while (this.peek && this.peek.timestamp <= due) {
-      this.current?.close()
-      this.current = this.peek
-      this.peek = (await this.iterator.next()).value ?? null
-    }
-    // The first frame of the clip can sit just after the requested time (a stream's first timestamp).
-    if (!this.current && this.peek) {
-      this.current = this.peek
-      this.peek = (await this.iterator.next()).value ?? null
-    }
-    return this.current
-  }
-
-  close(): void {
-    void this.iterator?.return(undefined).catch(() => undefined)
-    this.current?.close()
-    if (this.peek) this.peek.close()
-    this.held?.sample.close()
-  }
-}
 
 class Exporter extends Observable {
   state: ExportState = { kind: 'idle' }
@@ -113,7 +62,8 @@ class Exporter extends Observable {
       this.set({ kind: 'running', stage, frame: done, frames, fps: stage === 'frames' && seconds > 0 ? done / seconds : 0, started, output })
     }
     progress('checking')
-    const sources = new Map<string, ExactFrames>()
+    let renderer: ExactRenderer | null = null
+    let temporal: TemporalStore | null = null
     let compositor: Compositor | null = null
     let yuv: YuvConverter | null = null
     try {
@@ -128,7 +78,10 @@ class Exporter extends Observable {
       const { device } = await getGpu()
       compositor = new Compositor(device)
       compositor.resize(width, height)
-      const layers = new LayerBuilder(compositor)
+      // Stateful effects run from their first frame, in order, so they're always exact here.
+      temporal = new TemporalStore(device, checkpointEvery(sequence))
+      const layers = new LayerBuilder(compositor, undefined, undefined, temporal)
+      renderer = new ExactRenderer(compositor, layers, path)
       for (const item of items) if (item.colour.lut) await layers.loadLut(item.colour.lut.file)
 
       progress('sound')
@@ -152,44 +105,8 @@ class Exporter extends Observable {
       for (let index = 0; index < frames; index++) {
         this.checkCancelled()
         const time: Ticks = index * frame
-        const plan = videoLayersAt(sequence, media, time, this.lastModulation)
-        const composite: CompositeStep[] = []
-        const videoFrames: VideoFrame[] = []
-        for (const layer of plan) {
-          if (!layer.item) {
-            composite.push(layers.adjustment(layer))
-            continue
-          }
-          const file = path(layer.item)!
-          if (layer.item.kind === 'image') {
-            const texture = layers.loadedStill(file) ?? layers.stillTexture(file, await openStill(file))
-            const built = layers.build(layer, { kind: 'image', texture }, sequence)
-            if (built) composite.push(built)
-            continue
-          }
-          let source = sources.get(layer.clip.id)
-          if (!source) {
-            source = new ExactFrames(await openMedia(file), layer.clip)
-            sources.set(layer.clip.id, source)
-          }
-          const sample = await source.frameAt(ticksToSeconds(layer.sourceTime))
-          if (!sample) throw new Error(`${layer.item.name}: no picture at ${ticksToSeconds(layer.sourceTime).toFixed(2)} s`)
-          const videoFrame = sample.toVideoFrame()
-          videoFrames.push(videoFrame)
-          const built = layers.build(layer, { kind: 'video', frame: videoFrame }, sequence)
-          if (built) composite.push(built)
-        }
-        // Clips that have finished won't come back (time only moves forward).
-        const present = new Set(plan.map((l) => l.clip.id))
-        for (const [clipId, source] of sources) {
-          if (!present.has(clipId)) {
-            source.close()
-            sources.delete(clipId)
-          }
-        }
-        const result = compositor.render(composite, 1)
+        const result = await renderer.render(sequence, media, time, this.lastModulation, 1)
         const bytes = await yuv.convert(result, index)
-        videoFrames.forEach((f) => f.close())
         await window.ginosa.export.frame(id, bytes)
         if (performance.now() - lastNotify > 100 || index === frames - 1) {
           lastNotify = performance.now()
@@ -212,7 +129,8 @@ class Exporter extends Observable {
       this.set({ kind: 'failed', error: (error as Error).message, output })
       return null
     } finally {
-      for (const source of sources.values()) source.close()
+      renderer?.close()
+      temporal?.clear()
       yuv?.destroy()
       compositor?.destroy()
     }

@@ -71,14 +71,24 @@ export function maskAa(toFrame: Affine): number {
   return Math.max(1e-3, Math.sqrt(Math.abs(toFrame.a * toFrame.d - toFrame.b * toFrame.c)))
 }
 
-/** The frame uniform: image size, Mix (0–1), blend mode, pixel scale, then the mask's shape count, edge softness, invert and placement. */
-export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null): Float32Array {
+/** A stateful effect's place in time: whether there's a previous frame, and how many frames since its reset. */
+export interface PassTemporal {
+  hasPrevious: boolean
+  frames: number
+}
+
+/**
+ * The frame uniform: image size, Mix (0–1), blend mode, pixel scale, then the mask's shape
+ * count, edge softness, invert and placement, then a stateful effect's place in time.
+ */
+export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null, temporal: PassTemporal | null = null): Float32Array {
   const m = mask?.toFrame ?? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
   return new Float32Array([
     width, height, mix, blendIndex(blend),
     pixelScale, mask ? mask.parts : 0, mask ? maskAa(m) : 1, mask?.invert ? 1 : 0,
     m.a, m.b, m.c, m.d,
-    m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height
+    m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height,
+    temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, 0, 0
   ])
 }
 
@@ -97,6 +107,7 @@ struct EffectFrame {
   maskInvert: f32,
   toFrame0: vec4f, // a, b, c, d: processed pixel -> frame pixel
   toFrame1: vec4f, // e, f, frame width, frame height
+  temporal: vec4f, // has a previous frame (stateful effects), frames since the reset
 };
 
 struct EffectParams {
@@ -108,6 +119,8 @@ ${params}
 @group(0) @binding(2) var<uniform> frame: EffectFrame;
 @group(0) @binding(3) var<uniform> params: EffectParams;
 @group(0) @binding(4) var<storage, read> maskData: array<vec4f>;
+// Stateful effects: their own output on the frame before (same size as the input).
+@group(0) @binding(5) var previousTex: texture_2d<f32>;
 
 const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
 
@@ -167,6 +180,17 @@ fn inputAt(px: vec2f) -> vec4f {
 }
 
 fn inputNearest(px: vec2f) -> vec4f { return inputLoad(vec2i(floor(px))); }
+
+fn hasPrevious() -> bool { return frame.temporal.x > 0.5; }
+fn framesSinceReset() -> f32 { return frame.temporal.y; }
+
+// The effect's output on the frame before, in its colour space; transparent outside the
+// image, and everywhere on the first frame.
+fn previousAt(px: vec2f) -> vec4f {
+  if (!hasPrevious() || any(px < vec2f(0.0)) || any(px > frame.size)) { return vec4f(0.0); }
+  let c = textureSampleLevel(previousTex, linearSampler, px / frame.size, 0.0);
+  return vec4f(toSpace(c.rgb), c.a);
+}
 
 ${blendSource}
 

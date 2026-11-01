@@ -1,3 +1,4 @@
+import { hashText } from '@engine/audio/sources'
 import { CURVE_RATE, curveValue, modulatorCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
 import type { Modulator, ModulationContext } from '@engine/modulation/types'
 import type { Project } from '@engine/project/model'
@@ -64,7 +65,8 @@ export function contextOf(curves: Map<string, Entry>): ModulationContext {
     value: (id, time) => {
       const entry = curves.get(id)
       return entry && entry.ready ? curveValue(entry.curve, time) : null
-    }
+    },
+    id: hashText(JSON.stringify([...curves].map(([id, e]) => [id, e.key, e.ready])))
   }
 }
 
