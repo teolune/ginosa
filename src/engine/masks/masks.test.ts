@@ -20,7 +20,7 @@ import {
   removeMask,
   removeShape,
   removeShapeKeyframes,
-  setAdjustmentMask,
+  setClipMask,
   setEffectMask,
   setPathPoints,
   setShapeAnimated,
@@ -204,9 +204,15 @@ describe('mask commands', () => {
     expect(masks()[0]).toMatchObject({ name: 'Mask 1', shapes: [{ kind: 'ellipse', position: [960, 540], size: [540, 540] }] })
     run(setEffectMask(video().id, video().effects[0]!.id, { id: made.maskId, invert: false }))
     run(setEffectMask(adjustment().id, adjustment().effects[0]!.id, { id: made.maskId, invert: true }))
-    run(setAdjustmentMask(adjustment().id, { id: made.maskId, invert: false }))
-    expect(() => history.dispatch(setAdjustmentMask(video().id, { id: made.maskId, invert: false }))).toThrow(/Only adjustment layers/)
+    run(setClipMask(adjustment().id, { id: made.maskId, invert: false }))
+    const audio = history.state.sequence.clips.find((c) => c.kind === 'audio')!
+    expect(() => history.dispatch(setClipMask(audio.id, { id: made.maskId, invert: false }))).toThrow(/Only video clips/)
     expect(maskUsers(history.state.sequence, made.maskId)).toHaveLength(3)
+    // A plain clip's own mask (where it shows) can follow the clip; an adjustment layer's can't.
+    run(setClipMask(video().id, { id: made.maskId, invert: false, followClip: true }))
+    expect(video().mask).toEqual({ id: made.maskId, invert: false, followClip: true })
+    expect(maskUsers(history.state.sequence, made.maskId)).toHaveLength(4)
+    history.undo()
     // The render plan works each used mask out once per frame.
     const layers = videoLayersAt(history.state.sequence, history.state.media, s(1))
     expect(layers).toHaveLength(2)
@@ -225,7 +231,7 @@ describe('mask commands', () => {
     const { maskId } = run(addMask('ellipse', null, ids))
     run(setEffectMask(video().id, video().effects[0]!.id, { id: maskId, invert: false, followClip: true }))
     run(setEffectMask(adjustment().id, adjustment().effects[0]!.id, { id: maskId, invert: false, followClip: true }))
-    run(setAdjustmentMask(adjustment().id, { id: maskId, invert: true, followClip: true }))
+    run(setClipMask(adjustment().id, { id: maskId, invert: true, followClip: true }))
     expect(video().effects[0]!.mask).toEqual({ id: maskId, invert: false, followClip: true })
     expect(adjustment().effects[0]!.mask).toEqual({ id: maskId, invert: false })
     expect(adjustment().mask).toEqual({ id: maskId, invert: true })
@@ -305,7 +311,7 @@ describe('mask commands', () => {
     const { history, run, video, adjustment, masks } = setup()
     const { maskId } = run(addMask('rectangle', null, ids))
     run(setEffectMask(video().id, video().effects[0]!.id, { id: maskId, invert: true }))
-    run(setAdjustmentMask(adjustment().id, { id: maskId, invert: false }))
+    run(setClipMask(adjustment().id, { id: maskId, invert: false }))
     run(splitClips([video().id], s(5), ids))
     const halves = history.state.sequence.clips.filter((c) => c.kind === 'video' && !c.adjustment)
     expect(halves.every((c) => c.effects[0]!.mask?.id === maskId && c.effects[0]!.mask.invert)).toBe(true)

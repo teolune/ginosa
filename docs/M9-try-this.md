@@ -52,12 +52,12 @@ npm run dev
 - [ ] `npm run check` ends with **Tests 292 passed (292)**. The 29 new tests cover:
   - every mask shape, feather, expansion, the three combine modes, invert and opacity, keyframes and modulation
   - the mask GPU buffer
-  - every mask command, references through splits, copy/paste and saving, Follow clip, and opening older projects
+  - every mask command, references through splits, copy/paste and saving, Follow clip, clip masks, and opening older projects
   - when a stateful effect's state resets and what throws it away
   - render cache keys: an edit changes exactly the frames it changes, including through feedback
   - preview files and their size limit
   - In and Out on the timeline, and Clean Up's autosave deletion (it deletes only autosave snapshots)
-- [ ] `masksgpu` checks masks on the GPU against the reference maths, over every pixel. Cases: a rotated rounded rectangle minus an ellipse plus the frame edge; a bezier path intersected with a luminance range; a moved, rotated clip (the mask stays put on the frame, or with Follow clip moves with it); adjustment layers at full and half resolution. Expect `"verdict":"pass"`. I measured a worst of **0.0017** (half-float precision), and a heavy mask at 4K at **23 ms** a frame.
+- [ ] `masksgpu` checks masks on the GPU against the reference maths, over every pixel. Cases: a rotated rounded rectangle minus an ellipse plus the frame edge; a bezier path intersected with a luminance range; a moved, rotated clip (the mask stays put on the frame, or with Follow clip moves with it); a clip's own mask (where it shows), also following a moved clip; adjustment layers at full and half resolution. Expect `"verdict":"pass"`. I measured a worst of **0.0017** (half-float precision), and a heavy mask at 4K at **23 ms** a frame.
 - [ ] `exportmasks`: an adjustment layer inverts inside an edge mask whose Width is keyframed from 40 to 440 px, minus a rectangle sliding down. Expect `"verdict":"pass"`. I measured:
   - every exported frame's band within **0.12 px** of the keyframed width
   - the rectangle hiding the band in 16 frames
@@ -94,7 +94,7 @@ npm run dev
 
 - [ ] In Effect Controls, every effect has a **Mask** menu: None, any mask, or **New Mask…** (makes one and opens it). **Invert** uses the outside instead; **Edit** opens it.
 - [ ] **Follow clip** (on a clip's effects): tick it, then move, scale or turn the clip in Motion (or keyframe it): the mask goes with it. Untick it: the mask stays where it is on the frame. With it on, **Edit** shows the mask on that clip, and you drag it there.
-- [ ] Adjustment layers also have a **Mask** under Opacity: where the whole layer applies.
+- [ ] Every video clip and adjustment layer also has a **Mask** under Opacity: where an adjustment layer applies, or where a clip shows (outside it the clip is transparent and you see the tracks below, like Premiere's opacity mask). On clips it can **Follow clip** too.
 - [ ] Try the plan's idea: an edge mask on an effect, with **Width → Link to Audio → Bass level**. The edges widen on every bass hit. It plays and exports the same.
 - [ ] Mask settings appear in the Modulation window's **Drives** list, like any other value.
 
@@ -103,7 +103,7 @@ npm run dev
 - [ ] Put **Feedback** (Effects › Time) on an adjustment layer over moving footage. Try zoom 101–103%, rotation ±1°, and the four modes (Over, Add, Screen, Lighten). Trails and tunnels should play in real time.
 - [ ] Jump around the timeline: each frame looks the same as it does in playback. Far into a long layer the first time, you'll see "Stateful effects: catching up N of M frames…" while it renders from the start. After that, a jump replays at most a second.
 - [ ] Change a setting: the state starts again from the clip's first frame.
-- [ ] Double-click the Program monitor for the stats overlay: **states N MB** is the memory held by kept frames and checkpoints; **approx** counts frames that carried on from an older state after a drop.
+- [ ] Double-click the Program monitor for the stats overlay: **states N MB** is the memory held by kept frames and checkpoints (up to 2 GB); **approx** counts frames that carried on from an older state after a drop.
 - [ ] Export it and compare it with what you saw.
 
 ## Render cache
@@ -131,7 +131,6 @@ npm run dev
 
 - Pen path points can't be keyframed (path animation, for rotoscoping). Position, Scale and Rotation can.
 - Mask keyframes are set in the Masks window; they don't have rows in the Keyframe Editor yet.
-- A whole-clip opacity mask (decision 51) isn't there yet: say if you want it.
 - AI matting (MatAnyone 2) is M17.
 - Effects that read other times (Posterize Time, echoes) arrive with Posterize Time in M12. They'll use the same catch-up and checkpoints.
 - Export still exports the whole sequence; exporting just In to Out can come with the Export window's next changes.

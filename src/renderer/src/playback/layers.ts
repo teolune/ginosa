@@ -80,7 +80,8 @@ export class LayerBuilder {
       opacity: (layer.clip.opacity / 100) * layer.weight,
       blend: layer.clip.blendMode,
       colour: this.colour(layer.item, source),
-      effects: this.effects(layer)
+      effects: this.effects(layer),
+      mask: this.mask(layer.clip.mask, layer.masks, layer)
     }
   }
 

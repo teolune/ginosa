@@ -64,6 +64,8 @@ export interface CompositeLayer {
   colour: LayerColour
   /** The clip's effects (switched-on ones only), run on its own pixels before Motion. */
   effects?: GpuEffect[]
+  /** Where the clip shows (decision 51): outside its mask it's transparent. Null: everywhere. */
+  mask?: GpuMask | null
 }
 
 /** An adjustment layer: effects on everything composited so far, blended back with opacity and mode. */
@@ -96,9 +98,14 @@ export interface GpuLut {
   max: [number, number, number]
 }
 
-const LAYER_BYTES = 144
+const LAYER_BYTES = 192
 const UNIFORM_BYTES = 256
 const NO_COLOUR: LayerColour = { undoMacDisplay: false, conversion: { kind: 'none' } }
+
+/** `m` after `n`. */
+function compose(m: Affine, n: Affine): Affine {
+  return { a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b, c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d, e: m.a * n.e + m.c * n.f + m.e, f: m.b * n.e + m.d * n.f + m.f }
+}
 
 /** `m` applied to pixels of an image processed at `scale` (pixel ÷ scale first). */
 function scaledAffine(m: Affine, scale: number): Affine {
@@ -328,15 +335,26 @@ export class Compositor {
       gamut[1], gamut[4], gamut[7], 0,
       gamut[2], gamut[5], gamut[8], 0
     ])
+    if (layer.mask) {
+      // Output pixel → frame pixel, or, following the clip, → source pixel → its place by default Motion.
+      const toFrame: Affine = { a: 1 / scale, b: 0, c: 0, d: 1 / scale, e: 0, f: 0 }
+      const toMask = layer.mask.onClip ? compose(layer.mask.onClip, compose(layer.inverse, toFrame)) : toFrame
+      this.setMask(data, layer.mask, toMask)
+    }
     return data
+  }
+
+  /** The mask fields of a Layer uniform (maskTo0, maskTo1, mask). */
+  private setMask(data: Float32Array, mask: GpuMask, toMask: Affine): void {
+    data.set([toMask.a, toMask.b, toMask.c, toMask.d, toMask.e, toMask.f, mask.frame.width, mask.frame.height, mask.parts, maskAa(toMask), mask.invert ? 1 : 0, 0], 36)
   }
 
   /** One full-screen pass of a composite.wgsl entry point into `target`. */
   private draw(encoder: GPUCommandEncoder, entryPoint: string, target: GPUTexture, resources: Partial<Record<number, GPUBindingResource>>): void {
     const pipeline = this.pipeline(entryPoint)
     const used: Record<string, number[]> = {
-      fsVideo: [0, 1, 2, 3, 7],
-      fsImage: [1, 2, 3, 4, 7],
+      fsVideo: [0, 1, 2, 3, 7, 8],
+      fsImage: [1, 2, 3, 4, 7, 8],
       fsSourceVideo: [0, 1, 2, 7],
       fsSourceImage: [1, 2, 4, 7],
       fsAdjust: [2, 3, 4, 8]
@@ -417,10 +435,7 @@ export class Compositor {
         const uniform = new Float32Array(LAYER_BYTES / 4)
         uniform[9] = step.opacity
         uniform[11] = BLEND_MODES.findIndex((b) => b.id === step.blend)
-        if (step.mask) {
-          uniform.set([toFrame.a, toFrame.b, toFrame.c, toFrame.d, toFrame.e, toFrame.f, step.mask.frame.width, step.mask.frame.height], 0)
-          uniform.set([step.mask.parts, maskAa(toFrame), step.mask.invert ? 1 : 0], 12)
-        }
+        if (step.mask) this.setMask(uniform, step.mask, toFrame)
         this.draw(encoder, 'fsAdjust', write, { 2: { buffer: this.uniform(uniform) }, 3: read.createView(), 4: effected.createView(), 8: { buffer: this.maskBuffer(step.mask) } })
         if (effected !== read) this.release(effected)
         ;[read, write] = [write, read]
@@ -445,7 +460,7 @@ export class Compositor {
         // Already decoded, converted and turned upright.
         layer = { ...step, source: { kind: 'image', texture: processed }, rotation: 0, colour: NO_COLOUR }
       }
-      const resources: Partial<Record<number, GPUBindingResource>> = { 1: this.sampler, 2: { buffer: this.uniform(this.layerUniform(layer, scale)) }, 3: read.createView(), 7: lutView(layer.colour) }
+      const resources: Partial<Record<number, GPUBindingResource>> = { 1: this.sampler, 2: { buffer: this.uniform(this.layerUniform(layer, scale)) }, 3: read.createView(), 7: lutView(layer.colour), 8: { buffer: this.maskBuffer(layer.mask ?? null) } }
       if (layer.source.kind === 'video') resources[0] = this.device.importExternalTexture({ source: layer.source.frame })
       else resources[4] = layer.source.texture.createView()
       this.draw(encoder, layer.source.kind === 'video' ? 'fsVideo' : 'fsImage', write, resources)

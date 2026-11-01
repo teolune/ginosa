@@ -24,7 +24,7 @@ import { Icon } from '../app/Icon'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
-import { addMaskTo, setAdjustmentMask, setEffectMask } from '@engine/timeline/mask-edits'
+import { addMaskTo, setClipMask, setEffectMask } from '@engine/timeline/mask-edits'
 import type { MaskRef } from '@engine/masks/types'
 import { maskController } from '../masks/mask-controller'
 
@@ -307,13 +307,13 @@ function formatLive(value: ParamValue | null): string {
 function MaskRow({ clip, effectId, value, locked }: { clip: Clip; effectId: string | null; value: MaskRef | null; locked: boolean }) {
   useObservable(maskController)
   const masks = projectController.project?.sequence.masks ?? []
-  const set = (ref: MaskRef | null) => projectController.dispatch(effectId === null ? setAdjustmentMask(clip.id, ref) : setEffectMask(clip.id, effectId, ref))
+  const set = (ref: MaskRef | null) => projectController.dispatch(effectId === null ? setClipMask(clip.id, ref) : setEffectMask(clip.id, effectId, ref))
   const create = () => {
     const command = addMaskTo(clip.id, effectId, 'rectangle')
     if (projectController.dispatch(command)) maskController.edit(command.maskId)
   }
   return (
-    <div className="fx-row fx-mask-row" title={effectId === null ? 'Where this adjustment layer applies' : 'Where this effect shows'}>
+    <div className="fx-row fx-mask-row" title={effectId !== null ? 'Where this effect shows' : clip.adjustment ? 'Where this adjustment layer applies' : 'Where this clip shows: outside the mask it’s transparent'}>
       <span className="fx-label">Mask</span>
       <span className="fx-values">
         <select
@@ -341,7 +341,7 @@ function MaskRow({ clip, effectId, value, locked }: { clip: Clip; effectId: stri
             <label className="mod-check" title="Show outside the mask instead">
               <input type="checkbox" checked={value.invert} disabled={locked} onChange={(event) => set({ ...value, invert: event.target.checked })} /> Invert
             </label>
-            {effectId !== null && !clip.adjustment && (
+            {!clip.adjustment && (
               <label className="mod-check" title="Follow clip: the mask moves, scales and turns with this clip's Motion. Off: it stays where it is on the frame.">
                 <input type="checkbox" checked={value.followClip === true} disabled={locked} onChange={(event) => set({ ...value, followClip: event.target.checked })} /> Follow clip
               </label>
@@ -594,7 +594,7 @@ function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
       <Row label="Blend Mode">
         <BlendSelect label="Blend mode" value={clip.blendMode} disabled={locked} onChange={(blendMode) => projectController.dispatch(setClipProperties([clip.id], { blendMode }))} />
       </Row>
-      {clip.adjustment && <MaskRow clip={clip} effectId={null} value={clip.mask} locked={locked} />}
+      <MaskRow clip={clip} effectId={null} value={clip.mask} locked={locked} />
     </Section>
   )
 }

@@ -21,6 +21,8 @@
 - **Cache Manager:** a size limit for preview renders across projects (least recently used go first), and **Clean Up Finished Project**.
 - **After your answers (decisions 58–60):**
   - **Follow clip**: a mask on a clip's effect can move, scale and turn with the clip's Motion. It's shown and edited where it lands.
+  - **Clip masks** (Premiere's opacity mask): every video clip has a Mask under Opacity; outside it, the clip is transparent.
+  - Stateful effects' memory budget raised to 2 GB.
   - **In and Out on the timeline**: I, O, Shift+I/O, ⌥I/O/X. Enter renders between them.
   - **Cache menu** in the menu bar: Render Previews, Delete This Project's Previews, Clean Up Finished Project (with or without autosaves; saves and closes it first), Cache Manager.
 - **Export and catch-up** now share one exact renderer (`exact-render.ts`).

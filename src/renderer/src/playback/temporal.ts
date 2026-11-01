@@ -12,8 +12,8 @@ import type { EffectState } from './compositor'
  * states are never used as checkpoints or for stills.
  */
 
-/** Video memory for kept states and checkpoints (a 1080p state is 16.6 MB, so about 60 checkpoints). */
-export const STATE_BUDGET_BYTES = 1024 * 1024 * 1024
+/** Video memory for kept states and checkpoints (decision 54: 2 GB; a 1080p state is 16.6 MB, so about 120 checkpoints, two minutes of one effect). */
+export const STATE_BUDGET_BYTES = 2 * 1024 * 1024 * 1024
 
 interface Kept {
   texture: GPUTexture

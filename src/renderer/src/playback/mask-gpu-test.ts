@@ -109,7 +109,7 @@ export async function runMaskGpuTest() {
     const manifest = effectById('invert')!
     return { manifest, params: Object.fromEntries(manifest.params.map((p) => [p.id, p.default])) as Record<string, ParamValue>, mix: 1, blend: 'normal', mask }
   }
-  const clip = (effects: GpuEffect[], inverse: Affine = identity): CompositeStep => ({
+  const clip = (effects: GpuEffect[], inverse: Affine = identity, mask: GpuMask | null = null): CompositeStep => ({
     source: { kind: 'image', texture: image },
     inverse,
     width: W,
@@ -118,7 +118,8 @@ export async function runMaskGpuTest() {
     opacity: 1,
     blend: 'normal',
     colour: { undoMacDisplay: false, conversion: { kind: 'none' } },
-    effects
+    effects,
+    mask
   })
   const checks: Array<{ name: string; error: number; limit: number; pixels: number }> = []
 
@@ -189,6 +190,20 @@ export async function runMaskGpuTest() {
     const fx = p.x - 0.5 - i
     const fy = p.y - 0.5 - j
     return (onPicture(i, j) * (1 - fx) + onPicture(i + 1, j) * fx) * (1 - fy) + (onPicture(i, j + 1) * (1 - fx) + onPicture(i + 1, j + 1) * fx) * fy
+  })
+
+  // A clip's own mask (decision 51): outside it the clip is transparent (black beneath here).
+  await compare('clip mask: where the clip shows', [clip([], identity, gpuMask(MASK_A))], 1, (x, y) => {
+    const v = column(Math.floor(x))
+    return v * maskAlpha(MASK_A, x, y, v, frame)
+  })
+  // …following the moved clip: the mask is on its picture, keyed on its own (sampled) colour.
+  await compare('moved clip, clip mask with Follow clip', [clip([], inverse, { ...gpuMask(MASK_B), onClip: identity })], 1, (x, y) => {
+    const p = applyAffine(inverse, x, y)
+    if (p.x < 1.5 || p.y < 1.5 || p.x > W - 1.5 || p.y > H - 1.5) return null
+    const t = p.x - 0.5 - Math.floor(p.x - 0.5)
+    const v = column(Math.floor(p.x - 0.5)) * (1 - t) + column(Math.floor(p.x - 0.5) + 1) * t
+    return v * maskAlpha(MASK_B, p.x, p.y, v, frame, Math.sqrt(Math.abs(inverse.a * inverse.d - inverse.b * inverse.c)))
   })
 
   // Adjustment layers: the layer's own mask (and its effects' masks), at full and half resolution.

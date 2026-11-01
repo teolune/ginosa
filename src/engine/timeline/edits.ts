@@ -615,7 +615,7 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       adjustment: c.adjustment,
       keyframes: cloneKeyframeMap(c.keyframes),
       modulation: cloneModulationMap(c.modulation),
-      mask: c.adjustment ? keepMask(c.mask) : null
+      mask: c.kind === 'video' ? keepMask(c.mask) : null
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]

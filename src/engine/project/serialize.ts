@@ -571,8 +571,9 @@ export function parseProject(input: string | unknown): Project {
   for (const mask of masks) for (const shape of mask.shapes) shape.modulation = keepLinks(shape.modulation, modulatorIds, () => true)
   const maskIds = new Set(masks.map((m) => m.id))
   clips.forEach((clip, i) => {
-    // Only adjustment layers use a mask of their own.
-    clip.mask = clip.adjustment ? wrap(() => parseMaskRef(clip.mask, `sequence.clips[${i}].mask`, maskIds)) : null
+    // Video clips and adjustment layers have a mask of their own; Follow clip only where there's Motion.
+    clip.mask = clip.kind === 'video' ? wrap(() => parseMaskRef(clip.mask, `sequence.clips[${i}].mask`, maskIds)) : null
+    if (clip.mask && clip.adjustment) delete clip.mask.followClip
     clip.effects.forEach((effect, j) => (effect.mask = wrap(() => parseMaskRef(effect.mask, `sequence.clips[${i}].effects[${j}].mask`, maskIds))))
   })
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).

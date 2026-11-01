@@ -75,7 +75,7 @@ export function addMask(kind: MaskShapeKind, name: string | null = null, newId: 
 /** Effect Controls › Mask › New Mask: a new mask, used by an effect (or, with `effectId` null, an adjustment layer) straight away. One undo step. */
 export function addMaskTo(clipId: string, effectId: string | null, kind: MaskShapeKind, newId: IdFactory = defaultId): TimelineCommand & { maskId: string; shapeId: string } {
   const made = addMask(kind, null, newId)
-  const use = effectId === null ? setAdjustmentMask(clipId, { id: made.maskId, invert: false }) : setEffectMask(clipId, effectId, { id: made.maskId, invert: false })
+  const use = effectId === null ? setClipMask(clipId, { id: made.maskId, invert: false }) : setEffectMask(clipId, effectId, { id: made.maskId, invert: false })
   const command = timelineCommand('New Mask', (draft, self) => {
     made.apply(draft)
     use.apply(draft)
@@ -306,15 +306,19 @@ export function setEffectMask(clipId: string, effectId: string, mask: MaskRef | 
   })
 }
 
-/** Sets (or clears) an adjustment layer's mask: where its effects apply. */
-export function setAdjustmentMask(clipId: string, mask: MaskRef | null): TimelineCommand {
-  return timelineCommand(mask ? 'Set Adjustment Mask' : 'Clear Adjustment Mask', (draft) => {
+/**
+ * Sets (or clears) a video clip's own mask: where an adjustment layer applies, or where a
+ * clip shows (decision 51; outside it the clip is transparent). Follow clip is kept for
+ * clips with media (adjustment layers have no Motion to follow).
+ */
+export function setClipMask(clipId: string, mask: MaskRef | null): TimelineCommand {
+  return timelineCommand(mask ? 'Set Clip Mask' : 'Clear Clip Mask', (draft) => {
     const sequence = draft.sequence
     const clip = findClip(sequence, clipId)
-    if (!clip.adjustment) throw new CommandError('Only adjustment layers have a mask of their own; effects each have one')
+    if (clip.kind !== 'video') throw new CommandError('Only video clips and adjustment layers have masks')
     assertUnlocked(findTrack(sequence, clip.trackId))
     if (mask) findMask(sequence, mask.id)
-    clip.mask = mask ? { id: mask.id, invert: mask.invert } : null
+    clip.mask = mask ? (mask.followClip && !clip.adjustment ? { id: mask.id, invert: mask.invert, followClip: true } : { id: mask.id, invert: mask.invert }) : null
   })
 }
 

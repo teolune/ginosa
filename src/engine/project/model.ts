@@ -129,7 +129,7 @@ export interface Clip {
   keyframes: KeyframeMap
   /** Modulation links by property (same keys as keyframes): which modulators drive it and how. */
   modulation: ModulationMap
-  /** Adjustment layers: the shared mask limiting where they apply (M9). Always null on other clips. */
+  /** Video clips' own mask (M9): where an adjustment layer applies, or where a clip shows (outside it, the clip is transparent). Always null on audio clips. */
   mask: MaskRef | null
 }
 

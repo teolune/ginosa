@@ -162,7 +162,7 @@ function UsedBy({ sequence, mask }: { sequence: Sequence; mask: Mask }) {
             title={ref?.followClip ? 'Select it in the timeline, and show the mask where it lands on this clip' : 'Select it in the timeline'}
             onClick={() => (tl.select([clipId], 'replace'), maskController.setClip(ref?.followClip ? clipId : null), workspaceController.focus('effect-controls'))}
           >
-            {clip.name} › {effect ? (effectById(effect.effectId)?.name ?? 'Effect') : 'whole layer'}
+            {clip.name} › {effect ? (effectById(effect.effectId)?.name ?? 'Effect') : clip.adjustment ? 'whole layer' : 'Opacity (where the clip shows)'}
             {ref?.invert ? ' (outside)' : ''}
             {ref?.followClip ? ' (follows the clip)' : ''}
           </button>
@@ -175,7 +175,7 @@ function UsedBy({ sequence, mask }: { sequence: Sequence; mask: Mask }) {
 /** The clip the mask is shown on, when it's being edited on a clip that uses it with Follow clip. */
 function followName(sequence: Sequence, maskId: string): string | null {
   const clip = maskController.clipId ? sequence.clips.find((c) => c.id === maskController.clipId) : undefined
-  return clip && clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip) ? clip.name : null
+  return clip && (clip.mask?.id === maskId ? clip.mask.followClip : clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip)) ? clip.name : null
 }
 
 export function MasksWindow() {

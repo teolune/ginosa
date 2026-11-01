@@ -140,7 +140,8 @@ function compose(m: Affine, n: Affine): Affine {
  */
 function maskView(project: Project, maskId: string, clipId: string | null, playhead: number): { view: Affine; clipName: string | null } {
   const clip = clipId ? project.sequence.clips.find((c) => c.id === clipId) : undefined
-  if (!clip || clip.adjustment || !clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip)) return { view: IDENTITY, clipName: null }
+  const follows = clip && (clip.mask?.id === maskId ? clip.mask.followClip : clip.effects.some((e) => e.mask?.id === maskId && e.mask.followClip))
+  if (!clip || clip.adjustment || !follows) return { view: IDENTITY, clipName: null }
   const item = project.media.find((m) => m.id === clip.mediaId)
   const at = Math.min(Math.max(playhead, clip.start), clipEnd(clip) - 1)
   const motion = resolveClip(clip, at, modulationController.context).motion
