@@ -87,7 +87,7 @@ describe('effect parameters', () => {
 
   it('upgrades instances made with an older version of their effect', () => {
     const v2: EffectManifest = { ...transform, version: 2, migrate: (p, from) => (from === 1 ? { ...p, scale: Number(p['zoom'] ?? 100) } : p) }
-    const old = { id: 'e', effectId: 'transform', version: 1, enabled: true, mix: 100, blendMode: 'normal' as const, params: { zoom: 250 }, keyframes: {} }
+    const old = { id: 'e', effectId: 'transform', version: 1, enabled: true, mix: 100, blendMode: 'normal' as const, params: { zoom: 250 }, keyframes: {}, modulation: {} }
     const upgraded = upgradeInstance(v2, old, { width: 100, height: 100 })
     expect(upgraded.version).toBe(2)
     expect(upgraded.params['scale']).toBe(250)

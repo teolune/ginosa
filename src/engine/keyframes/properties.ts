@@ -4,6 +4,8 @@ import type { Clip } from '../project/model'
 import type { Ticks } from '../time'
 import { CommandError } from '../project/commands'
 import { components, evaluate, putKeyframe, type Keyframe } from './keyframes'
+import { applyLinks, hasLinks } from '../modulation/apply'
+import type { ModLink, ModulationContext, ModulationMap } from '../modulation/types'
 
 /**
  * Everything that can be keyframed, addressed the same way: a clip's own properties
@@ -209,18 +211,37 @@ export function animatedRefs(clip: Clip): PropertyRef[] {
   return refs
 }
 
+/** Whether a value can be modulated: numbers and points (not Speed, choices or toggles). */
+export function modulatable(clip: Clip, effectId: string | null, param: string): boolean {
+  const spec = propertySpec(clip, effectId, param)
+  return spec !== null && spec.kind !== 'stepped' && !(effectId === null && param === 'speed')
+}
+
 /**
  * The clip as it is at sequence time `time`: Motion, Opacity, Volume and effect values
- * from their keyframes. Unanimated clips come back as they are (no copy).
+ * from their keyframes, then their modulation (when `modulation` is given), then clamped
+ * to their ranges. Clips with neither come back as they are (no copy).
  */
-export function resolveClip(clip: Clip, time: Ticks): Clip {
-  if (!hasKeyframes(clip)) return clip
+export function resolveClip(clip: Clip, time: Ticks, modulation: ModulationContext | null = null): Clip {
+  const modulated = modulation !== null && (hasLinks(clip.modulation) || clip.effects.some((e) => hasLinks(e.modulation)))
+  if (!hasKeyframes(clip) && !modulated) return clip
   const t = time - clip.start
   const k = clip.keyframes
-  // Curves can overshoot (bezier handles); values stay within their ranges.
+  const links = (map: ModulationMap, key: string) => (modulation && map[key]?.length ? map[key]! : null)
+  // Curves can overshoot (bezier handles) and modulation can push past a range; values stay within it.
   const clamp = (v: number, min = -Infinity, max = Infinity) => Math.min(max, Math.max(min, v))
-  const num = (param: ClipProperty, fallback: number) => (k[param]?.length ? clamp(Number(evaluate(k[param]!, t, fallback)), CLIP_PROPERTIES[param].min, CLIP_PROPERTIES[param].max) : fallback)
-  const point = (param: ClipProperty, x: number, y: number): [number, number] => (k[param]?.length ? (evaluate(k[param]!, t, [x, y]) as [number, number]) : [x, y])
+  const num = (param: ClipProperty, fallback: number) => {
+    let v = k[param]?.length ? Number(evaluate(k[param]!, t, fallback)) : fallback
+    const l = links(clip.modulation, param)
+    if (l) v = applyLinks([v], l, modulation!, time)[0]!
+    return k[param]?.length || l ? clamp(v, CLIP_PROPERTIES[param].min, CLIP_PROPERTIES[param].max) : v
+  }
+  const point = (param: ClipProperty, x: number, y: number): [number, number] => {
+    let v = k[param]?.length ? (evaluate(k[param]!, t, [x, y]) as [number, number]) : ([x, y] as [number, number])
+    const l = links(clip.modulation, param)
+    if (l) v = applyLinks(v, l, modulation!, time) as [number, number]
+    return v
+  }
   const m = clip.motion
   const [positionX, positionY] = point('position', m.positionX, m.positionY)
   const [anchorX, anchorY] = point('anchor', m.anchorX, m.anchorY)
@@ -230,19 +251,42 @@ export function resolveClip(clip: Clip, time: Ticks): Clip {
     opacity: num('opacity', clip.opacity),
     volume: num('volume', clip.volume),
     effects: clip.effects.map((effect) => {
-      if (Object.keys(effect.keyframes).length === 0) return effect
+      const effectModulated = modulation !== null && hasLinks(effect.modulation)
+      if (Object.keys(effect.keyframes).length === 0 && !effectModulated) return effect
       const params = { ...effect.params }
       const specs = effectById(effect.effectId)?.params
-      for (const [param, track] of Object.entries(effect.keyframes)) {
-        if (param === 'mix' || track.length === 0) continue
-        const value = evaluate(track, t, params[param] ?? 0)
+      const keys = new Set([...Object.keys(effect.keyframes), ...(effectModulated ? Object.keys(effect.modulation) : [])])
+      for (const param of keys) {
+        if (param === 'mix') continue
+        const track = effect.keyframes[param]
+        let value = track?.length ? evaluate(track, t, params[param] ?? 0) : (params[param] ?? 0)
         const spec = specs?.find((p) => p.id === param)
+        const l = links(effect.modulation, param)
+        const parts = components(value)
+        if (l && parts && spec && spec.type !== 'choice' && spec.type !== 'toggle') {
+          const out = applyLinks(parts, l, modulation!, time)
+          value = Array.isArray(value) ? [out[0]!, out[1]!] : out[0]!
+        }
         params[param] = spec?.type === 'number' && typeof value === 'number' ? clamp(value, spec.min, spec.max) : value
       }
-      const mix = effect.keyframes['mix']?.length ? clamp(Number(evaluate(effect.keyframes['mix']!, t, effect.mix)), 0, 100) : effect.mix
-      return { ...effect, params, mix }
+      let mix = effect.keyframes['mix']?.length ? Number(evaluate(effect.keyframes['mix']!, t, effect.mix)) : effect.mix
+      const mixLinks = links(effect.modulation, 'mix')
+      if (mixLinks) mix = applyLinks([mix], mixLinks, modulation!, time)[0]!
+      return { ...effect, params, mix: clamp(mix, 0, 100) }
     })
   }
+}
+
+/** A value with its modulation at sequence time `time` (for showing it, and the graph's faint curve). */
+export function modulatedValueAt(clip: Clip, effectId: string | null, param: string, time: Ticks, modulation: ModulationContext): ParamValue {
+  const resolved = resolveClip(clip, time, modulation)
+  return effectId === null ? staticValue(resolved, null, param) : staticValue(resolved, effectId, param)
+}
+
+/** The modulation links on a value. */
+export function linksOf(clip: Clip, effectId: string | null, param: string): ModLink[] {
+  const map = effectId === null ? clip.modulation : findEffect(clip, effectId)?.modulation
+  return map?.[param] ?? []
 }
 
 /** The frame a keyframe at `t` (ticks from the clip's start) lands on, or an error if that's outside the clip. */

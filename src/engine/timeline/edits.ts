@@ -7,6 +7,7 @@ import { defaultMotion } from './motion'
 import { cloneEffect } from '../effects/params'
 import type { ParamValue } from '../effects/types'
 import { cloneKeyframeMap, scaleKeyframeMap } from '../keyframes/keyframes'
+import { cloneModulationMap } from '../modulation/apply'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, propertySpec, valueAt, writeValueAt, type ClipProperty } from '../keyframes/properties'
 import {
   DEFAULT_STILL_SECONDS,
@@ -127,7 +128,8 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
       transitionOut: null,
       effects: [],
       adjustment: false,
-      keyframes: {}
+      keyframes: {},
+      modulation: {}
     }
   })
 }
@@ -541,6 +543,7 @@ export interface ClipboardClip {
   effects: Clip['effects']
   adjustment: boolean
   keyframes: Clip['keyframes']
+  modulation: Clip['modulation']
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -566,7 +569,8 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
     effects: c.effects.map((e) => cloneEffect(e)),
     adjustment: c.adjustment,
-    keyframes: cloneKeyframeMap(c.keyframes)
+    keyframes: cloneKeyframeMap(c.keyframes),
+    modulation: cloneModulationMap(c.modulation)
   }))
 }
 
@@ -603,7 +607,8 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       // Pasted effects get fresh ids so they can be told apart from the originals.
       effects: c.effects.map((e) => cloneEffect(e, ctx.newId())),
       adjustment: c.adjustment,
-      keyframes: cloneKeyframeMap(c.keyframes)
+      keyframes: cloneKeyframeMap(c.keyframes),
+      modulation: cloneModulationMap(c.modulation)
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]

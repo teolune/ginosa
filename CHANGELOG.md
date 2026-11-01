@@ -1,5 +1,21 @@
 # Changelog
 
+## M8 · Audio and modulation
+
+- **Analysis sources:** a clip, a track (even muted: a sidechain) or the mix. Mixed offline with the playback mixer, analysed in a worker, cached in the project's analysis cache, and redone only when that sound changes.
+- **What's measured, 200 times a second:** Sub, Bass, Low-mid, Mid, High-mid, High (zero-phase Linkwitz–Riley crossovers, so no filter delay) plus custom ranges; loudness and peak; transients per band and hit events, timed to within a millisecond on test drums.
+- **Tempo:** our own detector (autocorrelation for the tempo, then every onset folded onto one beat to pin tempo to 0.001 BPM and the phase); the downbeat from the loudest low end. ×2/÷2, tap tempo, typed BPM, beats per bar, downbeat nudge and Set to Playhead. Your corrections live in the project, never the cache.
+- **Beat grid:** bars and beats on the timeline and Keyframe Editor rulers, faint bar lines, and beats as snapping targets (rounded to frames) for clips, trims, the playhead and keyframes.
+- **Modulators:** source (audio signal, tempo, LFO synced to the beat, random) → input gain → threshold with soft knee → attack/release → response curve (four presets or drawn). Computed over the whole sequence in advance, so every frame is repeatable. Their settings can be keyframed.
+- **Links:** one modulator drives any number of values (Motion, Opacity, Volume, effect values, Mix), each with Add / Multiply / Replace, a range in the value's units, Invert and Amount. Links live on the clip, so they move, split and copy with it.
+- **Right-click any value:** Link to Audio, Modulate Parameter, Remove Modulation, Copy Value, Paste Value, Reset.
+- **Windows:** Audio Analysis (⌥⇧1) and Modulation (⌥⇧2). Modulated values show a gold ∿ badge; the Keyframe Editor graph shows the modulated curve faintly; Audio Analysis overlays each modulator's output on its band.
+- **Tests:**
+  - the done-when test: one source drives three values; playback matches the export within 0.0015 in all 200 frames, and the square in every exported frame matches the modulated values (edges 0.11 px, brightness 0.0006)
+  - tempo: 128.000 BPM detected on the test drums, bars within 1 ms
+  - 28 new unit tests (263 in all)
+- **Project format v9.**
+
 ## M7 · Keyframes
 
 - **Every value can be animated:** Position, Scale, Scale Width, Rotation, Anchor Point, Opacity, Volume, Speed, and every effect setting including Mix.

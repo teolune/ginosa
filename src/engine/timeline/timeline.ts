@@ -1,4 +1,5 @@
 import { cloneEffect } from '../effects/params'
+import { cloneModulationMap } from '../modulation/apply'
 import { cloneKeyframe, cloneKeyframeMap, sameKeyframes, shiftKeyframeMap, speedIntegral, timelineForMedia, type Keyframe } from '../keyframes/keyframes'
 import type { MediaItem } from '../project/media'
 import { CommandError } from '../project/commands'
@@ -121,7 +122,8 @@ export function cloneClip(clip: Clip): Clip {
     transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null,
     // Effects are copied with their ids (ids only need to be unique within a clip).
     effects: clip.effects.map((e) => cloneEffect(e)),
-    keyframes: cloneKeyframeMap(clip.keyframes)
+    keyframes: cloneKeyframeMap(clip.keyframes),
+    modulation: cloneModulationMap(clip.modulation)
   }
 }
 

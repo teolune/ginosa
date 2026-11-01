@@ -10,6 +10,8 @@ import { getGpu } from '../gpu/shared'
 import { mediaController } from '../state/media-controller'
 import { Observable } from '../state/observable'
 import { renderMixdown } from './audio-mixdown'
+import { modulationController } from '../audio/modulation-controller'
+import type { ModulationContext } from '@engine/modulation/types'
 import { Compositor, type CompositeStep } from './compositor'
 import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
@@ -77,6 +79,8 @@ class ExactFrames {
 class Exporter extends Observable {
   state: ExportState = { kind: 'idle' }
   private cancelRequested = false
+  /** The modulation the last export rendered with (tests compare playback against it). */
+  lastModulation: ModulationContext | null = null
   private jobId: string | null = null
 
   get running(): boolean {
@@ -129,7 +133,10 @@ class Exporter extends Observable {
 
       progress('sound')
       const sampleRate = sequence.settings.sampleRate
-      const samples = audioSegments(sequence, media, 0, end).length > 0 ? await renderMixdown(sequence, media, 0, end, sampleRate, path) : new Float32Array(Math.round(ticksToSeconds(end) * sampleRate) * 2)
+      // Modulation from curves worked out once for this exact project, after its audio is analysed.
+      const modulation = await modulationController.snapshot(project)
+      this.lastModulation = modulation
+      const samples = audioSegments(sequence, media, 0, end).length > 0 ? await renderMixdown(sequence, media, 0, end, sampleRate, path, modulation) : new Float32Array(Math.round(ticksToSeconds(end) * sampleRate) * 2)
       this.checkCancelled()
       const id = await window.ginosa.export.begin({ settings, width, height, rate, audioFrames: samples.length / 2, sampleRate, output })
       this.jobId = id
@@ -145,7 +152,7 @@ class Exporter extends Observable {
       for (let index = 0; index < frames; index++) {
         this.checkCancelled()
         const time: Ticks = index * frame
-        const plan = videoLayersAt(sequence, media, time)
+        const plan = videoLayersAt(sequence, media, time, this.lastModulation)
         const composite: CompositeStep[] = []
         const videoFrames: VideoFrame[] = []
         for (const layer of plan) {

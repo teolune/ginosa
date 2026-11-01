@@ -1,5 +1,6 @@
 import type { MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
+import type { ModulationContext } from '@engine/modulation/types'
 import { ticksToSeconds, type Ticks } from '@engine/time'
 import { audibleTracks, audioSegments, type AudioSegment } from '@engine/timeline/render-plan'
 import { ClipFeeder, type MixTarget } from './audio-engine'
@@ -15,9 +16,10 @@ export async function renderMixdown(
   from: Ticks,
   to: Ticks,
   sampleRate: number,
-  resolvePath: (item: MediaItem) => string | null
+  resolvePath: (item: MediaItem) => string | null,
+  modulation: ModulationContext | null = null
 ): Promise<Float32Array> {
-  const rendered = await renderAudio(sequence, media, from, to, sampleRate, 2, null, resolvePath)
+  const rendered = await renderAudio(sequence, media, from, to, sampleRate, 2, null, resolvePath, modulation)
   const left = rendered.getChannelData(0)
   const right = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : left
   const out = new Float32Array(rendered.length * 2)
@@ -40,7 +42,8 @@ export async function renderAudio(
   sampleRate: number,
   channels: 1 | 2,
   only: ReadonlySet<string> | null,
-  resolvePath: (item: MediaItem) => string | null
+  resolvePath: (item: MediaItem) => string | null,
+  modulation: ModulationContext | null = null
 ): Promise<AudioBuffer> {
   const length = Math.max(1, Math.round(ticksToSeconds(to - from) * sampleRate))
   const ctx = new OfflineAudioContext({ numberOfChannels: channels, length, sampleRate })
@@ -62,7 +65,8 @@ export async function renderAudio(
       }
       return node
     },
-    noteScheduled: () => undefined
+    noteScheduled: () => undefined,
+    modulation
   }
   const segments: AudioSegment[] = audioSegments(sequence, media, from, to, only)
   const feeders: ClipFeeder[] = []

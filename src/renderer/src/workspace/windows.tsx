@@ -7,6 +7,7 @@ import { ExportWindow } from '../windows/ExportWindow'
 import { EffectsLibraryWindow } from '../windows/EffectsLibraryWindow'
 import { HistoryWindow } from '../windows/HistoryWindow'
 import { KeyframeEditorWindow } from '../windows/KeyframeEditorWindow'
+import { ModulationWindow } from '../windows/ModulationWindow'
 import { PlaybackTestWindow } from '../windows/PlaybackTestWindow'
 import { ProjectSettingsWindow } from '../windows/ProjectSettingsWindow'
 import { SourceMonitorWindow } from '../windows/SourceMonitorWindow'
@@ -32,6 +33,8 @@ export function renderWindow(id: string): ReactNode {
       return <KeyframeEditorWindow />
     case 'audio-analysis':
       return <AudioAnalysisWindow />
+    case 'modulation':
+      return <ModulationWindow />
     case 'cache-manager':
       return <CacheManagerWindow />
     case 'playback-test':

@@ -93,6 +93,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'modulation',
+    title: 'Modulation',
+    shortcut: 'Alt+Shift+2',
+    defaultRect: { x: 560, y: 60, w: 660, h: 660 },
+    minSize: { w: 380, h: 320 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

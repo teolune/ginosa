@@ -6,7 +6,12 @@ import { effectById } from '../../../effects/registry'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, STACK_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
-import { MAX_SPEED_PERCENT, keyframesOf, speedKeyframeProblem, valueAt, type PropertyRef } from '@engine/keyframes/properties'
+import { MAX_SPEED_PERCENT, clampValue, keyframesOf, linksOf, modulatable, modulatedValueAt, propertySpec, speedKeyframeProblem, valueAt, type PropertyRef } from '@engine/keyframes/properties'
+import { removeLinks } from '@engine/timeline/modulation-edits'
+import { modulationUi } from '../audio/modulation-ui'
+import { modulationController } from '../audio/modulation-controller'
+import { defaultValueOf } from '../audio/default-values'
+import { LinkToAudioDialog } from './LinkToAudioDialog'
 import { addKeyframe, removeKeyframes, resetValues, setAnimated, setValue } from '@engine/timeline/keyframe-edits'
 import { clipEnd, toFrame } from '@engine/timeline/timeline'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
@@ -173,8 +178,11 @@ function PropertyRow({
   children(value: ParamValue, onChange: (value: ParamValue) => void, animated: boolean): ReactNode
 }) {
   useObservable(keyframeController)
+  useObservable(modulationController)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const ref: PropertyRef = { clipId: clip.id, effectId, param }
+  const links = linksOf(clip, effectId, param)
+  const canModulate = modulatable(clip, effectId, param)
   const track = keyframesOf(clip, effectId, param)
   const animated = track.length > 0
   const { t, inside } = clipTime(clip)
@@ -192,6 +200,23 @@ function PropertyRow({
   }
   const addOrRemove = () => (atKey ? dispatch(removeKeyframes([{ ...ref, keyframeId: atKey.id }])) : dispatch(addKeyframe(ref, playhead)))
   const cantKey = locked || Boolean(unavailable) || !inside
+  const openModulation = () => {
+    modulationUi.modulate(ref)
+    workspaceController.open('modulation')
+    workspaceController.focus('modulation')
+  }
+  const spec = propertySpec(clip, effectId, param)
+  const copyValue = () => spec && modulationUi.copy(spec.kind, value, label)
+  const pasteable = Boolean(spec && modulationUi.copied && modulationUi.copied.kind === spec.kind && clampValue(spec, modulationUi.copied.value) !== null)
+  const pasteValue = () => modulationUi.copied && dispatch(setValue(ref, modulationUi.copied.value, playhead))
+  const resetValue = async () => {
+    const project = projectController.project
+    const fresh = project ? defaultValueOf(project, clip, effectId, param) : null
+    if (fresh === null) return
+    if (!(await confirmKeyframeRemoval(track.length, label))) return
+    dispatch(resetValues(clip.id, [{ effectId, param, value: fresh }], `Reset ${label}`))
+  }
+  const live = links.length > 0 ? modulatedValueAt(clip, effectId, param, inside ? playhead : clip.start + t, modulationController.context) : null
   const showInEditor = () => {
     keyframeController.focus(ref)
     workspaceController.open('keyframe-editor')
@@ -205,7 +230,15 @@ function PropertyRow({
     { label: 'Go to Next Keyframe', onSelect: () => next && go(next.time), disabled: !next },
     'separator',
     { label: 'Paste Keyframes Here', onSelect: () => (keyframeController.focus(ref), keyframeController.paste()), disabled: !keyframeController.clipboard || cantKey },
-    { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' }
+    { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' },
+    'separator',
+    { label: 'Link to Audio…', onSelect: () => modulationUi.openLinkToAudio(ref), disabled: locked || !canModulate },
+    { label: 'Modulate Parameter…', onSelect: openModulation, disabled: locked || !canModulate, shortcut: '⌥⇧2' },
+    { label: links.length > 1 ? `Remove Modulation (${links.length})` : 'Remove Modulation', onSelect: () => dispatch(removeLinks(ref)), disabled: locked || links.length === 0, danger: true },
+    'separator',
+    { label: 'Copy Value', onSelect: copyValue },
+    { label: 'Paste Value', onSelect: pasteValue, disabled: locked || !pasteable },
+    { label: 'Reset', onSelect: () => void resetValue(), disabled: locked || (effectId === null && param === 'speed') }
   ]
   const stopwatchTitle = unavailable ?? (animated ? `Turn off animation (removes the ${track.length} keyframe${track.length === 1 ? '' : 's'})` : inside ? 'Animate: set a keyframe at the playhead' : 'Move the playhead over the clip to animate this')
   return (
@@ -232,7 +265,14 @@ function PropertyRow({
           {label}
         </span>
       </span>
-      <span className="fx-values">{children(value, (v) => dispatch(setValue(ref, v, playhead)), animated)}</span>
+      <span className="fx-values">
+        {children(value, (v) => dispatch(setValue(ref, v, playhead)), animated)}
+        {links.length > 0 && (
+          <button className="fx-mod-badge" title={`Modulated by ${links.length === 1 ? 'a modulator' : `${links.length} modulators`}; now ${formatLive(live)}. Click to edit.`} onClick={openModulation}>
+            ∿ {formatLive(live)}
+          </button>
+        )}
+      </span>
       {animated && (
         <span className="kf-nav">
           <button className="kf-nav-button" title="Previous keyframe" disabled={!prev} onClick={() => prev && go(prev.time)}>
@@ -249,6 +289,12 @@ function PropertyRow({
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   )
+}
+
+function formatLive(value: ParamValue | null): string {
+  if (value === null) return ''
+  if (Array.isArray(value)) return `${value[0].toFixed(1)}, ${value[1].toFixed(1)}`
+  return typeof value === 'number' ? value.toFixed(1) : String(value)
 }
 
 /** Blend modes in Photoshop's menu order, grouped. */
@@ -470,6 +516,7 @@ function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: bo
   )
 }
 
+
 /** Opacity (animatable) and blend mode, for clips and adjustment layers. */
 function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
   return (
@@ -636,6 +683,7 @@ export function EffectControlsWindow() {
           </PropertyRow>
         </Section>
       )}
+      <LinkToAudioDialog />
       <p className="muted small fx-note">⏱ animates a value from the playhead; ◆ adds or removes a keyframe there. Right-click a value for more, or open the Keyframe Editor (⌥0) to move keyframes and shape their curves.</p>
     </div>
   )

@@ -40,6 +40,7 @@ import {
   type KeyframeHit
 } from '../keyframes/editor-canvas'
 import { useObservable } from '../state/observable'
+import { modulationController } from '../audio/modulation-controller'
 import { projectController } from '../state/project-controller'
 import { SNAP_PIXELS } from '../timeline/geometry'
 import { timelineController as tl } from '../timeline/timeline-controller'
@@ -156,7 +157,8 @@ export function KeyframeEditorWindow() {
       isFocused: (ref) => keyframeController.isFocused(ref),
       marquee: d?.type === 'marquee' ? d : null,
       markers: sequence.markers.map((m) => m.time),
-      grid: sequence.beatGrid
+      grid: sequence.beatGrid,
+      modulation: modulationController.context
     })
   })
 

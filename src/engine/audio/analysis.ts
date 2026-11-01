@@ -258,3 +258,35 @@ export function unpackAnalysis(buffer: ArrayBuffer): AudioAnalysis | null {
     return null
   }
 }
+
+/** A single band on its own (a custom range), stored the same way. */
+export function packBand(b: BandAnalysis): ArrayBuffer {
+  const header = new TextEncoder().encode(JSON.stringify({ version: ANALYSIS_VERSION, frames: b.level.length, hits: b.hits, max: b.max, transientMax: b.transientMax }))
+  const headerBytes = Math.ceil((header.length + 4) / 4) * 4
+  const out = new ArrayBuffer(headerBytes + b.level.length * 8)
+  new DataView(out).setUint32(0, header.length, true)
+  new Uint8Array(out, 4, header.length).set(header)
+  new Float32Array(out, headerBytes, b.level.length).set(b.level)
+  new Float32Array(out, headerBytes + b.level.length * 4, b.level.length).set(b.transient)
+  return out
+}
+
+export function unpackBand(buffer: ArrayBuffer): BandAnalysis | null {
+  try {
+    const length = new DataView(buffer).getUint32(0, true)
+    const h = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, length))) as { version: number; frames: number; hits: number[]; max: number; transientMax: number }
+    if (h.version !== ANALYSIS_VERSION) return null
+    const headerBytes = Math.ceil((length + 4) / 4) * 4
+    const level = new Float32Array(buffer.slice(headerBytes, headerBytes + h.frames * 4))
+    const transient = new Float32Array(buffer.slice(headerBytes + h.frames * 4, headerBytes + h.frames * 8))
+    if (level.length !== h.frames || transient.length !== h.frames) return null
+    return { level, transient, hits: h.hits, max: h.max, transientMax: h.transientMax }
+  } catch {
+    return null
+  }
+}
+
+/** Custom bands use the window of the built-in band their low edge falls in. */
+export function customBandWindow(low: number): number {
+  return (BANDS.find((b) => low >= b.low && low < b.high) ?? BANDS[BANDS.length - 1]!).window
+}

@@ -10,7 +10,9 @@ import { exportColourTest, exportEffectsTest, exportSpeedTest, exportSyncTest } 
 import { exporter } from '../playback/exporter'
 import { buildKeyframeTimeline, exportKeyframesTest, exportRampSyncTest } from '../playback/keyframe-test'
 import { analysisTest } from '../audio/analysis-test'
+import { modulationTest } from '../audio/modulation-test'
 import { analysisController } from '../audio/analysis-controller'
+import { modulationUi } from '../audio/modulation-ui'
 import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
@@ -131,6 +133,29 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       workspaceController.focus('audio-analysis')
       timelineController.zoomToFit()
       timelineController.setPlayhead(secondsToTicks(5))
+      await wait(1500)
+      break
+    }
+    case 'modulation':
+    case 'modulationui': {
+      // M8 "done when": one source drives three values; export matches playback frame for frame.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /beat_128bpm\.wav$|square_1080\.png$/.test(f)), null)
+      await wait(1500)
+      try {
+        const report = await modulationTest()
+        if (scenario === 'modulation') await window.ginosa.snapshot.report(report)
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      if (scenario === 'modulationui') {
+        const sequence = projectController.project!.sequence
+        timelineController.select([sequence.clips.find((c) => c.kind === 'video')!.id], 'replace')
+        modulationUi.select(sequence.modulators[0]?.id ?? null)
+        workspaceController.open('modulation')
+        workspaceController.focus('effect-controls')
+      }
+      timelineController.zoomToFit()
+      timelineController.setPlayhead(secondsToTicks(2.35))
       await wait(1500)
       break
     }

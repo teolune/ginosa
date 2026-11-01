@@ -1,5 +1,6 @@
 import type { BlendMode } from '../project/model'
 import type { KeyframeMap } from '../keyframes/keyframes'
+import type { ModulationMap } from '../modulation/types'
 
 /**
  * What an effect module declares (one folder per effect in src/effects/<id>/: a
@@ -93,6 +94,8 @@ export interface EffectInstance {
   params: Record<string, ParamValue>
   /** Keyframes by parameter id ('mix' for Mix), times in ticks from the clip's start. */
   keyframes: KeyframeMap
+  /** Modulation links by parameter id ('mix' for Mix). */
+  modulation: ModulationMap
 }
 
 export interface ImageSize {

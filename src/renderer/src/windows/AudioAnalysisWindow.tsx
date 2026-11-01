@@ -7,6 +7,7 @@ import { addAudioSource, removeAudioSource, renameAudioSource, setBeatGrid } fro
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { analysisController, type SourceState } from '../audio/analysis-controller'
+import { modulationController } from '../audio/modulation-controller'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController as tl } from '../timeline/timeline-controller'
@@ -154,6 +155,33 @@ function SignalView({ sourceId, sequence }: { sourceId: string | null; sequence:
         ctx.fill()
       }
     })
+    // Each modulator listening to this source, over the lane it follows: why an effect reacted.
+    if (ready && sourceId) {
+      for (const m of sequence.modulators) {
+        if (m.source.kind !== 'audio' || m.source.sourceId !== sourceId) continue
+        const laneId = m.source.signal === 'loudness' || m.source.signal === 'peak' ? m.source.signal : typeof m.source.band === 'string' ? m.source.band : null
+        const index = laneId ? LANES.findIndex((l) => l.id === laneId) : LANES.length - 1
+        const top = index * laneH
+        ctx.strokeStyle = '#e8b04a'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 2])
+        ctx.beginPath()
+        for (let x = LABEL_W; x <= width; x++) {
+          const v = modulationController.valueAt(m.id, from + ((x - LABEL_W) / plotW) * (to - from)) ?? 0
+          const y = top + laneH - 1 - v * (laneH - 4)
+          if (x === LABEL_W) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.lineWidth = 1
+        ctx.fillStyle = '#e8b04a'
+        ctx.font = '600 10px -apple-system, BlinkMacSystemFont, sans-serif'
+        ctx.textAlign = 'right'
+        ctx.fillText(m.name, width - 6, top + 9)
+        ctx.textAlign = 'left'
+      }
+    }
     ctx.fillStyle = '#ff5d5d'
     ctx.fillRect(Math.round(xOf(centre)), 0, 1, height)
     if (!ready && state) {
@@ -291,6 +319,7 @@ export function AudioAnalysisWindow() {
   useObservable(projectController)
   useObservable(tl)
   useObservable(analysisController)
+  useObservable(modulationController)
   const [selected, setSelected] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [prompt, setPrompt] = useState<PromptRequest | null>(null)

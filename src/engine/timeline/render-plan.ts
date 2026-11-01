@@ -3,6 +3,7 @@ import type { Clip, Sequence } from '../project/model'
 import type { Ticks } from '../time'
 import { evaluate } from '../keyframes/keyframes'
 import { resolveClip } from '../keyframes/properties'
+import type { ModulationContext } from '../modulation/types'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -99,8 +100,11 @@ export function visibleFrom(sequence: Sequence, clip: Clip): Ticks {
   return clip.start - transitionLength(clip.transitionIn.duration, clip, previous) / 2
 }
 
-/** Visible video layers at `time`, V1 first. Hidden tracks are skipped; if any are soloed, only those count. */
-export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Ticks): VideoLayer[] {
+/**
+ * Visible video layers at `time`, V1 first. Hidden tracks are skipped; if any are soloed,
+ * only those count. With `modulation`, modulated values are worked out too.
+ */
+export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null = null): VideoLayer[] {
   const tracks = tracksOf(sequence, 'video')
   const soloed = tracks.some((t) => t.solo)
   const frame = frameTicks(sequence)
@@ -108,7 +112,7 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
   for (const track of tracks) {
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
-      const clip = resolveClip(stored, time)
+      const clip = resolveClip(stored, time, modulation)
       if (clip.opacity <= 0 || weight <= 0) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
@@ -133,8 +137,9 @@ export interface AudioSegment {
 /** Volume keyframes are sampled this often (then joined by straight lines, as Web Audio plays a value curve). */
 export const GAIN_CURVE_STEP_SECONDS = 0.001
 
-/** A clip's linear gain at sequence time `time`, from its Volume (keyframed or not). */
-export function gainAt(clip: Clip, time: Ticks): number {
+/** A clip's linear gain at sequence time `time`, from its Volume (keyframed, modulated, or neither). */
+export function gainAt(clip: Clip, time: Ticks, modulation: ModulationContext | null = null): number {
+  if (modulation && clip.modulation['volume']?.length) return dbToGain(resolveClip(clip, time, modulation).volume)
   const track = clip.keyframes['volume']
   return dbToGain(track?.length ? Number(evaluate(track, time - clip.start, clip.volume)) : clip.volume)
 }

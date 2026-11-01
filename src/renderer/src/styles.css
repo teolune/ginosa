@@ -451,3 +451,25 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .aa-view { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .aa-view canvas { display: block; touch-action: none; }
 .danger-text { color: #ff7b7b; }
+.fx-mod-badge { height: 18px; padding: 0 6px; border: 1px solid rgba(232,176,74,0.45); border-radius: 9px; background: rgba(232,176,74,0.12); color: #e8b04a; font: inherit; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.fx-mod-badge:hover { background: rgba(232,176,74,0.22); }
+
+/* Modulation (M8) */
+.modulation-window { display: flex; height: 100%; min-height: 0; }
+.mod-list { width: 170px; flex: none; border-right: 1px solid var(--border); overflow: auto; }
+.mod-meter { height: 4px; margin: 4px 0; background: #24262b; border-radius: 2px; overflow: hidden; }
+.mod-meter > div { height: 100%; background: #e8b04a; }
+.mod-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+.mod-editor-body { padding: 8px 10px; }
+.mod-target { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: rgba(232,176,74,0.12); border-bottom: 1px solid rgba(232,176,74,0.35); flex-wrap: wrap; }
+.mod-curve-row { align-items: start; }
+.mod-curve { display: block; border-radius: 4px; }
+.mod-preview { margin: 8px 0; border-radius: 4px; overflow: hidden; }
+.mod-preview canvas { display: block; }
+.mod-links { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.mod-link { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.mod-link-head { display: flex; align-items: center; }
+.mod-link-body { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.mod-check { display: flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; }
+.mod-empty { margin: 6px 0; }
+.link-button { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }

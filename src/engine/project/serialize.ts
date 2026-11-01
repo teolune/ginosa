@@ -4,6 +4,8 @@ import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { syncLinkedRamps } from '../timeline/timeline'
 import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
+import { ModulationFormatError, parseModulation, parseModulators } from '../modulation/parse'
+import type { ModulationMap } from '../modulation/types'
 import { effectById } from '../../effects/registry'
 import { sanitiseKeyframes, sanitiseParams, upgradeInstance } from '../effects/params'
 import { normaliseTrack, type Interpolation, type Keyframe, type KeyframeMap } from '../keyframes/keyframes'
@@ -122,6 +124,13 @@ function migrate(raw: Json): Json {
   if (version < 8) {
     const sequence = isObject(data['sequence']) ? data['sequence'] : {}
     data = { ...data, schemaVersion: 8, sequence: { ...sequence, audioSources: [], beatGrid: null } }
+  }
+  if (version < 9) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    const withModulation = (c: unknown) =>
+      isObject(c) ? { ...c, modulation: {}, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, modulation: {} } : e)) : c['effects'] } : c
+    data = { ...data, schemaVersion: 9, sequence: { ...sequence, clips: clips.map(withModulation), modulators: [] } }
   }
   return data
 }
@@ -322,7 +331,18 @@ function parseClip(value: unknown, index: number): Clip {
     transitionOut: parseTransition(value['transitionOut'], `${where}.transitionOut`),
     effects: parseEffects(value['effects'], `${where}.effects`),
     adjustment: expectBoolean(value, 'adjustment', where),
-    keyframes: parseKeyframes(value['keyframes'], `${where}.keyframes`)
+    keyframes: parseKeyframes(value['keyframes'], `${where}.keyframes`),
+    modulation: wrap(() => parseModulation(value['modulation'], `${where}.modulation`))
+  }
+}
+
+/** Modulation parsing reports through ProjectFormatError like everything else here. */
+function wrap<T>(read: () => T): T {
+  try {
+    return read()
+  } catch (error) {
+    if (error instanceof ModulationFormatError) throw new ProjectFormatError(error.message)
+    throw error
   }
 }
 
@@ -385,9 +405,20 @@ function parseEffects(value: unknown, where: string): EffectInstance[] {
       mix: Math.min(100, Math.max(0, expectNumber(raw, 'mix', at))),
       blendMode: parseBlendMode(raw['blendMode'], `${at}.blendMode`),
       params: Object.fromEntries(Object.entries(params).map(([key, v]) => [key, parseParamValue(v, `${at}.params.${key}`)])),
-      keyframes: parseKeyframes(raw['keyframes'], `${at}.keyframes`)
+      keyframes: parseKeyframes(raw['keyframes'], `${at}.keyframes`),
+      modulation: wrap(() => parseModulation(raw['modulation'], `${at}.modulation`))
     }
   })
+}
+
+function keepLinks(map: ModulationMap, modulators: Set<string>, allowed: (key: string) => boolean): ModulationMap {
+  const out: ModulationMap = {}
+  for (const [key, links] of Object.entries(map)) {
+    if (!allowed(key)) continue
+    const kept = links.filter((l) => modulators.has(l.modulatorId))
+    if (kept.length > 0) out[key] = kept
+  }
+  return out
 }
 
 function parseAudioSource(value: unknown, index: number): AudioSource {
@@ -501,8 +532,18 @@ export function parseProject(input: string | unknown): Project {
   if (new Set(audioSources.map((s) => s.id)).size !== audioSources.length) throw new ProjectFormatError('Two audio sources share the same id')
   const beatGrid = parseBeatGrid(sequence['beatGrid'])
   if (beatGrid?.sourceId && !audioSources.some((s) => s.id === beatGrid.sourceId)) beatGrid.sourceId = null
+  const modulators = wrap(() => parseModulators(sequence['modulators'], parseKeyframes))
+  // Links to modulators that aren't there are dropped; Speed and choices can't be modulated.
+  const modulatorIds = new Set(modulators.map((m) => m.id))
+  for (const clip of clips) {
+    clip.modulation = keepLinks(clip.modulation, modulatorIds, (key) => key !== 'speed' && propertySpec(clip, null, key)?.kind !== undefined && propertySpec(clip, null, key)?.kind !== 'stepped')
+    for (const effect of clip.effects) {
+      const manifest = effectById(effect.effectId)
+      effect.modulation = keepLinks(effect.modulation, modulatorIds, (key) => key === 'mix' || !manifest || manifest.params.some((p) => p.id === key && p.type !== 'choice' && p.type !== 'toggle'))
+    }
+  }
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid })
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -522,7 +563,8 @@ export function parseProject(input: string | unknown): Project {
       clips,
       markers,
       audioSources,
-      beatGrid
+      beatGrid,
+      modulators
     },
     media,
     bins

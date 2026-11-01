@@ -54,7 +54,8 @@ export function addEffect(clipIds: string[], effectId: string, index: number | n
         mix: 100,
         blendMode: 'normal',
         params: defaultParams(manifest, effectImageSize(clip, draft.media, sequence)),
-        keyframes: {}
+        keyframes: {},
+        modulation: {}
       }
       const at = index === null ? clip.effects.length : Math.max(0, Math.min(clip.effects.length, index))
       clip.effects.splice(at, 0, instance)
@@ -189,7 +190,8 @@ export function addAdjustmentLayer(request: AdjustmentRequest, newId: IdFactory 
       transitionOut: null,
       effects: [],
       adjustment: true,
-      keyframes: {}
+      keyframes: {},
+      modulation: {}
     })
     command.notice = undefined
   })

@@ -1,4 +1,5 @@
 import { cloneKeyframeMap, normaliseTrack, type KeyframeMap } from '../keyframes/keyframes'
+import { cloneModulationMap } from '../modulation/apply'
 import type { EffectInstance, EffectManifest, ImageSize, ParamSpec, ParamValue } from './types'
 
 /** A parameter's default for an image of `size` (points are fractions of it). */
@@ -65,6 +66,7 @@ export function cloneEffect(effect: EffectInstance, id = effect.id): EffectInsta
     ...effect,
     id,
     params: Object.fromEntries(Object.entries(effect.params).map(([k, v]) => [k, Array.isArray(v) ? ([v[0], v[1]] as [number, number]) : v])),
-    keyframes: cloneKeyframeMap(effect.keyframes)
+    keyframes: cloneKeyframeMap(effect.keyframes),
+    modulation: cloneModulationMap(effect.modulation ?? {})
   }
 }

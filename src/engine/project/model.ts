@@ -2,14 +2,15 @@ import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
 import type { EffectInstance } from '../effects/types'
 import type { KeyframeMap } from '../keyframes/keyframes'
+import type { ModulationMap, Modulator } from '../modulation/types'
 
 /**
  * The project document. Everything the user can undo lives here; window layouts,
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. */
-export const PROJECT_SCHEMA_VERSION = 8
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. */
+export const PROJECT_SCHEMA_VERSION = 9
 
 export type TrackKind = 'video' | 'audio'
 
@@ -125,6 +126,8 @@ export interface Clip {
    * keyframes ignores its value above. Effects keep theirs in each EffectInstance.
    */
   keyframes: KeyframeMap
+  /** Modulation links by property (same keys as keyframes): which modulators drive it and how. */
+  modulation: ModulationMap
 }
 
 export interface Transition {
@@ -158,6 +161,8 @@ export interface Sequence {
   audioSources: AudioSource[]
   /** The tempo grid: beats and bars on the ruler, and snapping targets. Null until set. */
   beatGrid: BeatGrid | null
+  /** Modulators: signals (audio, tempo, LFO, random) shaped into 0–1 movement for linked values. */
+  modulators: Modulator[]
 }
 
 /**
@@ -255,7 +260,8 @@ export function createProject({ name, settings, createId = defaultId, now = () =
       clips: [],
       markers: [],
       audioSources: [],
-      beatGrid: null
+      beatGrid: null,
+      modulators: []
     },
     media: [],
     bins: []

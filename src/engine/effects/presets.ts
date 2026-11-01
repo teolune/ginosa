@@ -103,7 +103,9 @@ export function parsePresets(raw: unknown): EffectPreset[] {
         mix: typeof e['mix'] === 'number' ? Math.min(100, Math.max(0, e['mix'])) : 100,
         blendMode: blend,
         params,
-        keyframes: parseKeyframes(e['keyframes'])
+        keyframes: parseKeyframes(e['keyframes']),
+        // Modulators belong to a project, so presets never carry links to them.
+        modulation: {}
       })
     }
     const width = Number(p['size']['width'])

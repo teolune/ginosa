@@ -1,4 +1,5 @@
 import type { Sequence } from '@engine/project/model'
+import type { ModulationContext } from '@engine/modulation/types'
 import type { MediaItem } from '@engine/project/media'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { GAIN_CURVE_STEP_SECONDS, audibleTracks, audioSegments, gainAt, type AudioSegment } from '@engine/timeline/render-plan'
@@ -23,6 +24,8 @@ export interface MixTarget {
   ctxTimeOf(time: Ticks): number
   trackGain(trackId: string): GainNode
   noteScheduled(at: number, mediaSeconds: number, segment: AudioSegment): void
+  /** Modulators' outputs (Volume can be modulated), or null. */
+  readonly modulation: ModulationContext | null
 }
 
 /** Feeds one clip's sound into Web Audio, a little ahead of time (or all at once, offline). */
@@ -43,7 +46,7 @@ export class ClipFeeder {
   ) {
     this.gain = engine.ctx.createGain()
     this.gain.gain.value = segment.gain
-    if (segment.clip.keyframes['volume']?.length) this.automateVolume()
+    if (segment.clip.keyframes['volume']?.length || (engine.modulation && segment.clip.modulation['volume']?.length)) this.automateVolume()
     this.gain.connect(engine.trackGain(segment.clip.trackId))
   }
 
@@ -61,7 +64,7 @@ export class ClipFeeder {
     // At most 2 million points (over half an hour at 1 ms); longer clips are sampled more coarsely.
     const points = Math.min(2_000_000, Math.max(2, Math.ceil(seconds / GAIN_CURVE_STEP_SECONDS) + 1))
     const curve = new Float32Array(points)
-    for (let i = 0; i < points; i++) curve[i] = gainAt(clip, from + ((to - from) * i) / (points - 1))
+    for (let i = 0; i < points; i++) curve[i] = gainAt(clip, from + ((to - from) * i) / (points - 1), this.engine.modulation)
     this.gain.gain.value = curve[0]!
     this.gain.gain.setValueCurveAtTime(curve, this.engine.ctxTimeOf(from), seconds)
   }
@@ -218,6 +221,8 @@ export class AudioEngine implements MixTarget {
   startTime: Ticks = 0
   private startCtx = 0
   running = false
+  /** Modulators' outputs at the moment playback started (Volume modulation). */
+  modulation: ModulationContext | null = null
   /** Recent schedules, for the sync test. */
   readonly log: ScheduledSound[] = []
   logging = false

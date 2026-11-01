@@ -1,3 +1,5 @@
+import type { ModulationContext } from '@engine/modulation/types'
+import { modulationController } from '../audio/modulation-controller'
 import type { MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
@@ -51,6 +53,8 @@ export interface PlayerHost {
   setPlayhead(time: Ticks): void
   /** Called whenever the scene or the playhead changes. */
   subscribe(listener: () => void): () => void
+  /** Modulators' outputs for this scene (the Program monitor's timeline), or null. */
+  modulation?(): ModulationContext | null
 }
 
 /**
@@ -187,7 +191,7 @@ export class Player extends Observable {
     if (!project || !this.compositor || !this.context) return
     const sequence = project.sequence
     const time = this.host.playhead
-    const layers = videoLayersAt(sequence, project.media, time)
+    const layers = videoLayersAt(sequence, project.media, time, this.host.modulation?.() ?? null)
     const samples: VideoSample[] = []
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
     let message: string | null = null
@@ -293,7 +297,7 @@ export class Player extends Observable {
     // Start decoding the first frames before the clock starts, so playback doesn't begin with a drop.
     if (rate > 0) {
       const starting: Array<Promise<void>> = []
-      for (const layer of videoLayersAt(project.sequence, project.media, from)) {
+      for (const layer of videoLayersAt(project.sequence, project.media, from, this.host.modulation?.() ?? null)) {
         const path = !layer.item || layer.item.kind === 'image' ? null : this.path(layer.item)
         if (!path) continue
         const media = await openMedia(path).catch(() => null)
@@ -307,6 +311,7 @@ export class Player extends Observable {
     }
     if (rate === 1) {
       this.audio ??= new AudioEngine()
+      this.audio.modulation = this.host.modulation?.() ?? null
       await this.audio.start(project.sequence, project.media, from, (item) => this.path(item))
     }
     this.notify()
@@ -371,12 +376,12 @@ export class Player extends Observable {
     const shown = frameIndex * frame
 
     const started = performance.now()
-    const layers = videoLayersAt(sequence, project.media, shown)
+    const layers = videoLayersAt(sequence, project.media, shown, this.host.modulation?.() ?? null)
     const wanted = new Set(layers.map((l) => l.clip.id))
     // Open decoders a moment early for clips about to start.
     if (this.rate > 0) {
       const soon = shown + secondsToTicks(0.6 * this.rate)
-      for (const upcoming of videoLayersAt(sequence, project.media, soon)) wanted.add(upcoming.clip.id)
+      for (const upcoming of videoLayersAt(sequence, project.media, soon, this.host.modulation?.() ?? null)) wanted.add(upcoming.clip.id)
     }
     for (const [id, stream] of this.streams) {
       if (!wanted.has(id)) {
@@ -385,7 +390,7 @@ export class Player extends Observable {
       }
     }
     if (this.rate > 0) {
-      for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate))) this.ensureStream(layer, Math.max(visibleFrom(sequence, layer.clip), shown), sequence)
+      for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate), this.host.modulation?.() ?? null)) this.ensureStream(layer, Math.max(visibleFrom(sequence, layer.clip), shown), sequence)
     }
 
     const composite: CompositeStep[] = []
@@ -510,12 +515,16 @@ export const player = new Player({
     return timelineController.playhead
   },
   setPlayhead: (time) => timelineController.setPlayhead(time),
+  modulation: () => modulationController.context,
   subscribe: (listener) => {
     const a = projectController.subscribe(listener)
     const b = timelineController.subscribe(listener)
+    // Analysis finishing changes what modulated values show.
+    const c = modulationController.subscribe(listener)
     return () => {
       a()
       b()
+      c()
     }
   }
 })

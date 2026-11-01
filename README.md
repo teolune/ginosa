@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M7 · Keyframes.** Every value can be animated (Motion, Opacity, Volume, Speed and every effect setting), with hold, linear and bezier interpolation and Premiere's eases; stopwatches in Effect Controls; the Keyframe Editor (⌥0) with a dope sheet and a graph; speed ramps; volume automation. Preview and export animate identically. Built on M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M8 (audio and modulation).
+**M8 · Audio and modulation.** ginosa listens to your music: analysis sources (a clip, a track, a sidechain or the mix), six bands, loudness, transients and hits; tempo detection with a beat grid on the ruler and beat snapping; modulators (audio, tempo, LFOs, random) driving any value through a shaping chain; the Audio Analysis and Modulation windows. Built on M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M9 (masks and temporal engine).
 
 ## Setup (once)
 

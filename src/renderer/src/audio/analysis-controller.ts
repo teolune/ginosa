@@ -1,5 +1,5 @@
-import { ANALYSIS_SAMPLE_RATE, unpackAnalysis, type AudioAnalysis } from '@engine/audio/analysis'
-import { sourceClips, sourceKey, sourceProblem, sourceRange } from '@engine/audio/sources'
+import { ANALYSIS_SAMPLE_RATE, unpackAnalysis, unpackBand, type AudioAnalysis, type BandAnalysis } from '@engine/audio/analysis'
+import { hashText, sourceClips, sourceKey, sourceProblem, sourceRange } from '@engine/audio/sources'
 import type { AudioSource, Project } from '@engine/project/model'
 import { secondsToTicks, type Ticks } from '@engine/time'
 import { setBeatGrid } from '@engine/timeline/audio-edits'
@@ -7,7 +7,7 @@ import { renderAudio } from '../playback/audio-mixdown'
 import { mediaController } from '../state/media-controller'
 import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
-import type { AnalysisWorkerMessage } from './analysis.worker'
+import type { AnalysisWorkerMessage, AnalysisWorkerRequest } from './analysis.worker'
 
 /**
  * Keeps every analysis source analysed (M8). When a source's sound changes (its key), the
@@ -37,6 +37,8 @@ const DEBOUNCE_MS = 600
 class AnalysisController extends Observable {
   private states = new Map<string, SourceState>()
   private memory = new Map<string, AudioAnalysis>()
+  /** Custom bands (a modulator's own range), by band key. */
+  private bands = new Map<string, BandAnalysis>()
   private queue: string[] = []
   private busy = false
   private timer: number | null = null
@@ -57,6 +59,33 @@ class AnalysisController extends Observable {
   ready(sourceId: string): { result: AudioAnalysis; start: Ticks } | null {
     const s = this.states.get(sourceId)
     return s?.result && s.status.kind === 'ready' ? { result: s.result, start: s.start } : null
+  }
+
+  /** The key a custom band of a source is kept under. */
+  private bandKey(key: string, low: number, high: number): string {
+    return hashText(`${key}:${low}:${high}`)
+  }
+
+  /** A custom band (Hz range) of a source, once worked out (modulators ask for it; it's analysed alongside). */
+  band(sourceId: string, low: number, high: number): BandAnalysis | null {
+    const state = this.states.get(sourceId)
+    return state?.key ? (this.bands.get(this.bandKey(state.key, low, high)) ?? null) : null
+  }
+
+  /** The custom bands modulators want from each source. */
+  private wantedBands(project: Project): Map<string, Array<{ low: number; high: number }>> {
+    const wanted = new Map<string, Array<{ low: number; high: number }>>()
+    for (const m of project.sequence.modulators) {
+      if (m.source.kind !== 'audio' || typeof m.source.band === 'string') continue
+      const list = wanted.get(m.source.sourceId) ?? []
+      if (!list.some((b) => b.low === (m.source as { band: { low: number } }).band.low && b.high === (m.source as { band: { high: number } }).band.high)) list.push({ ...m.source.band })
+      wanted.set(m.source.sourceId, list)
+    }
+    return wanted
+  }
+
+  private missingBands(project: Project, sourceId: string, key: string): Array<{ low: number; high: number }> {
+    return (this.wantedBands(project).get(sourceId) ?? []).filter((b) => !this.bands.has(this.bandKey(key, b.low, b.high)))
   }
 
   private schedule(): void {
@@ -93,7 +122,11 @@ class AnalysisController extends Observable {
       const problem = sourceProblem(project.sequence, source)
       const key = problem ? null : sourceKey(project.sequence, project.media, source)
       const current = this.states.get(source.id)
-      if (current && current.key === key && (key === null || current.status.kind !== 'failed')) continue
+      if (current && current.key === key && (key === null || current.status.kind !== 'failed')) {
+        // Same sound, but a modulator may want a new custom band of it.
+        if (key && current.status.kind === 'ready' && this.missingBands(project, source.id, key).length > 0 && !this.queue.includes(source.id)) this.queue.push(source.id)
+        continue
+      }
       if (!key) {
         this.states.set(source.id, { key: null, status: { kind: 'empty', reason: problem ?? 'Nothing to analyse' }, result: null, start: 0 })
         continue
@@ -103,6 +136,7 @@ class AnalysisController extends Observable {
       if (remembered) {
         this.states.set(source.id, { key, status: { kind: 'ready' }, result: remembered, start })
         this.applyPendingTempo(source.id)
+        if (this.missingBands(project, source.id, key).length > 0 && !this.queue.includes(source.id)) this.queue.push(source.id)
         continue
       }
       this.states.set(source.id, { key, status: { kind: 'queued' }, result: current?.result ?? null, start })
@@ -138,11 +172,23 @@ class AnalysisController extends Observable {
 
   private async analyse(project: Project, source: AudioSource, key: string): Promise<void> {
     try {
-      const cached = await window.ginosa.analysis.read(project.id, key)
-      const fromDisk = cached ? unpackAnalysis(cached) : null
-      if (fromDisk) {
-        this.memory.set(key, fromDisk)
-        this.set(source.id, key, { kind: 'ready' }, fromDisk)
+      // The main analysis: memory, then the cache on disk, then worked out.
+      let result = this.memory.get(key) ?? null
+      if (!result) {
+        const cached = await window.ginosa.analysis.read(project.id, key)
+        result = cached ? unpackAnalysis(cached) : null
+        if (result) this.memory.set(key, result)
+      }
+      // Custom bands the modulators want: from disk where they've been worked out before.
+      let bands = this.missingBands(project, source.id, key)
+      for (const b of bands) {
+        const cached = await window.ginosa.analysis.read(project.id, this.bandKey(key, b.low, b.high))
+        const band = cached ? unpackBand(cached) : null
+        if (band) this.bands.set(this.bandKey(key, b.low, b.high), band)
+      }
+      bands = this.missingBands(project, source.id, key)
+      if (result && bands.length === 0) {
+        this.set(source.id, key, { kind: 'ready' }, result)
         this.applyPendingTempo(source.id)
         return
       }
@@ -152,11 +198,20 @@ class AnalysisController extends Observable {
       const rendered = await renderAudio(project.sequence, project.media, from, to, ANALYSIS_SAMPLE_RATE, 1, new Set(clips.map((c) => c.id)), (item) => mediaController.playablePath(item))
       const pcm = new Float32Array(rendered.getChannelData(0))
       this.set(source.id, key, { kind: 'analysing', done: 0 })
-      const data = await runWorker(pcm, (done) => this.set(source.id, key, { kind: 'analysing', done }))
-      const result = unpackAnalysis(data.slice(0))
-      if (!result) throw new Error('the analysis came back damaged')
-      this.memory.set(key, result)
-      await window.ginosa.analysis.write(project.id, key, data).catch(() => undefined)
+      const reply = await runWorker({ pcm, full: !result, bands }, (done) => this.set(source.id, key, { kind: 'analysing', done }))
+      if (reply.data) {
+        result = unpackAnalysis(reply.data.slice(0))
+        if (!result) throw new Error('the analysis came back damaged')
+        this.memory.set(key, result)
+        await window.ginosa.analysis.write(project.id, key, reply.data).catch(() => undefined)
+      }
+      for (const [i, data] of reply.bands.entries()) {
+        const b = bands[i]!
+        const band = unpackBand(data.slice(0))
+        if (!band) continue
+        this.bands.set(this.bandKey(key, b.low, b.high), band)
+        await window.ginosa.analysis.write(project.id, this.bandKey(key, b.low, b.high), data).catch(() => undefined)
+      }
       this.set(source.id, key, { kind: 'ready' }, result)
       this.applyPendingTempo(source.id)
     } catch (error) {
@@ -186,7 +241,7 @@ class AnalysisController extends Observable {
   }
 }
 
-function runWorker(pcm: Float32Array, progress: (done: number) => void): Promise<ArrayBuffer> {
+function runWorker(request: AnalysisWorkerRequest, progress: (done: number) => void): Promise<{ data: ArrayBuffer | null; bands: ArrayBuffer[] }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./analysis.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent<AnalysisWorkerMessage>) => {
@@ -194,7 +249,7 @@ function runWorker(pcm: Float32Array, progress: (done: number) => void): Promise
       if (message.kind === 'progress') progress(message.done)
       else {
         worker.terminate()
-        if (message.kind === 'done') resolve(message.data)
+        if (message.kind === 'done') resolve({ data: message.data, bands: message.bands })
         else reject(new Error(message.error))
       }
     }
@@ -202,7 +257,7 @@ function runWorker(pcm: Float32Array, progress: (done: number) => void): Promise
       worker.terminate()
       reject(new Error(event.message || 'the analysis worker stopped'))
     }
-    worker.postMessage({ pcm }, [pcm.buffer])
+    worker.postMessage(request, [request.pcm.buffer])
   })
 }
 

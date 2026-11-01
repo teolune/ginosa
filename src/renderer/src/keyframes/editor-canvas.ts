@@ -1,5 +1,6 @@
 import { components, evaluate, type Keyframe } from '@engine/keyframes/keyframes'
-import { animatedRefs, findEffect, keyframesOf, propertySpec, staticValue, type PropertyRef, type PropertySpec } from '@engine/keyframes/properties'
+import { animatedRefs, findEffect, keyframesOf, linksOf, modulatedValueAt, propertySpec, staticValue, type PropertyRef, type PropertySpec } from '@engine/keyframes/properties'
+import type { ModulationContext } from '@engine/modulation/types'
 import type { BeatGrid, Clip, Sequence } from '@engine/project/model'
 import { beatsBetween } from '@engine/audio/beat-grid'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
@@ -50,7 +51,13 @@ export function editorRows(sequence: Sequence, clipIds: ReadonlySet<string>): Ed
   const rows: EditorRow[] = []
   for (const clip of clips) {
     rows.push({ kind: 'clip', clip, ref: null, spec: null, label: clip.name })
-    for (const ref of animatedRefs(clip)) {
+    // Animated values, and modulated ones (the graph shows their curve as it really plays).
+    const refs = animatedRefs(clip)
+    const has = (r: PropertyRef) => refs.some((x) => x.effectId === r.effectId && x.param === r.param)
+    for (const [param, links] of Object.entries(clip.modulation)) if (links.length && !has({ clipId: clip.id, effectId: null, param })) refs.push({ clipId: clip.id, effectId: null, param })
+    for (const effect of clip.effects)
+      for (const [param, links] of Object.entries(effect.modulation)) if (links.length && !has({ clipId: clip.id, effectId: effect.id, param })) refs.push({ clipId: clip.id, effectId: effect.id, param })
+    for (const ref of refs) {
       const spec = propertySpec(clip, ref.effectId, ref.param)
       if (!spec) continue
       const effect = ref.effectId ? findEffect(clip, ref.effectId) : undefined
@@ -238,6 +245,8 @@ export interface DrawState {
   marquee: { x0: number; y0: number; x1: number; y1: number } | null
   markers: Ticks[]
   grid: BeatGrid | null
+  /** Modulators' outputs: a modulated value's final curve is drawn faintly beside its keyframes. */
+  modulation: ModulationContext | null
 }
 
 function shape(ctx: CanvasRenderingContext2D, k: Keyframe, x: number, y: number, r: number): void {
@@ -478,6 +487,21 @@ function drawGraph(ctx: CanvasRenderingContext2D, s: DrawState): void {
       ctx.fillText(label, xa + 8, midY - 8)
     })
   } else {
+    // With modulation, the value as it really plays: faint, beside the keyframed curve.
+    if (s.modulation && linksOf(clip, ref.effectId, ref.param).length > 0) {
+      for (let c = 0; c < n; c++) {
+        ctx.strokeStyle = c === 0 ? 'rgba(91,140,255,0.35)' : 'rgba(95,208,138,0.35)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        for (let x = LABEL_W; x <= width; x += 2) {
+          const v = components(modulatedValueAt(clip, ref.effectId, ref.param, xToTime(x, s.view), s.modulation))?.[c] ?? 0
+          const y = valueToY(v, range, s.size)
+          if (x === LABEL_W) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+      }
+    }
     for (let c = 0; c < n; c++) {
       ctx.strokeStyle = C.curve[c]!
       ctx.lineWidth = 1.5
