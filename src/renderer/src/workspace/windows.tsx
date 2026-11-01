@@ -5,6 +5,7 @@ import { EffectControlsWindow } from '../windows/EffectControlsWindow'
 import { ExportWindow } from '../windows/ExportWindow'
 import { EffectsLibraryWindow } from '../windows/EffectsLibraryWindow'
 import { HistoryWindow } from '../windows/HistoryWindow'
+import { KeyframeEditorWindow } from '../windows/KeyframeEditorWindow'
 import { PlaybackTestWindow } from '../windows/PlaybackTestWindow'
 import { ProjectSettingsWindow } from '../windows/ProjectSettingsWindow'
 import { SourceMonitorWindow } from '../windows/SourceMonitorWindow'
@@ -26,6 +27,8 @@ export function renderWindow(id: string): ReactNode {
       return <ExportWindow />
     case 'effects-library':
       return <EffectsLibraryWindow />
+    case 'keyframe-editor':
+      return <KeyframeEditorWindow />
     case 'cache-manager':
       return <CacheManagerWindow />
     case 'playback-test':

@@ -1,7 +1,7 @@
 import type { Sequence } from '@engine/project/model'
 import type { MediaItem } from '@engine/project/media'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
-import { audibleTracks, audioSegments, type AudioSegment } from '@engine/timeline/render-plan'
+import { GAIN_CURVE_STEP_SECONDS, audibleTracks, audioSegments, gainAt, type AudioSegment } from '@engine/timeline/render-plan'
 import { clipEnd, sourceSpan } from '@engine/timeline/timeline'
 import type { WrappedAudioBuffer } from 'mediabunny'
 import { openMedia } from './sources'
@@ -42,7 +42,27 @@ export class ClipFeeder {
   ) {
     this.gain = engine.ctx.createGain()
     this.gain.gain.value = segment.gain
+    if (segment.clip.keyframes['volume']?.length) this.automateVolume()
     this.gain.connect(engine.trackGain(segment.clip.trackId))
+  }
+
+  /**
+   * Volume keyframes: the gain follows them as a value curve sampled every millisecond
+   * (Web Audio joins the points with straight lines). Live playback and the export
+   * mixdown schedule the same curve.
+   */
+  private automateVolume(): void {
+    const clip = this.segment.clip
+    const from = Math.max(clip.start, this.engine.startTime)
+    const to = clipEnd(clip)
+    if (to <= from) return
+    const seconds = ticksToSeconds(to - from)
+    // At most 2 million points (over half an hour at 1 ms); longer clips are sampled more coarsely.
+    const points = Math.min(2_000_000, Math.max(2, Math.ceil(seconds / GAIN_CURVE_STEP_SECONDS) + 1))
+    const curve = new Float32Array(points)
+    for (let i = 0; i < points; i++) curve[i] = gainAt(clip, from + ((to - from) * i) / (points - 1))
+    this.gain.gain.value = curve[0]!
+    this.gain.gain.setValueCurveAtTime(curve, this.engine.ctxTimeOf(from), seconds)
   }
 
   /** Context time at which this clip's media time `seconds` plays. */

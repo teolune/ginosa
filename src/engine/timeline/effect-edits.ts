@@ -7,6 +7,7 @@ import { CommandError } from '../project/commands'
 import type { MediaItem } from '../project/media'
 import { defaultId, type BlendMode, type Clip, type IdFactory, type Project, type Sequence } from '../project/model'
 import { type Ticks } from '../time'
+import { writeValueAt } from '../keyframes/properties'
 import { timelineCommand, type TimelineCommand } from './edits'
 import { sourceSize } from './motion'
 import { EditContext, assertUnlocked, clearRange, findClip, findTrack, frameTicks, toFrame } from './timeline'
@@ -52,7 +53,8 @@ export function addEffect(clipIds: string[], effectId: string, index: number | n
         enabled: true,
         mix: 100,
         blendMode: 'normal',
-        params: defaultParams(manifest, effectImageSize(clip, draft.media, sequence))
+        params: defaultParams(manifest, effectImageSize(clip, draft.media, sequence)),
+        keyframes: {}
       }
       const at = index === null ? clip.effects.length : Math.max(0, Math.min(clip.effects.length, index))
       clip.effects.splice(at, 0, instance)
@@ -92,29 +94,34 @@ export interface EffectChanges {
   blendMode?: BlendMode
 }
 
-/** Changes an effect's values. A whole drag on one control is one undo step. */
-export function setEffectValues(clipId: string, effectId: string, changes: EffectChanges): TimelineCommand {
+/**
+ * Changes an effect's values. A whole drag on one control is one undo step. Values that
+ * are animated get a keyframe at `at` (the playhead) instead.
+ */
+export function setEffectValues(clipId: string, effectId: string, changes: EffectChanges, at: Ticks | null = null, newId: IdFactory = defaultId): TimelineCommand {
   const command = timelineCommand('Change Effect', (draft) => {
     const clip = videoClip(draft.sequence, clipId)
     const effect = effectOn(clip, effectId)
     const manifest = effectById(effect.effectId)
+    const t = at === null ? null : at - clip.start
+    const frame = frameTicks(draft.sequence)
     if (changes.params) {
       if (!manifest) throw new CommandError('This effect is missing from this version of ginosa, so it can’t be changed')
       const size = effectImageSize(clip, draft.media, draft.sequence)
       for (const [key, value] of Object.entries(changes.params)) {
         const spec = manifest.params.find((p) => p.id === key)
         if (!spec) throw new CommandError(`${manifest.name} has no "${key}"`)
-        effect.params[key] = sanitiseValue(spec, value, size)
+        writeValueAt(clip, effectId, key, sanitiseValue(spec, value, size), t, frame, newId)
       }
     }
-    if (changes.mix !== undefined) effect.mix = Math.min(100, Math.max(0, changes.mix))
+    if (changes.mix !== undefined) writeValueAt(clip, effectId, 'mix', changes.mix, t, frame, newId)
     if (changes.blendMode !== undefined) effect.blendMode = changes.blendMode
   })
-  command.coalesceKey = `effect:${clipId}:${effectId}:${Object.keys(changes.params ?? {}).join(',')}:${changes.mix !== undefined}:${changes.blendMode !== undefined}`
+  command.coalesceKey = `effect:${clipId}:${effectId}:${Object.keys(changes.params ?? {}).join(',')}:${changes.mix !== undefined}:${changes.blendMode !== undefined}:${at ?? ''}`
   return command
 }
 
-/** Reset: every parameter back to its default (Mix and blend mode too). */
+/** Reset: every parameter back to its default (Mix and blend mode too), keyframes removed. */
 export function resetEffect(clipId: string, effectId: string): TimelineCommand {
   return timelineCommand('Reset Effect', (draft) => {
     const clip = videoClip(draft.sequence, clipId)
@@ -124,6 +131,7 @@ export function resetEffect(clipId: string, effectId: string): TimelineCommand {
     effect.params = defaultParams(manifest, effectImageSize(clip, draft.media, draft.sequence))
     effect.mix = 100
     effect.blendMode = 'normal'
+    effect.keyframes = {}
   })
 }
 
@@ -180,7 +188,8 @@ export function addAdjustmentLayer(request: AdjustmentRequest, newId: IdFactory 
       transitionIn: null,
       transitionOut: null,
       effects: [],
-      adjustment: true
+      adjustment: true,
+      keyframes: {}
     })
     command.notice = undefined
   })

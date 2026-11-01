@@ -1,6 +1,7 @@
 import { effectById } from '../../effects/registry'
 import { BLEND_MODES, type BlendMode } from '../project/model'
-import { cloneEffect } from './params'
+import type { Interpolation, Keyframe, KeyframeMap } from '../keyframes/keyframes'
+import { cloneEffect, sanitiseKeyframes } from './params'
 import type { EffectInstance, ImageSize, ParamValue } from './types'
 
 /**
@@ -24,10 +25,20 @@ export function rescaleEffects(effects: EffectInstance[], from: ImageSize, to: I
     const manifest = effectById(effect.effectId)
     const copy = cloneEffect(effect)
     if (!manifest || (sx === 1 && sy === 1)) return copy
+    const scale = (spec: (typeof manifest.params)[number], value: ParamValue | undefined): ParamValue | undefined => {
+      if (spec.type === 'point' && Array.isArray(value)) return [value[0] * sx, value[1] * sy]
+      if (spec.type === 'number' && spec.pixels && typeof value === 'number') return value * sx
+      return value
+    }
     for (const spec of manifest.params) {
-      const value = copy.params[spec.id]
-      if (spec.type === 'point' && Array.isArray(value)) copy.params[spec.id] = [value[0] * sx, value[1] * sy]
-      if (spec.type === 'number' && spec.pixels && typeof value === 'number') copy.params[spec.id] = value * sx
+      const value = scale(spec, copy.params[spec.id])
+      if (value !== undefined) copy.params[spec.id] = value
+      // Keyframed positions scale too; bezier handles are offsets in the same units.
+      for (const k of copy.keyframes[spec.id] ?? []) {
+        k.value = scale(spec, k.value) ?? k.value
+        if (spec.type === 'point') for (const h of [k.in, k.out]) h.v = [(h.v[0] ?? 0) * sx, (h.v[1] ?? 0) * sy]
+        if (spec.type === 'number' && spec.pixels) for (const h of [k.in, k.out]) h.v = h.v.map((v) => v * sx)
+      }
     }
     return copy
   })
@@ -40,6 +51,33 @@ function parseValue(value: unknown): ParamValue | null {
   if (typeof value === 'boolean' || typeof value === 'string') return value
   if (Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number' && Number.isFinite(v))) return [value[0], value[1]]
   return null
+}
+
+const INTERPOLATIONS: readonly Interpolation[] = ['hold', 'linear', 'bezier']
+
+function parseHandle(value: unknown): Keyframe['in'] | null {
+  if (!isObject(value) || typeof value['t'] !== 'number' || !Array.isArray(value['v']) || !value['v'].every((v) => typeof v === 'number' && Number.isFinite(v))) return null
+  return { t: value['t'], v: value['v'] as number[] }
+}
+
+/** Keyframes as stored in a preset; damaged ones are skipped. */
+function parseKeyframes(value: unknown): KeyframeMap {
+  const map: KeyframeMap = {}
+  if (!isObject(value)) return map
+  for (const [key, list] of Object.entries(value)) {
+    if (!Array.isArray(list)) continue
+    const track: Keyframe[] = []
+    for (const k of list) {
+      if (!isObject(k) || typeof k['time'] !== 'number' || !Number.isInteger(k['time']) || !INTERPOLATIONS.includes(k['interpolation'] as Interpolation)) continue
+      const value = parseValue(k['value'])
+      const handleIn = parseHandle(k['in'])
+      const handleOut = parseHandle(k['out'])
+      if (value === null || !handleIn || !handleOut) continue
+      track.push({ id: typeof k['id'] === 'string' ? k['id'] : `k${track.length}`, time: k['time'], value, interpolation: k['interpolation'] as Interpolation, in: handleIn, out: handleOut })
+    }
+    if (track.length > 0) map[key] = track
+  }
+  return map
 }
 
 /** The preset library as stored; anything damaged is skipped rather than failing the whole library. */
@@ -64,11 +102,16 @@ export function parsePresets(raw: unknown): EffectPreset[] {
         enabled: e['enabled'] !== false,
         mix: typeof e['mix'] === 'number' ? Math.min(100, Math.max(0, e['mix'])) : 100,
         blendMode: blend,
-        params
+        params,
+        keyframes: parseKeyframes(e['keyframes'])
       })
     }
     const width = Number(p['size']['width'])
     const height = Number(p['size']['height'])
+    for (const effect of effects) {
+      const manifest = effectById(effect.effectId)
+      if (manifest) effect.keyframes = sanitiseKeyframes(manifest, effect.keyframes, { width: width > 0 ? width : 1, height: height > 0 ? height : 1 })
+    }
     if (effects.length === 0 || !(width > 0) || !(height > 0)) continue
     presets.push({ id: p['id'], name: p['name'], effects, size: { width, height }, createdAt: typeof p['createdAt'] === 'string' ? p['createdAt'] : '' })
   }

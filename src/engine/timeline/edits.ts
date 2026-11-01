@@ -5,6 +5,9 @@ import { defaultId, type Clip, type IdFactory, type Project, type Sequence, type
 import { secondsToTicks, type Ticks } from '../time'
 import { defaultMotion } from './motion'
 import { cloneEffect } from '../effects/params'
+import type { ParamValue } from '../effects/types'
+import { cloneKeyframeMap, scaleKeyframeMap } from '../keyframes/keyframes'
+import { MAX_VOLUME_DB, MIN_VOLUME_DB, propertySpec, valueAt, writeValueAt, type ClipProperty } from '../keyframes/properties'
 import {
   DEFAULT_STILL_SECONDS,
   EditContext,
@@ -121,7 +124,8 @@ export function clipsForPlacement(sequence: Sequence, item: MediaItem, request: 
       transitionIn: null,
       transitionOut: null,
       effects: [],
-      adjustment: false
+      adjustment: false,
+      keyframes: {}
     }
   })
 }
@@ -534,6 +538,7 @@ export interface ClipboardClip {
   transitionOut: Clip['transitionOut']
   effects: Clip['effects']
   adjustment: boolean
+  keyframes: Clip['keyframes']
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -558,7 +563,8 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     transitionIn: c.transitionIn ? { ...c.transitionIn } : null,
     transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
     effects: c.effects.map((e) => cloneEffect(e)),
-    adjustment: c.adjustment
+    adjustment: c.adjustment,
+    keyframes: cloneKeyframeMap(c.keyframes)
   }))
 }
 
@@ -594,7 +600,8 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       transitionOut: c.transitionOut ? { ...c.transitionOut } : null,
       // Pasted effects get fresh ids so they can be told apart from the originals.
       effects: c.effects.map((e) => cloneEffect(e, ctx.newId())),
-      adjustment: c.adjustment
+      adjustment: c.adjustment,
+      keyframes: cloneKeyframeMap(c.keyframes)
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]
@@ -676,32 +683,45 @@ const PROPERTY_LABELS: Record<string, string> = {
   volume: 'Volume'
 }
 
-export const MAX_VOLUME_DB = 15
-export const MIN_VOLUME_DB = -96
+export { MAX_VOLUME_DB, MIN_VOLUME_DB }
 
 /**
  * Changes Motion, Opacity, blend mode or Volume on clips. Dragging a value sends many
- * of these; they merge into one undo step.
+ * of these; they merge into one undo step. A value that's animated gets a keyframe at
+ * `at` (the playhead) instead, so `at` is needed whenever keyframes might be on.
  */
-export function setClipProperties(clipIds: string[], changes: ClipPropertyChanges): TimelineCommand {
+export function setClipProperties(clipIds: string[], changes: ClipPropertyChanges, at: Ticks | null = null, newId: IdFactory = defaultId): TimelineCommand {
   const keys = [...Object.keys(changes.motion ?? {}), ...Object.keys(changes).filter((k) => k !== 'motion')]
   const names = [...new Set(keys.map((k) => PROPERTY_LABELS[k] ?? k))]
   const command = timelineCommand(names.length === 1 ? `Change ${names[0]}` : 'Change Clip Properties', (draft) => {
+    const frame = frameTicks(draft.sequence)
     for (const id of clipIds) {
       const clip = findClip(draft.sequence, id)
       assertUnlocked(findTrack(draft.sequence, clip.trackId))
-      if (changes.motion) {
-        for (const [key, value] of Object.entries(changes.motion) as Array<[keyof Clip['motion'], number]>) {
-          if (!Number.isFinite(value)) throw new CommandError(`${PROPERTY_LABELS[key]} needs a number`)
-          clip.motion[key] = value
-        }
+      const t = at === null ? null : at - clip.start
+      const now = (param: ClipProperty) => valueAt(clip, null, param, t ?? 0)
+      const writes: Array<[ClipProperty, ParamValue]> = []
+      const m = changes.motion ?? {}
+      for (const [key, value] of Object.entries(m)) if (!Number.isFinite(value)) throw new CommandError(`${PROPERTY_LABELS[key]} needs a number`)
+      if (m.positionX !== undefined || m.positionY !== undefined) {
+        const [x, y] = now('position') as [number, number]
+        writes.push(['position', [m.positionX ?? x, m.positionY ?? y]])
       }
-      if (changes.opacity !== undefined) clip.opacity = Math.min(100, Math.max(0, changes.opacity))
-      if (changes.blendMode !== undefined) clip.blendMode = changes.blendMode
-      if (changes.volume !== undefined) clip.volume = Math.min(MAX_VOLUME_DB, Math.max(MIN_VOLUME_DB, changes.volume))
+      if (m.anchorX !== undefined || m.anchorY !== undefined) {
+        const [x, y] = now('anchor') as [number, number]
+        writes.push(['anchor', [m.anchorX ?? x, m.anchorY ?? y]])
+      }
+      if (m.scale !== undefined) writes.push(['scale', m.scale])
+      if (m.scaleWidth !== undefined) writes.push(['scaleWidth', m.scaleWidth])
+      if (m.rotation !== undefined) writes.push(['rotation', m.rotation])
+      if (changes.opacity !== undefined) writes.push(['opacity', changes.opacity])
+      if (changes.volume !== undefined) writes.push(['volume', changes.volume])
+      // Each clip takes the properties it has (an audio clip has no Motion).
+      for (const [param, value] of writes) if (propertySpec(clip, null, param)) writeValueAt(clip, null, param, value, t, frame, newId)
+      if (changes.blendMode !== undefined && clip.kind === 'video') clip.blendMode = changes.blendMode
     }
   })
-  command.coalesceKey = `clip-props:${[...clipIds].sort().join(',')}:${keys.sort().join(',')}`
+  command.coalesceKey = `clip-props:${[...clipIds].sort().join(',')}:${keys.sort().join(',')}:${at ?? ''}`
   return command
 }
 
@@ -713,8 +733,13 @@ export function resetMotion(clipIds: string[], mode: 'frame-size' | 'reset'): Ti
       if (clip.kind !== 'video') continue
       assertUnlocked(findTrack(draft.sequence, clip.trackId))
       const fresh = defaultMotion(draft.media.find((m) => m.id === clip.mediaId), draft.sequence.settings)
-      if (mode === 'frame-size') clip.motion.scale = fresh.scale
-      else clip.motion = fresh
+      if (mode === 'frame-size') {
+        clip.motion.scale = fresh.scale
+        delete clip.keyframes['scale']
+      } else {
+        clip.motion = fresh
+        for (const param of ['position', 'scale', 'scaleWidth', 'rotation', 'anchor']) delete clip.keyframes[param]
+      }
     }
   })
 }
@@ -816,6 +841,8 @@ export function setClipSpeed(request: SpeedRequest, media: MediaItem[], newId: I
     if (clips.length === 0) throw new CommandError('Select a clip to change its speed')
     if (clips.some((c) => c.adjustment)) throw new CommandError('Adjustment layers have no speed: they apply to whatever is beneath them')
     for (const clip of clips) assertUnlocked(findTrack(sequence, clip.trackId))
+    const ramped = clips.find((c) => c.keyframes['speed']?.length)
+    if (ramped) throw new CommandError(`“${ramped.name}” has Speed keyframes: remove them in Effect Controls (the Speed stopwatch) to set one speed`)
     const ctx = new EditContext(newId)
     const selectedTracks = new Set(clips.map((c) => c.trackId))
     // Linked picture and sound with the same timing are one edit.
@@ -847,8 +874,12 @@ export function setClipSpeed(request: SpeedRequest, media: MediaItem[], newId: I
         if (request.ripple && change !== 0) {
           for (const other of clipsOnTrack(sequence, clip.trackId)) if (other.id !== clip.id && other.start >= end) other.start += change
         }
+        // Keyframes keep their place in the picture: at twice the speed, they come twice as soon.
+        const factor = clip.speed > 0 ? clip.speed / request.speed : (clip.duration + change) / clip.duration
         clip.speed = request.speed
         clip.reverse = request.reverse
+        scaleKeyframeMap(clip.keyframes, factor, frame)
+        for (const effect of clip.effects) scaleKeyframeMap(effect.keyframes, factor, frame)
         clip.duration += change
       }
       if (request.ripple && change !== 0) {
@@ -894,6 +925,7 @@ export function addFrameHold(clipIds: string[], at: Ticks, newId: IdFactory = de
       target.sourceIn = held
       target.speed = 0
       target.reverse = false
+      delete target.keyframes['speed']
       count++
     }
     if (count === 0) throw new CommandError('Put the playhead over a selected video clip to hold its frame')

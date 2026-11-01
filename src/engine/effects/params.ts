@@ -1,3 +1,4 @@
+import { cloneKeyframeMap, normaliseTrack, type KeyframeMap } from '../keyframes/keyframes'
 import type { EffectInstance, EffectManifest, ImageSize, ParamSpec, ParamValue } from './types'
 
 /** A parameter's default for an image of `size` (points are fractions of it). */
@@ -31,18 +32,39 @@ export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unk
   return Object.fromEntries(manifest.params.map((spec) => [spec.id, sanitiseValue(spec, raw[spec.id], size)]))
 }
 
-/** Brings an instance made with an older version of its effect up to date. */
+/** An effect's keyframes made valid: parameters it doesn't have dropped, values checked like the parameters, Mix 0–100. */
+export function sanitiseKeyframes(manifest: EffectManifest, keyframes: KeyframeMap, size: ImageSize): KeyframeMap {
+  const out: KeyframeMap = {}
+  for (const [key, track] of Object.entries(keyframes)) {
+    if (track.length === 0) continue
+    if (key === 'mix') {
+      out[key] = normaliseTrack(track, (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 100), false)
+      continue
+    }
+    const spec = manifest.params.find((p) => p.id === key)
+    if (!spec) continue
+    out[key] = normaliseTrack(track, (v) => sanitiseValue(spec, v, size), spec.type === 'choice' || spec.type === 'toggle')
+  }
+  return out
+}
+
+/**
+ * Brings an instance made with an older version of its effect up to date. (Keyframes
+ * are kept as they are: no effect has changed its parameters yet, so there's no
+ * migration for them to need.)
+ */
 export function upgradeInstance(manifest: EffectManifest, instance: EffectInstance, size: ImageSize): EffectInstance {
   if (instance.version === manifest.version) return instance
   const raw = instance.version < manifest.version && manifest.migrate ? manifest.migrate({ ...instance.params }, instance.version) : instance.params
-  return { ...instance, version: manifest.version, params: sanitiseParams(manifest, raw, size) }
+  return { ...instance, version: manifest.version, params: sanitiseParams(manifest, raw, size), keyframes: sanitiseKeyframes(manifest, instance.keyframes, size) }
 }
 
-/** A deep copy (params hold arrays for points). */
+/** A deep copy (params hold arrays for points), keyframes included. */
 export function cloneEffect(effect: EffectInstance, id = effect.id): EffectInstance {
   return {
     ...effect,
     id,
-    params: Object.fromEntries(Object.entries(effect.params).map(([k, v]) => [k, Array.isArray(v) ? ([v[0], v[1]] as [number, number]) : v]))
+    params: Object.fromEntries(Object.entries(effect.params).map(([k, v]) => [k, Array.isArray(v) ? ([v[0], v[1]] as [number, number]) : v])),
+    keyframes: cloneKeyframeMap(effect.keyframes)
   }
 }

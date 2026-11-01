@@ -36,6 +36,8 @@ export interface ExportAnalysis {
   audioStart: number
   rows: number[][][]
   onsets: number[]
+  /** Sound level: RMS of the mono mix in 10 ms windows from the audio stream's start. */
+  envelope: number[]
   tags: { primaries: string | null; transfer: string | null; matrix: string | null; range: string | null }
 }
 

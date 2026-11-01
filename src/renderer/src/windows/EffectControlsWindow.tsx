@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
 import type { EffectInstance, ParamSpec, ParamValue } from '@engine/effects/types'
 import { addEffect, moveEffect, removeEffects, resetEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
@@ -6,6 +6,12 @@ import { effectById } from '../../../effects/registry'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, STACK_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
+import { MAX_SPEED_PERCENT, keyframesOf, speedKeyframeProblem, valueAt, type PropertyRef } from '@engine/keyframes/properties'
+import { addKeyframe, removeKeyframes, resetValues, setAnimated, setValue } from '@engine/timeline/keyframe-edits'
+import { clipEnd, toFrame } from '@engine/timeline/timeline'
+import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
+import { keyframeController } from '../keyframes/keyframe-controller'
+import { workspaceController } from '../state/workspace'
 import { defaultMotion } from '@engine/timeline/motion'
 import { COLOUR_LABELS, effectiveColour } from '@engine/project/media'
 import { Icon } from '../app/Icon'
@@ -120,6 +126,113 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="fx-row">
       <span className="fx-label">{label}</span>
       <span className="fx-values">{children}</span>
+    </div>
+  )
+}
+
+/** Where the playhead is on a clip: the time values are shown at, and whether a keyframe can go there. */
+function clipTime(clip: Clip): { t: number; inside: boolean } {
+  const playhead = timelineController.playhead
+  return { t: Math.min(Math.max(0, playhead - clip.start), clip.duration - 1), inside: playhead >= clip.start && playhead < clipEnd(clip) }
+}
+
+/**
+ * One value that can be animated: Premiere's stopwatch (animation on/off), the value at
+ * the playhead, and ◀ ◆ ▶ to go to the previous keyframe, add or remove one at the
+ * playhead, and go to the next. Right-click for the keyframe menu.
+ */
+function PropertyRow({
+  clip,
+  effectId,
+  param,
+  label,
+  locked,
+  help,
+  unavailable,
+  children
+}: {
+  clip: Clip
+  effectId: string | null
+  param: string
+  label: string
+  locked: boolean
+  help?: string
+  /** Why this value can't be keyframed right now (e.g. Speed on a reversed clip). */
+  unavailable?: string | null
+  children(value: ParamValue, onChange: (value: ParamValue) => void, animated: boolean): ReactNode
+}) {
+  useObservable(keyframeController)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const ref: PropertyRef = { clipId: clip.id, effectId, param }
+  const track = keyframesOf(clip, effectId, param)
+  const animated = track.length > 0
+  const { t, inside } = clipTime(clip)
+  const playhead = timelineController.playhead
+  const here = toFrame(t, timelineController.frame())
+  const value = valueAt(clip, effectId, param, t)
+  const atKey = inside ? track.find((k) => k.time === here) : undefined
+  const prev = [...track].reverse().find((k) => k.time < here)
+  const next = track.find((k) => k.time > (inside ? here : t))
+  const go = (time: number) => timelineController.movePlayhead(clip.start + time)
+  const dispatch = projectController.dispatch.bind(projectController)
+  const toggle = () => dispatch(setAnimated(ref, !animated, playhead))
+  const addOrRemove = () => (atKey ? dispatch(removeKeyframes([{ ...ref, keyframeId: atKey.id }])) : dispatch(addKeyframe(ref, playhead)))
+  const cantKey = locked || Boolean(unavailable) || !inside
+  const showInEditor = () => {
+    keyframeController.focus(ref)
+    workspaceController.open('keyframe-editor')
+    workspaceController.focus('keyframe-editor')
+  }
+  const items: MenuEntry[] = [
+    animated ? { label: 'Remove All Keyframes', onSelect: toggle, disabled: locked, danger: true } : { label: 'Create Keyframes', onSelect: toggle, disabled: cantKey },
+    { label: atKey ? 'Delete Keyframe at Playhead' : 'Add Keyframe at Playhead', onSelect: addOrRemove, disabled: cantKey },
+    'separator',
+    { label: 'Go to Previous Keyframe', onSelect: () => prev && go(prev.time), disabled: !prev },
+    { label: 'Go to Next Keyframe', onSelect: () => next && go(next.time), disabled: !next },
+    'separator',
+    { label: 'Paste Keyframes Here', onSelect: () => (keyframeController.focus(ref), keyframeController.paste()), disabled: !keyframeController.clipboard || cantKey },
+    { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' }
+  ]
+  const stopwatchTitle = unavailable ?? (animated ? `Turn off animation (removes the ${track.length} keyframe${track.length === 1 ? '' : 's'})` : inside ? 'Animate: set a keyframe at the playhead' : 'Move the playhead over the clip to animate this')
+  return (
+    <div
+      className={`fx-row kf-row ${keyframeController.isFocused(ref) ? 'focused' : ''}`}
+      title={help}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setMenu({ x: event.clientX, y: event.clientY })
+      }}
+    >
+      <span className="fx-label">
+        <button
+          className={`kf-stopwatch ${animated ? 'on' : ''}`}
+          aria-pressed={animated}
+          aria-label={`Animate ${label}`}
+          title={stopwatchTitle}
+          disabled={locked || (!animated && (Boolean(unavailable) || !inside))}
+          onClick={toggle}
+        >
+          ⏱
+        </button>
+        <span className="kf-name" onClick={() => keyframeController.focus(ref)}>
+          {label}
+        </span>
+      </span>
+      <span className="fx-values">{children(value, (v) => dispatch(setValue(ref, v, playhead)), animated)}</span>
+      {animated && (
+        <span className="kf-nav">
+          <button className="kf-nav-button" title="Previous keyframe" disabled={!prev} onClick={() => prev && go(prev.time)}>
+            ◀
+          </button>
+          <button className={`kf-nav-button kf-diamond ${atKey ? 'on' : ''}`} title={atKey ? 'Remove the keyframe at the playhead' : 'Add a keyframe at the playhead'} disabled={cantKey} onClick={addOrRemove}>
+            ◆
+          </button>
+          <button className="kf-nav-button" title="Next keyframe" disabled={!next} onClick={() => next && go(next.time)}>
+            ▶
+          </button>
+        </span>
+      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   )
 }
@@ -258,18 +371,16 @@ function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; ef
           {!manifest && <p className="muted small">This effect isn’t in this version of ginosa, so the picture passes through it unchanged. It’s kept in the project.</p>}
           {manifest && (
             <>
-              <Row label="Mix">
-                <ScrubNumber label="Mix" value={effect.mix} min={0} max={100} step={0.5} unit="%" onChange={(mix) => change({ mix })} disabled={locked} />
-              </Row>
+              <PropertyRow clip={clip} effectId={effect.id} param="mix" label="Mix" locked={locked}>
+                {(value, onChange) => <ScrubNumber label="Mix" value={Number(value)} min={0} max={100} step={0.5} unit="%" onChange={onChange} disabled={locked} />}
+              </PropertyRow>
               <Row label="Blend Mode">
                 <BlendSelect label="Effect blend mode" value={effect.blendMode} disabled={locked} onChange={(blendMode) => change({ blendMode })} />
               </Row>
               {manifest.params.map((spec) => (
-                <div key={spec.id} title={spec.help}>
-                  <Row label={spec.label}>
-                    <ParamControl spec={spec} value={effect.params[spec.id]} disabled={locked} onChange={(value) => change({ params: { [spec.id]: value } })} />
-                  </Row>
-                </div>
+                <PropertyRow key={spec.id} clip={clip} effectId={effect.id} param={spec.id} label={spec.label} locked={locked} help={spec.help}>
+                  {(value, onChange) => <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} />}
+                </PropertyRow>
               ))}
             </>
           )}
@@ -341,7 +452,24 @@ function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: bo
   )
 }
 
-/** Premiere's Effect Controls for the selected clip: Motion, Opacity and blend mode, Volume. */
+/** Opacity (animatable) and blend mode, for clips and adjustment layers. */
+function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
+  return (
+    <Section
+      title="Opacity"
+      onReset={locked ? undefined : () => projectController.dispatch(resetValues(clip.id, [{ effectId: null, param: 'opacity', value: 100 }], 'Reset Opacity', 'normal'))}
+    >
+      <PropertyRow clip={clip} effectId={null} param="opacity" label="Opacity" locked={locked}>
+        {(value, onChange) => <ScrubNumber label="Opacity" value={Number(value)} min={0} max={100} step={0.5} unit="%" onChange={onChange} disabled={locked} />}
+      </PropertyRow>
+      <Row label="Blend Mode">
+        <BlendSelect label="Blend mode" value={clip.blendMode} disabled={locked} onChange={(blendMode) => projectController.dispatch(setClipProperties([clip.id], { blendMode }))} />
+      </Row>
+    </Section>
+  )
+}
+
+/** Premiere's Effect Controls for the selected clip: Motion, Opacity and blend mode, Time Remapping, Volume, effects. */
 export function EffectControlsWindow() {
   useObservable(projectController)
   useObservable(timelineController)
@@ -400,57 +528,86 @@ export function EffectControlsWindow() {
       )}
       {video && fresh && (
         <>
-          <Section title="Motion" onReset={locked(video) ? undefined : () => projectController.dispatch(resetMotion([video.id], 'reset'))}>
-            <Row label="Position">
-              <ScrubNumber label="Position X" value={video.motion.positionX} onChange={(v) => setMotion(video, { positionX: v })} disabled={locked(video)} />
-              <ScrubNumber label="Position Y" value={video.motion.positionY} onChange={(v) => setMotion(video, { positionY: v })} disabled={locked(video)} />
-            </Row>
-            <Row label="Scale">
-              <ScrubNumber label="Scale" value={video.motion.scale} min={0} max={10000} step={0.5} onChange={(v) => setMotion(video, { scale: v })} disabled={locked(video)} />
-              <button className="button compact" title="Fit the whole clip in the frame" disabled={locked(video)} onClick={() => projectController.dispatch(resetMotion([video.id], 'frame-size'))}>
-                Frame Size
-              </button>
-            </Row>
-            <Row label="Scale Width">
-              <ScrubNumber label="Scale Width" value={video.motion.scaleWidth} min={0} max={10000} step={0.5} unit="%" onChange={(v) => setMotion(video, { scaleWidth: v })} disabled={locked(video)} />
-            </Row>
-            <Row label="Rotation">
-              <ScrubNumber label="Rotation" value={video.motion.rotation} step={0.5} unit="°" onChange={(v) => setMotion(video, { rotation: v })} disabled={locked(video)} />
-            </Row>
-            <Row label="Anchor Point">
-              <ScrubNumber label="Anchor X" value={video.motion.anchorX} onChange={(v) => setMotion(video, { anchorX: v })} disabled={locked(video)} />
-              <ScrubNumber label="Anchor Y" value={video.motion.anchorY} onChange={(v) => setMotion(video, { anchorY: v })} disabled={locked(video)} />
-            </Row>
+          <Section
+            title="Motion"
+            onReset={locked(video) ? undefined : () => projectController.dispatch(resetMotion([video.id], 'reset'))}
+          >
+            <PropertyRow clip={video} effectId={null} param="position" label="Position" locked={locked(video)}>
+              {(value, onChange) => {
+                const [x, y] = value as [number, number]
+                return (
+                  <>
+                    <ScrubNumber label="Position X" value={x} onChange={(v) => onChange([v, y])} disabled={locked(video)} />
+                    <ScrubNumber label="Position Y" value={y} onChange={(v) => onChange([x, v])} disabled={locked(video)} />
+                  </>
+                )
+              }}
+            </PropertyRow>
+            <PropertyRow clip={video} effectId={null} param="scale" label="Scale" locked={locked(video)}>
+              {(value, onChange) => (
+                <>
+                  <ScrubNumber label="Scale" value={Number(value)} min={0} max={10000} step={0.5} onChange={onChange} disabled={locked(video)} />
+                  <button className="button compact" title="Fit the whole clip in the frame (removes Scale keyframes)" disabled={locked(video)} onClick={() => projectController.dispatch(resetMotion([video.id], 'frame-size'))}>
+                    Frame Size
+                  </button>
+                </>
+              )}
+            </PropertyRow>
+            <PropertyRow clip={video} effectId={null} param="scaleWidth" label="Scale Width" locked={locked(video)}>
+              {(value, onChange) => <ScrubNumber label="Scale Width" value={Number(value)} min={0} max={10000} step={0.5} unit="%" onChange={onChange} disabled={locked(video)} />}
+            </PropertyRow>
+            <PropertyRow clip={video} effectId={null} param="rotation" label="Rotation" locked={locked(video)}>
+              {(value, onChange) => <ScrubNumber label="Rotation" value={Number(value)} step={0.5} unit="°" onChange={onChange} disabled={locked(video)} />}
+            </PropertyRow>
+            <PropertyRow clip={video} effectId={null} param="anchor" label="Anchor Point" locked={locked(video)}>
+              {(value, onChange) => {
+                const [x, y] = value as [number, number]
+                return (
+                  <>
+                    <ScrubNumber label="Anchor X" value={x} onChange={(v) => onChange([v, y])} disabled={locked(video)} />
+                    <ScrubNumber label="Anchor Y" value={y} onChange={(v) => onChange([x, v])} disabled={locked(video)} />
+                  </>
+                )
+              }}
+            </PropertyRow>
           </Section>
-          <Section title="Opacity" onReset={locked(video) ? undefined : () => set(video, { opacity: 100, blendMode: 'normal' })}>
-            <Row label="Opacity">
-              <ScrubNumber label="Opacity" value={video.opacity} min={0} max={100} step={0.5} unit="%" onChange={(v) => set(video, { opacity: v })} disabled={locked(video)} />
-            </Row>
-            <Row label="Blend Mode">
-<BlendSelect label="Blend mode" value={video.blendMode} disabled={locked(video)} onChange={(blendMode) => set(video, { blendMode })} />
-            </Row>
+          <OpacitySection clip={video} locked={locked(video)} />
+          <Section
+            title="Time Remapping"
+            onReset={locked(video) || !video.keyframes['speed']?.length ? undefined : () => projectController.dispatch(resetValues(video.id, [{ effectId: null, param: 'speed', value: 100 }], 'Remove Speed Keyframes'))}
+          >
+            <PropertyRow
+              clip={video}
+              effectId={null}
+              param="speed"
+              label="Speed"
+              locked={locked(video)}
+              unavailable={speedKeyframeProblem(video)}
+              help="Keyframe the speed to ramp it (the picture only; linked sound keeps its speed). One fixed speed: Speed/Duration (⌘R)."
+            >
+              {(value, onChange, animated) =>
+                animated ? (
+                  <ScrubNumber label="Speed" value={Number(value)} min={0} max={MAX_SPEED_PERCENT} step={1} unit="%" onChange={onChange} disabled={locked(video)} />
+                ) : (
+                  <span className="muted small">
+                    {video.speed === 0 ? 'Frame Hold' : `${video.reverse ? '-' : ''}${Math.round(video.speed * 1000) / 10}%`} · ⌘R to change
+                  </span>
+                )
+              }
+            </PropertyRow>
           </Section>
         </>
       )}
-      {adjustment && (
-        <Section title="Opacity" onReset={locked(adjustment) ? undefined : () => set(adjustment, { opacity: 100, blendMode: 'normal' })}>
-          <Row label="Opacity">
-            <ScrubNumber label="Opacity" value={adjustment.opacity} min={0} max={100} step={0.5} unit="%" onChange={(v) => set(adjustment, { opacity: v })} disabled={locked(adjustment)} />
-          </Row>
-          <Row label="Blend Mode">
-            <BlendSelect label="Blend mode" value={adjustment.blendMode} disabled={locked(adjustment)} onChange={(blendMode) => set(adjustment, { blendMode })} />
-          </Row>
-        </Section>
-      )}
+      {adjustment && <OpacitySection clip={adjustment} locked={locked(adjustment)} />}
       {video && <EffectStack clip={video} locked={locked(video)} selectedClipIds={selectedVideoIds} />}
       {audio && (
-        <Section title="Volume" onReset={locked(audio) ? undefined : () => set(audio, { volume: 0 })}>
-          <Row label="Level">
-            <ScrubNumber label="Volume" value={audio.volume} min={MIN_VOLUME_DB} max={MAX_VOLUME_DB} step={0.1} unit="dB" onChange={(v) => set(audio, { volume: v })} disabled={locked(audio)} />
-          </Row>
+        <Section title="Volume" onReset={locked(audio) ? undefined : () => projectController.dispatch(resetValues(audio.id, [{ effectId: null, param: 'volume', value: 0 }], 'Reset Volume'))}>
+          <PropertyRow clip={audio} effectId={null} param="volume" label="Level" locked={locked(audio)}>
+            {(value, onChange) => <ScrubNumber label="Volume" value={Number(value)} min={MIN_VOLUME_DB} max={MAX_VOLUME_DB} step={0.1} unit="dB" onChange={onChange} disabled={locked(audio)} />}
+          </PropertyRow>
         </Section>
       )}
-      <p className="muted small fx-note">Keyframes arrive in M7.</p>
+      <p className="muted small fx-note">⏱ animates a value from the playhead; ◆ adds or removes a keyframe there. Right-click a value for more, or open the Keyframe Editor (⌥0) to move keyframes and shape their curves.</p>
     </div>
   )
 }

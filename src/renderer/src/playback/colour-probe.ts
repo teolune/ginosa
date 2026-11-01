@@ -34,6 +34,36 @@ export async function readPixels(texture: GPUTexture, points: Array<[number, num
   return out
 }
 
+/**
+ * RGB averaged over the same boxes the export analyser reads (3 pixels wide, `rows` rows
+ * from `y0`), at each x, so the preview and an exported file can be compared value for value.
+ */
+export async function readRowBoxes(texture: GPUTexture, xs: number[], y0: number, rows = 4): Promise<number[][]> {
+  const { device } = await getGpu()
+  const width = texture.width
+  const bytesPerRow = Math.ceil((width * 8) / 256) * 256
+  const buffer = device.createBuffer({ size: bytesPerRow * rows, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
+  const encoder = device.createCommandEncoder()
+  encoder.copyTextureToBuffer({ texture, origin: { x: 0, y: y0 } }, { buffer, bytesPerRow }, [width, rows])
+  device.queue.submit([encoder.finish()])
+  await buffer.mapAsync(GPUMapMode.READ)
+  const half = new Uint16Array(buffer.getMappedRange())
+  const perRow = bytesPerRow / 2
+  const out = xs.map((x) => {
+    const sum = [0, 0, 0]
+    let n = 0
+    for (let r = 0; r < rows; r++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const px = Math.min(width - 1, Math.max(0, x + dx))
+        for (let c = 0; c < 3; c++) sum[c] = sum[c]! + halfToFloat(half[r * perRow + px * 4 + c]!)
+        n++
+      }
+    return sum.map((v) => Math.round((v / n) * 10000) / 10000)
+  })
+  buffer.destroy()
+  return out
+}
+
 export async function probePatches(path: string, override: VideoColorSpaceInit | null): Promise<{ colorSpace: VideoColorSpaceInit | null; patches: number[][] }> {
   const { device } = await getGpu()
   const input = new Input({ formats: ALL_FORMATS, source: new UrlSource(window.ginosa.mediaUrl(path)) })

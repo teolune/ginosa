@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M6 · Effects pipeline.** Effect stacks on clips, adjustment layers, Effect Controls generated from each effect's manifest, the Effects Library (⌥9), presets, copy/paste, 24 Photoshop blend modes, and the first effects, Invert and Transform, in playback and export. Built on M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M7 (keyframes).
+**M7 · Keyframes.** Every value can be animated (Motion, Opacity, Volume, Speed and every effect setting), with hold, linear and bezier interpolation and Premiere's eases; stopwatches in Effect Controls; the Keyframe Editor (⌥0) with a dope sheet and a graph; speed ramps; volume automation. Preview and export animate identically. Built on M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M8 (audio and modulation).
 
 ## Setup (once)
 

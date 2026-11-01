@@ -76,6 +76,7 @@ export async function analyseExport(path: string, xs: number[]): Promise<ExportA
   }
 
   let onsets: number[] = []
+  const envelope: number[] = []
   if (audio) {
     const audioRun = await runTool('ffmpeg', ['-v', 'error', '-i', path, '-map', '0:a:0', '-ac', '1', '-ar', '48000', '-f', 'f32le', '-'])
     if (audioRun.code !== 0) throw new Error(audioRun.stderr)
@@ -87,6 +88,15 @@ export async function analyseExport(path: string, xs: number[]): Promise<ExportA
       quiet = v > 0.1 ? 0 : quiet + 1
     }
     onsets = onsets.map((t) => Math.round(t * 1e6) / 1e6)
+    const window = 480
+    for (let w = 0; (w + 1) * window * 4 <= pcm.length; w++) {
+      let sum = 0
+      for (let i = 0; i < window; i++) {
+        const v = pcm.readFloatLE((w * window + i) * 4)
+        sum += v * v
+      }
+      envelope.push(Math.sqrt(sum / window))
+    }
   }
   const start = (s: Record<string, string | number | undefined> | undefined) => (s && s['start_time'] !== undefined ? Number(s['start_time']) : 0)
   const tag = (key: string) => (video[key] === undefined ? null : String(video[key]))
@@ -98,6 +108,7 @@ export async function analyseExport(path: string, xs: number[]): Promise<ExportA
     audioStart: start(audio),
     rows,
     onsets,
+    envelope,
     tags: { primaries: tag('color_primaries'), transfer: tag('color_transfer'), matrix: tag('color_space'), range: tag('color_range') }
   }
 }

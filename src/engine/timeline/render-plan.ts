@@ -1,6 +1,8 @@
 import type { MediaItem } from '../project/media'
 import type { Clip, Sequence } from '../project/model'
 import type { Ticks } from '../time'
+import { evaluate } from '../keyframes/keyframes'
+import { resolveClip } from '../keyframes/properties'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -11,6 +13,7 @@ export { sourceTimeAt }
  */
 
 export interface VideoLayer {
+  /** The clip as it is at this moment: animated values are worked out from their keyframes. */
   clip: Clip
   /** The clip's media; null for an adjustment layer. */
   item: MediaItem | null
@@ -104,7 +107,8 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
   const layers: VideoLayer[] = []
   for (const track of tracks) {
     if (!track.visible || (soloed && !track.solo)) continue
-    for (const { clip, weight } of trackLayers(sequence, track.id, time)) {
+    for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
+      const clip = resolveClip(stored, time)
       if (clip.opacity <= 0 || weight <= 0) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
@@ -122,8 +126,17 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
 export interface AudioSegment {
   clip: Clip
   item: MediaItem
-  /** Linear gain from the clip's volume (dB). */
+  /** Linear gain from the clip's volume (dB); with Volume keyframes, see `gainAt`. */
   gain: number
+}
+
+/** Volume keyframes are sampled this often (then joined by straight lines, as Web Audio plays a value curve). */
+export const GAIN_CURVE_STEP_SECONDS = 0.001
+
+/** A clip's linear gain at sequence time `time`, from its Volume (keyframed or not). */
+export function gainAt(clip: Clip, time: Ticks): number {
+  const track = clip.keyframes['volume']
+  return dbToGain(track?.length ? Number(evaluate(track, time - clip.start, clip.volume)) : clip.volume)
 }
 
 export function dbToGain(db: number): number {

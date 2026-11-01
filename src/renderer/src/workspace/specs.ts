@@ -73,6 +73,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: true
   },
   {
+    id: 'keyframe-editor',
+    title: 'Keyframe Editor',
+    shortcut: 'Alt+0',
+    defaultRect: { x: 240, y: 380, w: 900, h: 300 },
+    minSize: { w: 420, h: 160 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

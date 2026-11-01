@@ -59,12 +59,14 @@ const COLOURS = {
   adjustmentSelected: '#9a84d6',
   fxBadge: '#a07cff',
   transitionSelected: '#ffffff',
-  transitionText: '#1b1d22'
+  transitionText: '#1b1d22',
+  keyframe: '#e8e8ea'
 }
 
 /** Premiere's speed badge: [200%], reversed as [-100%], or a frame hold. */
 export function speedBadge(clip: Clip): string {
   if (clip.speed === 0) return ' [Hold]'
+  if (clip.keyframes['speed']?.length && !clip.reverse) return ' [Speed ramp]'
   if (clip.speed === 1 && !clip.reverse) return ''
   const percent = Math.round(clip.speed * 1000) / 10
   return ` [${clip.reverse ? '-' : ''}${percent}%]`
@@ -164,6 +166,32 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x
   }
 }
 
+/** Small diamonds along a clip's bottom edge where it has keyframes (any property). */
+function drawKeyframeTicks(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x: number, y: number, w: number, h: number): void {
+  if (h < 20 || w < 8) return
+  const times = new Set<Ticks>()
+  for (const track of Object.values(clip.keyframes)) for (const k of track) times.add(k.time)
+  for (const effect of clip.effects) for (const track of Object.values(effect.keyframes)) for (const k of track) times.add(k.time)
+  if (times.size === 0) return
+  const cy = y + h - 5
+  ctx.fillStyle = COLOURS.keyframe
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+  ctx.lineWidth = 1
+  for (const t of times) {
+    if (t < 0 || t >= clip.duration) continue
+    const kx = x + ticksToSeconds(t) * scene.view.pps
+    if (kx < -4 || kx > scene.width + 4) continue
+    ctx.beginPath()
+    ctx.moveTo(kx, cy - 3.5)
+    ctx.lineTo(kx + 3.5, cy)
+    ctx.lineTo(kx, cy + 3.5)
+    ctx.lineTo(kx - 3.5, cy)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  }
+}
+
 function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: number, height: number): void {
   const { view } = scene
   const x = timeToX(clip.start, view)
@@ -250,6 +278,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
     ctx.fillText(offline ? `${clip.name} (offline)` : clip.name, left, y + 2)
     ctx.restore()
   }
+  drawKeyframeTicks(ctx, scene, clip, x, y, w, h)
   ctx.restore()
 
   ctx.strokeStyle = scene.dropTarget === clip.id ? COLOURS.fxBadge : selected ? '#ffffff' : 'rgba(0,0,0,0.35)'

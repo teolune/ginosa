@@ -77,7 +77,7 @@ function setup() {
 const pair = (clip: Clip, t: ReturnType<typeof setup>) => t.clips().filter((c) => c.id === clip.id || (clip.linkId && c.linkId === clip.linkId)).map((c) => c.id)
 
 describe('source time with speed, reverse and holds', () => {
-  const base = { id: 'c', kind: 'video', trackId: 't', mediaId: 'm', start: s(10), duration: s(4), sourceIn: s(2), speed: 1, reverse: false } as Clip
+  const base = { id: 'c', kind: 'video', trackId: 't', mediaId: 'm', start: s(10), duration: s(4), sourceIn: s(2), speed: 1, reverse: false, keyframes: {} } as Clip
   const frame = s(1) / 25
 
   it('plays forwards at 100%, twice as fast at 200%', () => {

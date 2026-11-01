@@ -8,6 +8,8 @@ import { runSyncTest } from '../playback/sync-test'
 import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
 import { exportColourTest, exportEffectsTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
 import { exporter } from '../playback/exporter'
+import { buildKeyframeTimeline, exportKeyframesTest } from '../playback/keyframe-test'
+import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { sourcePlayer } from '../playback/source-player'
@@ -113,6 +115,37 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     await projectController.createAt(path, 'Snapshot Project')
   }
   switch (scenario) {
+    case 'exportkeyframes':
+    case 'keyframesui':
+    case 'keyframesgraph': {
+      // M7: the keyframe test timeline; exported and checked, or shown in the editors.
+      const wanted = /square_1080\.png$|framecode_h264\.mp4$|patches_rec709\.mov$|tone_1khz\.wav$/
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => wanted.test(f)), null)
+      await wait(1500)
+      try {
+        if (scenario === 'exportkeyframes') {
+          await window.ginosa.snapshot.report(await exportKeyframesTest())
+        } else {
+          const built = buildKeyframeTimeline()
+          const graph = scenario === 'keyframesgraph'
+          timelineController.select(graph ? [built.square] : [built.patches, built.layer, built.tone, built.ramp], 'replace')
+          timelineController.setPlayhead(secondsToTicks(graph ? 1.2 : 8.8))
+          workspaceController.open('keyframe-editor')
+          if (graph) {
+            keyframeController.setMode('graph')
+            keyframeController.focus({ clipId: built.square, effectId: null, param: 'position' })
+            const k = projectController.project!.sequence.clips.find((c) => c.id === built.square)!.keyframes['position']!
+            keyframeController.select(k.map((x) => ({ clipId: built.square, effectId: null, param: 'position', keyframeId: x.id })), 'replace')
+          }
+          workspaceController.focus('effect-controls')
+          timelineController.zoomToFit()
+          await wait(1800)
+        }
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      break
+    }
     case 'exportsync':
     case 'exportcolour':
     case 'exportspeed':
@@ -303,7 +336,7 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'speed':
     case 'speeddialog': {
       const all = await window.ginosa.snapshot.testMedia()
-      const special = (f: string) => /sync_flash_beep\.mp4$|framecode_h264\.mp4$|patches_[a-z0-9]+\.mov$/.test(f)
+      const special = (f: string) => /sync_flash_beep\.mp4$|framecode_h264\.mp4$|patches_[a-z0-9]+\.mov$|square_1080\.png$|tone_1khz\.wav$/.test(f)
       const files =
         scenario === 'sync' ? all.filter((f) => f.endsWith('sync_flash_beep.mp4')) : scenario === 'speed' || scenario === 'speeddialog' ? all.filter((f) => f.endsWith('framecode_h264.mp4')) : all.filter((f) => !special(f))
       await mediaController.importPaths(files, null)

@@ -3,7 +3,9 @@ import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaI
 import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition } from './model'
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { effectById } from '../../effects/registry'
-import { sanitiseParams, upgradeInstance } from '../effects/params'
+import { sanitiseKeyframes, sanitiseParams, upgradeInstance } from '../effects/params'
+import { normaliseTrack, type Interpolation, type Keyframe, type KeyframeMap } from '../keyframes/keyframes'
+import { clampValue, propertySpec, speedKeyframeProblem, staticValue } from '../keyframes/properties'
 import type { EffectInstance, ParamValue } from '../effects/types'
 
 /**
@@ -107,6 +109,13 @@ function migrate(raw: Json): Json {
     const sequence = isObject(data['sequence']) ? data['sequence'] : {}
     const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
     data = { ...data, schemaVersion: 6, sequence: { ...sequence, clips: clips.map((c) => (isObject(c) ? { ...c, effects: [], adjustment: false } : c)) } }
+  }
+  if (version < 7) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const clips = Array.isArray(sequence['clips']) ? sequence['clips'] : []
+    const withKeyframes = (c: unknown) =>
+      isObject(c) ? { ...c, keyframes: {}, effects: Array.isArray(c['effects']) ? c['effects'].map((e) => (isObject(e) ? { ...e, keyframes: {} } : e)) : c['effects'] } : c
+    data = { ...data, schemaVersion: 7, sequence: { ...sequence, clips: clips.map(withKeyframes) } }
   }
   return data
 }
@@ -306,8 +315,45 @@ function parseClip(value: unknown, index: number): Clip {
     transitionIn: parseTransition(value['transitionIn'], `${where}.transitionIn`),
     transitionOut: parseTransition(value['transitionOut'], `${where}.transitionOut`),
     effects: parseEffects(value['effects'], `${where}.effects`),
-    adjustment: expectBoolean(value, 'adjustment', where)
+    adjustment: expectBoolean(value, 'adjustment', where),
+    keyframes: parseKeyframes(value['keyframes'], `${where}.keyframes`)
   }
+}
+
+const INTERPOLATIONS: readonly Interpolation[] = ['hold', 'linear', 'bezier']
+
+function parseHandle(value: unknown, where: string): Keyframe['in'] {
+  if (!isObject(value) || !Array.isArray(value['v'])) throw new ProjectFormatError(`${where} should be a handle`)
+  const v = value['v'].map((n, i) => {
+    if (typeof n !== 'number' || !Number.isFinite(n)) throw new ProjectFormatError(`${where}.v[${i}] should be a number`)
+    return n
+  })
+  return { t: expectNumber(value, 't', where), v }
+}
+
+/** Keyframes by property, as stored; values are checked against their properties once clips and effects are known. */
+function parseKeyframes(value: unknown, where: string): KeyframeMap {
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const map: KeyframeMap = {}
+  for (const [key, list] of Object.entries(value)) {
+    if (!Array.isArray(list)) throw new ProjectFormatError(`${where}.${key} should be a list`)
+    map[key] = list.map((raw, index) => {
+      const at = `${where}.${key}[${index}]`
+      if (!isObject(raw)) throw new ProjectFormatError(`${at} should be an object`)
+      const interpolation = raw['interpolation']
+      if (!INTERPOLATIONS.includes(interpolation as Interpolation)) throw new ProjectFormatError(`${at}.interpolation should be hold, linear or bezier`)
+      return {
+        id: expectString(raw, 'id', at),
+        // Keyframes can sit before the clip's start (its head was trimmed off).
+        time: expectInteger(raw, 'time', at, -MAX_TICKS, MAX_TICKS),
+        value: parseParamValue(raw['value'], `${at}.value`),
+        interpolation: interpolation as Interpolation,
+        in: parseHandle(raw['in'], `${at}.in`),
+        out: parseHandle(raw['out'], `${at}.out`)
+      }
+    })
+  }
+  return map
 }
 
 function parseParamValue(value: unknown, where: string): ParamValue {
@@ -332,7 +378,8 @@ function parseEffects(value: unknown, where: string): EffectInstance[] {
       enabled: expectBoolean(raw, 'enabled', at),
       mix: Math.min(100, Math.max(0, expectNumber(raw, 'mix', at))),
       blendMode: parseBlendMode(raw['blendMode'], `${at}.blendMode`),
-      params: Object.fromEntries(Object.entries(params).map(([key, v]) => [key, parseParamValue(v, `${at}.params.${key}`)]))
+      params: Object.fromEntries(Object.entries(params).map(([key, v]) => [key, parseParamValue(v, `${at}.params.${key}`)])),
+      keyframes: parseKeyframes(raw['keyframes'], `${at}.keyframes`)
     }
   })
 }
@@ -405,8 +452,17 @@ export function parseProject(input: string | unknown): Project {
       const manifest = effectById(effect.effectId)
       if (!manifest) return effect
       const upgraded = upgradeInstance(manifest, effect, size)
-      return { ...upgraded, params: sanitiseParams(manifest, upgraded.params, size) }
+      return { ...upgraded, params: sanitiseParams(manifest, upgraded.params, size), keyframes: sanitiseKeyframes(manifest, upgraded.keyframes, size) }
     })
+    // The clip's own keyframes: only properties it has, with valid values.
+    const keyframes: KeyframeMap = {}
+    for (const [param, track] of Object.entries(clip.keyframes)) {
+      const spec = propertySpec(clip, null, param)
+      if (!spec || track.length === 0 || (param === 'speed' && speedKeyframeProblem(clip))) continue
+      const fallback = staticValue(clip, null, param)
+      keyframes[param] = normaliseTrack(track, (v) => clampValue(spec, v) ?? fallback, false)
+    }
+    clip.keyframes = keyframes
   }
   const markers = markersRaw.map(parseMarker)
 

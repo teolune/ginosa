@@ -79,6 +79,12 @@ if has hevc_videotoolbox; then
     -bsf:v "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1" "$out/patches_rec709.mov"
 fi
 
+echo "Still: a white 200 px square on black, 1920x1080 (for the keyframe test: its edges show Position, Scale and Rotation)"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=black:s=1920x1080:d=1,drawbox=x=860:y=440:w=200:h=200:color=white:t=fill" -frames:v 1 "$out/square_1080.png"
+
+echo "Tone: 8 s of 1 kHz at half level, mono (for the volume keyframe test)"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.5*sin(2*PI*1000*t)':sample_rate=48000:duration=8" -c:a pcm_s24le "$out/tone_1khz.wav"
+
 echo "4K still image"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
 

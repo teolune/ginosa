@@ -87,7 +87,7 @@ describe('effect parameters', () => {
 
   it('upgrades instances made with an older version of their effect', () => {
     const v2: EffectManifest = { ...transform, version: 2, migrate: (p, from) => (from === 1 ? { ...p, scale: Number(p['zoom'] ?? 100) } : p) }
-    const old = { id: 'e', effectId: 'transform', version: 1, enabled: true, mix: 100, blendMode: 'normal' as const, params: { zoom: 250 } }
+    const old = { id: 'e', effectId: 'transform', version: 1, enabled: true, mix: 100, blendMode: 'normal' as const, params: { zoom: 250 }, keyframes: {} }
     const upgraded = upgradeInstance(v2, old, { width: 100, height: 100 })
     expect(upgraded.version).toBe(2)
     expect(upgraded.params['scale']).toBe(250)
@@ -194,7 +194,7 @@ describe('saving', () => {
     const restored = parseProject(serializeProject(t.history.state))
     expect(restored.sequence.clips).toEqual(t.history.state.sequence.clips)
     const data = JSON.parse(serializeProject(t.history.state))
-    data.sequence.clips[0].effects.push({ id: 'z', effectId: 'from-the-future', version: 3, enabled: true, mix: 100, blendMode: 'normal', params: { glow: 2, pos: [1, 2] } })
+    data.sequence.clips[0].effects.push({ id: 'z', effectId: 'from-the-future', version: 3, enabled: true, mix: 100, blendMode: 'normal', params: { glow: 2, pos: [1, 2] }, keyframes: {} })
     expect(parseProject(data).sequence.clips[0]!.effects.at(-1)).toMatchObject({ effectId: 'from-the-future', params: { glow: 2, pos: [1, 2] } })
   })
 

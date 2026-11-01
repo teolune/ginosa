@@ -1,14 +1,15 @@
 import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
 import type { EffectInstance } from '../effects/types'
+import type { KeyframeMap } from '../keyframes/keyframes'
 
 /**
  * The project document. Everything the user can undo lives here; window layouts,
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. */
-export const PROJECT_SCHEMA_VERSION = 6
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. */
+export const PROJECT_SCHEMA_VERSION = 7
 
 export type TrackKind = 'video' | 'audio'
 
@@ -118,6 +119,12 @@ export interface Clip {
   effects: EffectInstance[]
   /** An adjustment layer: a video-track item with no media, whose effects apply to the tracks beneath it. */
   adjustment: boolean
+  /**
+   * Keyframes for the clip's own properties (Position, Scale, Scale Width, Rotation, Anchor
+   * Point, Opacity, Volume, Speed), times in ticks from the clip's start. A property with
+   * keyframes ignores its value above. Effects keep theirs in each EffectInstance.
+   */
+  keyframes: KeyframeMap
 }
 
 export interface Transition {

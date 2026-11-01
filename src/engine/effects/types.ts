@@ -1,4 +1,5 @@
 import type { BlendMode } from '../project/model'
+import type { KeyframeMap } from '../keyframes/keyframes'
 
 /**
  * What an effect module declares (one folder per effect in src/effects/<id>/: a
@@ -90,6 +91,8 @@ export interface EffectInstance {
   mix: number
   blendMode: BlendMode
   params: Record<string, ParamValue>
+  /** Keyframes by parameter id ('mix' for Mix), times in ticks from the clip's start. */
+  keyframes: KeyframeMap
 }
 
 export interface ImageSize {

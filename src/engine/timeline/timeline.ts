@@ -1,4 +1,5 @@
 import { cloneEffect } from '../effects/params'
+import { cloneKeyframeMap, shiftKeyframeMap, speedIntegral, timelineForMedia, type Keyframe } from '../keyframes/keyframes'
 import type { MediaItem } from '../project/media'
 import { CommandError } from '../project/commands'
 import { frameRateOf, type Clip, type IdFactory, type Sequence, type Track, type TrackKind } from '../project/model'
@@ -119,12 +120,21 @@ export function cloneClip(clip: Clip): Clip {
     transitionIn: clip.transitionIn ? { ...clip.transitionIn } : null,
     transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null,
     // Effects are copied with their ids (ids only need to be unique within a clip).
-    effects: clip.effects.map((e) => cloneEffect(e))
+    effects: clip.effects.map((e) => cloneEffect(e)),
+    keyframes: cloneKeyframeMap(clip.keyframes)
   }
 }
 
-/** How much media a clip uses, in ticks (its duration × speed; 0 for a frame hold). */
+/** A clip's Speed keyframes, if it's speed-ramped (forward video only). */
+export function speedRamp(clip: Clip): Keyframe[] | null {
+  const track = clip.keyframes['speed']
+  return track && track.length > 0 && clip.speed > 0 && !clip.reverse ? track : null
+}
+
+/** How much media a clip uses, in ticks (its duration × speed, or what its speed ramp covers; 0 for a frame hold). */
 export function sourceSpan(clip: Clip): Ticks {
+  const ramp = speedRamp(clip)
+  if (ramp) return Math.round(speedIntegral(ramp, clip.duration))
   return Math.round(clip.duration * clip.speed)
 }
 
@@ -133,11 +143,14 @@ export function sourceSpan(clip: Clip): Ticks {
  * the sequence's frame length), with speed, reverse and frame hold. A reversed clip shows
  * the same frames as it would forwards, in the opposite order: its first frame is the
  * forward clip's last. Times past the media's ends (a transition needing more than there
- * is) hold the edge frame, as Premiere does.
+ * is) hold the edge frame, as Premiere does. A speed-ramped clip has travelled as far
+ * as its Speed keyframes have carried it.
  */
 export function sourceTimeAt(clip: Clip, time: Ticks, frame: Ticks, length: Ticks | null = null): Ticks {
   let t: Ticks
-  if (clip.speed === 0) t = clip.sourceIn
+  const ramp = speedRamp(clip)
+  if (ramp) t = clip.sourceIn + Math.round(speedIntegral(ramp, time - clip.start))
+  else if (clip.speed === 0) t = clip.sourceIn
   else if (clip.reverse) t = clip.sourceIn + sourceSpan(clip) - Math.round((time - clip.start + frame) * clip.speed)
   else t = clip.sourceIn + Math.round((time - clip.start) * clip.speed)
   if (length !== null) t = Math.min(Math.max(0, t), Math.max(0, length - 1))
@@ -149,9 +162,14 @@ export function sourceTimeAt(clip: Clip, time: Ticks, frame: Ticks, length: Tick
  * that touches depends on direction: a reversed clip starts at the end of its media.
  */
 export function cutHead(clip: Clip, ticks: Ticks): void {
+  const ramp = speedRamp(clip)
   clip.start += ticks
   clip.duration -= ticks
-  if (clip.speed > 0 && !clip.reverse) clip.sourceIn += Math.round(ticks * clip.speed)
+  if (ramp) clip.sourceIn += Math.round(speedIntegral(ramp, ticks))
+  else if (clip.speed > 0 && !clip.reverse) clip.sourceIn += Math.round(ticks * clip.speed)
+  // Keyframes stay where they were in the sequence, with the picture.
+  shiftKeyframeMap(clip.keyframes, -ticks)
+  for (const effect of clip.effects) shiftKeyframeMap(effect.keyframes, -ticks)
 }
 
 /** Removes `ticks` from the clip's end (negative: extends it). */
@@ -168,6 +186,8 @@ export function handles(clip: Clip, length: Ticks | null): { head: Ticks; tail: 
   if (clip.speed === 0 || length === null) return { head: Number.MAX_SAFE_INTEGER, tail: Number.MAX_SAFE_INTEGER }
   const before = Math.max(0, clip.sourceIn)
   const after = Math.max(0, length - clip.sourceIn - sourceSpan(clip))
+  const ramp = speedRamp(clip)
+  if (ramp) return { head: timelineForMedia(ramp, 0, before, -1), tail: timelineForMedia(ramp, clip.duration, after, 1) }
   const toTimeline = (ticks: Ticks) => Math.floor(ticks / clip.speed)
   return clip.reverse ? { head: toTimeline(after), tail: toTimeline(before) } : { head: toTimeline(before), tail: toTimeline(after) }
 }
