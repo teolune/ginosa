@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { projectController } from '../state/project-controller'
+import { warnings } from './warnings'
 import { useObservable } from '../state/observable'
 
 function formatTime(iso: string | null): string {
@@ -80,6 +81,46 @@ export function PromptDialog({ request }: { request: PromptRequest | null }) {
             Cancel
           </button>
           <button type="submit" className="button primary" disabled={!value.trim()}>
+            {request.confirm}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+/** A warning before something is removed, with "Don't ask me again" (decision 42). */
+export function WarningDialog() {
+  useObservable(warnings)
+  const [dontAsk, setDontAsk] = useState(false)
+  const request = warnings.request
+  useEffect(() => setDontAsk(false), [request])
+  if (!request) return null
+  return (
+    <div className="modal-backdrop">
+      <form
+        className="modal"
+        role="alertdialog"
+        aria-modal="true"
+        onSubmit={(event) => {
+          event.preventDefault()
+          request.resolve(true, dontAsk)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') request.resolve(false, false)
+        }}
+      >
+        <h2>{request.title}</h2>
+        <p>{request.message}</p>
+        <label className="check-row">
+          <input type="checkbox" checked={dontAsk} onChange={(event) => setDontAsk(event.target.checked)} />
+          <span>Don’t ask me again</span>
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="button" onClick={() => request.resolve(false, false)}>
+            Cancel
+          </button>
+          <button type="submit" className="button primary" autoFocus>
             {request.confirm}
           </button>
         </div>

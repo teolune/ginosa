@@ -8,7 +8,7 @@ import { runSyncTest } from '../playback/sync-test'
 import { buildSpeedTimeline, runSpeedTest } from '../playback/speed-test'
 import { exportColourTest, exportEffectsTest, exportSpeedTest, exportSyncTest } from '../playback/export-test'
 import { exporter } from '../playback/exporter'
-import { buildKeyframeTimeline, exportKeyframesTest } from '../playback/keyframe-test'
+import { buildKeyframeTimeline, exportKeyframesTest, exportRampSyncTest } from '../playback/keyframe-test'
 import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
@@ -27,7 +27,8 @@ import { useObservable } from '../state/observable'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 import { Workspace } from '../workspace/Workspace'
-import { ErrorToast, PromptDialog, RecoveryDialog, type PromptRequest } from './Dialogs'
+import { ErrorToast, PromptDialog, RecoveryDialog, WarningDialog, type PromptRequest } from './Dialogs'
+import { confirmKeyframeRemoval, warnings } from './warnings'
 import { StartScreen } from './StartScreen'
 import { TitleBar } from './TitleBar'
 
@@ -116,15 +117,19 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
   }
   switch (scenario) {
     case 'exportkeyframes':
+    case 'exportrampsync':
+    case 'keyframeswarning':
     case 'keyframesui':
     case 'keyframesgraph': {
       // M7: the keyframe test timeline; exported and checked, or shown in the editors.
-      const wanted = /square_1080\.png$|framecode_h264\.mp4$|patches_rec709\.mov$|tone_1khz\.wav$/
+      const wanted = scenario === 'exportrampsync' ? /sync_flash_beep\.mp4$/ : /square_1080\.png$|framecode_h264\.mp4$|patches_rec709\.mov$|tone_1khz\.wav$/
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => wanted.test(f)), null)
       await wait(1500)
       try {
         if (scenario === 'exportkeyframes') {
           await window.ginosa.snapshot.report(await exportKeyframesTest())
+        } else if (scenario === 'exportrampsync') {
+          await window.ginosa.snapshot.report(await exportRampSyncTest())
         } else {
           const built = buildKeyframeTimeline()
           const graph = scenario === 'keyframesgraph'
@@ -139,6 +144,8 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
           }
           workspaceController.focus('effect-controls')
           timelineController.zoomToFit()
+          // Decision 42: the warning before keyframes are removed.
+          if (scenario === 'keyframeswarning') void confirmKeyframeRemoval(3, 'Position')
           await wait(1800)
         }
       } catch (error) {
@@ -583,6 +590,11 @@ export function App() {
           return workspaceController.apply(command.name)
         case 'workspace-reset':
           return workspaceController.reset()
+        case 'show-warnings': {
+          const count = warnings.showAllAgain()
+          projectController.showMessage(count > 0 ? `ginosa will ask again before the ${count} kind${count === 1 ? '' : 's'} of change you'd silenced` : 'No warnings were silenced')
+          return
+        }
         case 'workspace-save-as': {
           const name = await askName('Save Workspace', 'Workspace name', `${workspaceController.activeName} copy`, 'Save')
           if (name) workspaceController.saveAs(name)
@@ -608,6 +620,7 @@ export function App() {
       {hasProject ? <Workspace /> : <StartScreen />}
       <RecoveryDialog />
       <PromptDialog request={prompt} />
+      <WarningDialog />
       <ErrorToast />
     </div>
   )

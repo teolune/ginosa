@@ -45,34 +45,38 @@ interface Built {
   tone: string
 }
 
+function item(name: string) {
+  const found = projectController.project!.media.find((m) => m.name === name)
+  if (!found) throw new Error(`${name} is missing (npm run test-media)`)
+  return found
+}
+
+function run(command: Parameters<typeof projectController.dispatch>[0]): void {
+  if (!projectController.dispatch(command)) throw new Error(`${command.label} did nothing${projectController.lastError ? `: ${projectController.lastError}` : ''}`)
+}
+
+function place(name: string, at: number, length: number, trackId: string | null, audioTrackId: string | null = null): string {
+  projectController.dispatch(placeMedia({ mediaId: item(name).id, sourceIn: 0, sourceOut: s(length), at: s(at), videoTrackId: trackId, audioTrackId, mode: 'overwrite' }))
+  return projectController.project!.sequence.clips.find((c) => c.trackId === (trackId ?? audioTrackId) && c.start === s(at))!.id
+}
+
+/** Animates a value: keys are [seconds from the clip's start, value]; presets go on keyframe indexes. */
+function animate(clipId: string, effectId: string | null, param: string, keys: Array<[number, unknown]>, presets: Array<[number, InterpolationPreset]> = []): void {
+  const clip = () => projectController.project!.sequence.clips.find((c) => c.id === clipId)!
+  const ref: PropertyRef = { clipId, effectId, param }
+  run(setAnimated(ref, true, clip().start + s(keys[0]![0])))
+  for (const [at, value] of keys) projectController.dispatch(setValue(ref, value as never, clip().start + s(at)))
+  for (const [index, preset] of presets) {
+    const c = clip()
+    const map = effectId ? c.effects.find((e) => e.id === effectId)!.keyframes : c.keyframes
+    run(setKeyframeInterpolation([{ ...ref, keyframeId: map[param]![index]!.id }], preset))
+  }
+}
+
 export function buildKeyframeTimeline(): Built {
   const project = projectController.project!
   const video = project.sequence.tracks.filter((t) => t.kind === 'video').map((t) => t.id)
   const audio = project.sequence.tracks.find((t) => t.kind === 'audio')!.id
-  const item = (name: string) => {
-    const found = projectController.project!.media.find((m) => m.name === name)
-    if (!found) throw new Error(`${name} is missing (npm run test-media)`)
-    return found
-  }
-  const place = (name: string, at: number, length: number, trackId: string | null, audioTrackId: string | null = null) => {
-    projectController.dispatch(placeMedia({ mediaId: item(name).id, sourceIn: 0, sourceOut: s(length), at: s(at), videoTrackId: trackId, audioTrackId, mode: 'overwrite' }))
-    return projectController.project!.sequence.clips.find((c) => c.trackId === (trackId ?? audioTrackId) && c.start === s(at))!.id
-  }
-  const run = (command: Parameters<typeof projectController.dispatch>[0]) => {
-    if (!projectController.dispatch(command)) throw new Error(`${command.label} did nothing${projectController.lastError ? `: ${projectController.lastError}` : ''}`)
-  }
-  /** Animates a value: keys are [seconds from the clip's start, value]; presets go on keyframe indexes. */
-  const animate = (clipId: string, effectId: string | null, param: string, keys: Array<[number, unknown]>, presets: Array<[number, InterpolationPreset]> = []) => {
-    const clip = () => projectController.project!.sequence.clips.find((c) => c.id === clipId)!
-    const ref: PropertyRef = { clipId, effectId, param }
-    run(setAnimated(ref, true, clip().start + s(keys[0]![0])))
-    for (const [at, value] of keys) projectController.dispatch(setValue(ref, value as never, clip().start + s(at)))
-    for (const [index, preset] of presets) {
-      const c = clip()
-      const map = effectId ? c.effects.find((e) => e.id === effectId)!.keyframes : c.keyframes
-      run(setKeyframeInterpolation([{ ...ref, keyframeId: map[param]![index]!.id }], preset))
-    }
-  }
   const last = 3.96
   const square = place('square_1080', 0, 4, video[0]!)
   animate(square, null, 'position', [[0, [960, 540]], [2, [1400, 540]], [last, [700, 540]]], [[0, 'ease-out'], [1, 'ease-in-out']])
@@ -106,8 +110,7 @@ export function buildKeyframeTimeline(): Built {
 }
 
 /** The ramp's media time `t` ticks into the clip, by Simpson's rule on the speed curve (independent of the engine's exact integral). */
-function rampMediaTime(t: Ticks): number {
-  const clip = projectController.project!.sequence.clips.find((c) => c.keyframes['speed'])!
+function rampMediaTime(t: Ticks, clip = projectController.project!.sequence.clips.find((c) => c.kind === 'video' && c.keyframes['speed'])!): number {
   const track = clip.keyframes['speed']!
   const n = 4000
   const h = t / n
@@ -332,3 +335,80 @@ export async function exportKeyframesTest() {
   return { verdict: reasons.length ? 'fail' : 'pass', reasons, ...report }
 }
 
+
+/**
+ * Decision 41: linked sound follows its picture's speed ramp. The flash-and-beep clip
+ * (a white frame and a beep at every whole second of the file) is ramped 100% → 200% →
+ * 50% → 100%, picture and linked sound together, and exported. Every frame must show the
+ * flash exactly when the ramp reaches a whole second, and every beep must start where the
+ * ramp (integrated here independently) puts that second.
+ */
+export async function exportRampSyncTest() {
+  const project = projectController.project!
+  const v1 = project.sequence.tracks.find((t) => t.kind === 'video')!.id
+  const a1 = project.sequence.tracks.find((t) => t.kind === 'audio')!.id
+  const clipId = place('sync_flash_beep', 0, 7, v1, a1)
+  animate(clipId, null, 'speed', [[0, 100], [3, 200], [5, 50], [6.96, 100]], [[0, 'ease-out'], [1, 'ease-in']])
+  const clip = () => projectController.project!.sequence.clips.find((c) => c.id === clipId)!
+  const sound = projectController.project!.sequence.clips.find((c) => c.kind === 'audio')!
+  const reasons: string[] = []
+  if (!sound.keyframes['speed']?.length) reasons.push('the linked sound did not get the ramp')
+
+  const path = (await window.ginosa.snapshot.exportPath('ramp-sync.mov'))!
+  const result = await exporter.run(projectController.project!, { format: 'prores-422hq', container: 'mov', bitrateMbps: 40, keyframeSeconds: 1 }, path)
+  if (!result) throw new Error(exporter.state.kind === 'failed' ? exporter.state.error : `export ${exporter.state.kind}`)
+  const a = (await window.ginosa.snapshot.analyseExport(path, [640]))!
+
+  // Picture: the flash shows exactly in the frames whose media frame is a whole second.
+  const frames = a.rows.length
+  let wrongFrames = 0
+  const frameExamples: string[] = []
+  let flashesShown = 0
+  for (let j = 0; j < frames; j++) {
+    const media = rampMediaTime(j * FRAME, clip()) / FRAME
+    if (Math.abs(media - Math.round(media)) < 1e-4) continue
+    const expected = Math.floor(media) % 25 === 0
+    const shown = a.rows[j]![0]![1]! > 0.5
+    if (shown) flashesShown++
+    if (shown !== expected) {
+      wrongFrames++
+      if (frameExamples.length < 4) frameExamples.push(`frame ${j}: flash ${shown ? 'shown' : 'missing'} (media frame ${media.toFixed(2)})`)
+    }
+  }
+  if (wrongFrames > 0) reasons.push(`${wrongFrames} frames showed the flash wrongly`)
+
+  // Sound: each beep starts when the ramp reaches that whole second of the file.
+  const used = ticksToSeconds(rampMediaTime(clip().duration, clip()))
+  const whole = Array.from({ length: Math.floor(used) + 1 }, (_, k) => k).filter((k) => k < used)
+  const timelineAt = (mediaSeconds: number) => {
+    let lo = 0
+    let hi = clip().duration
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      if (ticksToSeconds(rampMediaTime(mid, clip())) < mediaSeconds) lo = mid
+      else hi = mid
+    }
+    return ticksToSeconds((lo + hi) / 2)
+  }
+  const expectedBeeps = whole.map(timelineAt)
+  const beeps = a.onsets.map((t) => a.audioStart + t)
+  const offsets = expectedBeeps.map((want) => {
+    const nearest = beeps.reduce((best, b) => (Math.abs(b - want) < Math.abs(best - want) ? b : best), Number.POSITIVE_INFINITY)
+    return Math.round((nearest - want) * 1000 * 100) / 100
+  })
+  const worst = Math.max(...offsets.map(Math.abs))
+  if (beeps.length !== expectedBeeps.length) reasons.push(`expected ${expectedBeeps.length} beeps, found ${beeps.length}`)
+  if (!(worst <= 1)) reasons.push(`beeps are up to ${worst} ms from where the ramp puts them (limit 1 ms)`)
+  return {
+    verdict: reasons.length ? 'fail' : 'pass',
+    reasons,
+    mediaUsedSeconds: Math.round(used * 1000) / 1000,
+    frames,
+    flashesShown,
+    wrongFrames,
+    frameExamples,
+    expectedBeepsSeconds: expectedBeeps.map((t) => Math.round(t * 10000) / 10000),
+    beepOffsetsMs: offsets,
+    worstMs: worst
+  }
+}

@@ -20,16 +20,20 @@ npm run check
 npm run test-media
 npm run snapshot -- --scenario exportkeyframes
 cat renders/ui/exportkeyframes.json
+npm run snapshot -- --scenario exportrampsync
+cat renders/ui/exportrampsync.json
 npm run snapshot -- --scenario keyframesui
 open renders/ui/keyframesui.png
 npm run snapshot -- --scenario keyframesgraph
 open renders/ui/keyframesgraph.png
+npm run snapshot -- --scenario keyframeswarning
+open renders/ui/keyframeswarning.png
 npm run dev
 ```
 
-- [ ] `npm run check` ends with **Tests 234 passed (234)**. The 25 new tests cover:
+- [ ] `npm run check` ends with **Tests 235 passed (235)**. The 26 new tests cover:
   - the maths: hold, linear, bezier (straight handles = linear), Ease In / Ease Out / Ease In and Out, choices always holding
-  - speed ramps: the exact integral, trims that keep the same frames, trim limits, refusals (reversed clips, holds, Speed/Duration on a ramp)
+  - speed ramps: the exact integral, trims that keep the same frames, trim limits, refusals (reversed clips, holds, Speed/Duration on a ramp), linked sound following the ramp (and not once unlinked)
   - every keyframe command, each undoable: stopwatch on/off, ◆, move (onto another replaces it), stretch, interpolation, delete, change, copy/paste
   - keyframes staying with the picture through splits, trims and speed changes
   - effect parameters, Mix and choices; presets scaling keyframed positions
@@ -40,6 +44,8 @@ npm run dev
   - the square's edges in all 100 frames vs the keyframes: worst **0.12 px**; brightness vs Opacity: **0.0005**
   - the speed ramp, frame number in every frame: **96 of 96** right in the file and **96 of 96** in real-time playback (0 late)
   - the sound level vs the Volume keyframes in 10 ms windows: worst **under 0.001 dB**
+- [ ] `exportrampsync` checks decision 41. The flash-and-beep clip, picture and linked sound, is ramped 100% → 200% → 50% → 100% and exported. Every frame must show the flash exactly when the ramp reaches a whole second of the file, and every beep must start where the ramp puts it. Expect `"verdict":"pass"`; I measured 0 wrong frames and every beep within **0.04 ms**.
+- [ ] `keyframeswarning.png` shows the warning before keyframes are removed, with **Don't ask me again**.
 - [ ] `keyframesui.png` shows the Keyframe Editor's dope sheet with the patches clip, the adjustment layer, the ramp and the tone, and Effect Controls with stopwatches. `keyframesgraph.png` shows the square's Position curve with its handles.
 
 ## Effect Controls
@@ -48,8 +54,9 @@ npm run dev
 - [ ] Move the playhead and change the value: that makes a keyframe there. A whole drag on a value is one undo step.
 - [ ] **◀ ◆ ▶** next to an animated value: go to the previous keyframe; add (or remove) a keyframe at the playhead; go to the next.
 - [ ] Right-click a value: **Create Keyframes**, **Remove All Keyframes**, **Add/Delete Keyframe at Playhead**, previous/next, **Paste Keyframes Here**, **Show in Keyframe Editor**.
-- [ ] Clicking the stopwatch off removes the keyframes and keeps the value at the playhead (⌘Z brings them back).
+- [ ] Clicking the stopwatch off asks first, then removes the keyframes and keeps the value at the playhead (⌘Z brings them back). Reset on a section with keyframes asks too. Tick **Don't ask me again** to stop the question; **ginosa → Show All Warnings Again** brings it back.
 - [ ] **Time Remapping → Speed**: turn on its stopwatch to ramp the speed (0–10,000%; 0 pauses the picture). The clip's badge says **[Speed ramp]**. One fixed speed is still ⌘R.
+- [ ] Ramp a clip that has linked sound: the sound speeds up and slows down with it (pitch changes like tape) and stays in sync. Unlink them (⌘L) and the sound plays at its normal speed again.
 - [ ] Effects: Mix and every setting have stopwatches. Choices and on/off settings jump at their keyframes.
 - [ ] Clips with keyframes show small diamonds along the bottom of the clip in the timeline.
 
@@ -77,7 +84,7 @@ npm run dev
 
 ## Your footage
 
-- [ ] Ramp the speed of one of your Apple Log clips (for example 100% → 400% → 100%) and play it. Watch the timing overlay and tell me the fps and dropped numbers at Full resolution.
+- [ ] Ramp the speed of one of your Apple Log clips with its sound (for example 100% → 400% → 100%) and play it; listen to the sound following. Watch the timing overlay and tell me the fps and dropped numbers at Full resolution.
 - [ ] Animate Volume on your song (a fade in over 2 s) and listen.
 
 ## Not yet
@@ -85,7 +92,3 @@ npm run dev
 - Snapping keyframes to beats comes with the beat grid in M8.
 - Position moves in straight lines between keyframes; curved motion paths drawn in the Program monitor aren't there yet.
 - The faint "modulated" curve in the graph comes with audio modulation in M8.
-
-## Decisions to look at
-
-Rows 41–45 in `docs/DECISIONS.md` are new and **Proposed**: how speed ramps treat sound and running out of media, what Reset and the stopwatch do to keyframes, the default interpolation, how keyframe drags and paste behave, and straight-line Position paths. Tell me which you approve or want changed.

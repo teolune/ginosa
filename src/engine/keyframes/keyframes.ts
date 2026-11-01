@@ -212,19 +212,27 @@ export function speedAt(track: readonly Keyframe[], t: Ticks): number {
  */
 export function timelineForMedia(track: readonly Keyframe[], t: Ticks, media: Ticks, direction: 1 | -1): Ticks {
   if (media <= 0) return 0
-  const used = (d: number) => (direction > 0 ? speedIntegral(track, t + d) - speedIntegral(track, t) : speedIntegral(track, t) - speedIntegral(track, t - d))
-  let hi = 1
+  const base = speedIntegral(track, t)
+  const used = (d: number) => (direction > 0 ? speedIntegral(track, t + d) - base : base - speedIntegral(track, t - d))
+  // Start from the speed here, so the search usually brackets the answer in a step or two.
+  const speed = Math.max(0.01, speedAt(track, t) / 100)
+  let hi = Math.max(1, Math.ceil(media / speed))
+  let lo = 0
   while (used(hi) < media) {
+    lo = hi
     hi *= 2
     if (hi > Number.MAX_SAFE_INTEGER / 4) return Number.MAX_SAFE_INTEGER
   }
-  let lo = 0
   while (hi - lo > 1) {
     const mid = Math.floor((lo + hi) / 2)
     if (used(mid) <= media) lo = mid
     else hi = mid
   }
   return lo
+}
+
+export function sameKeyframes(a: readonly Keyframe[], b: readonly Keyframe[]): boolean {
+  return a.length === b.length && JSON.stringify(a) === JSON.stringify(b)
 }
 
 // ---- Editing (pure; works on Immer drafts) ---------------------------------------------

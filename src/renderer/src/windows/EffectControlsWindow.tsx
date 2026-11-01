@@ -11,6 +11,7 @@ import { addKeyframe, removeKeyframes, resetValues, setAnimated, setValue } from
 import { clipEnd, toFrame } from '@engine/timeline/timeline'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { keyframeController } from '../keyframes/keyframe-controller'
+import { confirmKeyframeRemoval } from '../app/warnings'
 import { workspaceController } from '../state/workspace'
 import { defaultMotion } from '@engine/timeline/motion'
 import { COLOUR_LABELS, effectiveColour } from '@engine/project/media'
@@ -130,6 +131,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+/** How many keyframes a reset would remove: the clip's own, for these properties. */
+function keyframeCount(clip: Clip, params: string[]): number {
+  return params.reduce((n, p) => n + (clip.keyframes[p]?.length ?? 0), 0)
+}
+
+/** Runs a reset, asking first if it would remove keyframes (decision 42). */
+async function resetWithWarning(count: number, what: string, run: () => void): Promise<void> {
+  if (await confirmKeyframeRemoval(count, what)) run()
+}
+
 /** Where the playhead is on a clip: the time values are shown at, and whether a keyframe can go there. */
 function clipTime(clip: Clip): { t: number; inside: boolean } {
   const playhead = timelineController.playhead
@@ -175,7 +186,10 @@ function PropertyRow({
   const next = track.find((k) => k.time > (inside ? here : t))
   const go = (time: number) => timelineController.movePlayhead(clip.start + time)
   const dispatch = projectController.dispatch.bind(projectController)
-  const toggle = () => dispatch(setAnimated(ref, !animated, playhead))
+  const toggle = async () => {
+    if (animated && !(await confirmKeyframeRemoval(track.length, label))) return
+    dispatch(setAnimated(ref, !animated, playhead))
+  }
   const addOrRemove = () => (atKey ? dispatch(removeKeyframes([{ ...ref, keyframeId: atKey.id }])) : dispatch(addKeyframe(ref, playhead)))
   const cantKey = locked || Boolean(unavailable) || !inside
   const showInEditor = () => {
@@ -184,7 +198,7 @@ function PropertyRow({
     workspaceController.focus('keyframe-editor')
   }
   const items: MenuEntry[] = [
-    animated ? { label: 'Remove All Keyframes', onSelect: toggle, disabled: locked, danger: true } : { label: 'Create Keyframes', onSelect: toggle, disabled: cantKey },
+    animated ? { label: 'Remove All Keyframes', onSelect: () => void toggle(), disabled: locked, danger: true } : { label: 'Create Keyframes', onSelect: () => void toggle(), disabled: cantKey },
     { label: atKey ? 'Delete Keyframe at Playhead' : 'Add Keyframe at Playhead', onSelect: addOrRemove, disabled: cantKey },
     'separator',
     { label: 'Go to Previous Keyframe', onSelect: () => prev && go(prev.time), disabled: !prev },
@@ -210,7 +224,7 @@ function PropertyRow({
           aria-label={`Animate ${label}`}
           title={stopwatchTitle}
           disabled={locked || (!animated && (Boolean(unavailable) || !inside))}
-          onClick={toggle}
+          onClick={() => void toggle()}
         >
           ⏱
         </button>
@@ -358,7 +372,11 @@ function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; ef
         <span className="fx-title">{manifest ? manifest.name : `Missing effect: ${effect.effectId}`}</span>
         <span className="spacer" />
         {manifest && (
-          <button className="button compact" disabled={locked} title={`Reset ${manifest.name}`} onClick={(event) => (event.stopPropagation(), projectController.dispatch(resetEffect(clip.id, effect.id)))}>
+          <button className="button compact" disabled={locked} title={`Reset ${manifest.name}`} onClick={(event) => {
+              event.stopPropagation()
+              const count = Object.values(effect.keyframes).reduce((n, t) => n + t.length, 0)
+              void resetWithWarning(count, manifest.name, () => projectController.dispatch(resetEffect(clip.id, effect.id)))
+            }}>
             Reset
           </button>
         )}
@@ -457,7 +475,7 @@ function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
   return (
     <Section
       title="Opacity"
-      onReset={locked ? undefined : () => projectController.dispatch(resetValues(clip.id, [{ effectId: null, param: 'opacity', value: 100 }], 'Reset Opacity', 'normal'))}
+      onReset={locked ? undefined : () => void resetWithWarning(keyframeCount(clip, ['opacity']), 'Opacity', () => projectController.dispatch(resetValues(clip.id, [{ effectId: null, param: 'opacity', value: 100 }], 'Reset Opacity', 'normal')))}
     >
       <PropertyRow clip={clip} effectId={null} param="opacity" label="Opacity" locked={locked}>
         {(value, onChange) => <ScrubNumber label="Opacity" value={Number(value)} min={0} max={100} step={0.5} unit="%" onChange={onChange} disabled={locked} />}
@@ -530,7 +548,11 @@ export function EffectControlsWindow() {
         <>
           <Section
             title="Motion"
-            onReset={locked(video) ? undefined : () => projectController.dispatch(resetMotion([video.id], 'reset'))}
+            onReset={
+              locked(video)
+                ? undefined
+                : () => void resetWithWarning(keyframeCount(video, ['position', 'scale', 'scaleWidth', 'rotation', 'anchor']), 'Motion', () => projectController.dispatch(resetMotion([video.id], 'reset')))
+            }
           >
             <PropertyRow clip={video} effectId={null} param="position" label="Position" locked={locked(video)}>
               {(value, onChange) => {
@@ -547,7 +569,7 @@ export function EffectControlsWindow() {
               {(value, onChange) => (
                 <>
                   <ScrubNumber label="Scale" value={Number(value)} min={0} max={10000} step={0.5} onChange={onChange} disabled={locked(video)} />
-                  <button className="button compact" title="Fit the whole clip in the frame (removes Scale keyframes)" disabled={locked(video)} onClick={() => projectController.dispatch(resetMotion([video.id], 'frame-size'))}>
+                  <button className="button compact" title="Fit the whole clip in the frame (removes Scale keyframes)" disabled={locked(video)} onClick={() => void resetWithWarning(keyframeCount(video, ['scale']), 'Scale', () => projectController.dispatch(resetMotion([video.id], 'frame-size')))}>
                     Frame Size
                   </button>
                 </>
@@ -574,7 +596,11 @@ export function EffectControlsWindow() {
           <OpacitySection clip={video} locked={locked(video)} />
           <Section
             title="Time Remapping"
-            onReset={locked(video) || !video.keyframes['speed']?.length ? undefined : () => projectController.dispatch(resetValues(video.id, [{ effectId: null, param: 'speed', value: 100 }], 'Remove Speed Keyframes'))}
+            onReset={
+              locked(video) || !video.keyframes['speed']?.length
+                ? undefined
+                : () => void resetWithWarning(keyframeCount(video, ['speed']), 'Speed', () => projectController.dispatch(resetValues(video.id, [{ effectId: null, param: 'speed', value: 100 }], 'Remove Speed Keyframes')))
+            }
           >
             <PropertyRow
               clip={video}
@@ -601,7 +627,10 @@ export function EffectControlsWindow() {
       {adjustment && <OpacitySection clip={adjustment} locked={locked(adjustment)} />}
       {video && <EffectStack clip={video} locked={locked(video)} selectedClipIds={selectedVideoIds} />}
       {audio && (
-        <Section title="Volume" onReset={locked(audio) ? undefined : () => projectController.dispatch(resetValues(audio.id, [{ effectId: null, param: 'volume', value: 0 }], 'Reset Volume'))}>
+        <Section
+          title="Volume"
+          onReset={locked(audio) ? undefined : () => void resetWithWarning(keyframeCount(audio, ['volume']), 'Volume', () => projectController.dispatch(resetValues(audio.id, [{ effectId: null, param: 'volume', value: 0 }], 'Reset Volume')))}
+        >
           <PropertyRow clip={audio} effectId={null} param="volume" label="Level" locked={locked(audio)}>
             {(value, onChange) => <ScrubNumber label="Volume" value={Number(value)} min={MIN_VOLUME_DB} max={MAX_VOLUME_DB} step={0.1} unit="dB" onChange={onChange} disabled={locked(audio)} />}
           </PropertyRow>

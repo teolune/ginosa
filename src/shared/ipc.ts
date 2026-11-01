@@ -154,6 +154,7 @@ export type MenuCommand =
   | { type: 'workspace-apply'; name: string }
   | { type: 'workspace-save-as' }
   | { type: 'workspace-reset' }
+  | { type: 'show-warnings' }
 
 /** What the renderer tells the main process so the native menu can reflect it. */
 export interface MenuState {

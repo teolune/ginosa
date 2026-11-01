@@ -33,6 +33,7 @@ import {
   sourceSpan,
   sourceTimeAt,
   splitClip,
+  syncLinkedRamps,
   syncTracks,
   toFrame
 } from './timeline'
@@ -67,6 +68,7 @@ export function timelineCommand(label: string, apply: (draft: Draft<Project>, co
     apply(draft) {
       command.notice = undefined
       apply(draft, command)
+      syncLinkedRamps(draft.sequence)
     }
   }
   return command

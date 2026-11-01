@@ -1,5 +1,5 @@
 import { cloneEffect } from '../effects/params'
-import { cloneKeyframeMap, shiftKeyframeMap, speedIntegral, timelineForMedia, type Keyframe } from '../keyframes/keyframes'
+import { cloneKeyframe, cloneKeyframeMap, sameKeyframes, shiftKeyframeMap, speedIntegral, timelineForMedia, type Keyframe } from '../keyframes/keyframes'
 import type { MediaItem } from '../project/media'
 import { CommandError } from '../project/commands'
 import { frameRateOf, type Clip, type IdFactory, type Sequence, type Track, type TrackKind } from '../project/model'
@@ -129,6 +129,36 @@ export function cloneClip(clip: Clip): Clip {
 export function speedRamp(clip: Clip): Keyframe[] | null {
   const track = clip.keyframes['speed']
   return track && track.length > 0 && clip.speed > 0 && !clip.reverse ? track : null
+}
+
+/**
+ * Linked sound follows its picture's speed ramp (decision 41): an audio clip linked to a
+ * ramped video clip that starts at the same time at the same place in the same file
+ * gets a copy of its Speed keyframes, so it speeds up and slows down with it (its pitch
+ * changes, like tape). Sound that isn't linked, or no longer lines up, plays as it is.
+ * Every timeline command runs this after its edit.
+ */
+export function syncLinkedRamps(sequence: Sequence): void {
+  for (const audio of sequence.clips) {
+    if (audio.kind !== 'audio') continue
+    const picture =
+      audio.linkId && audio.speed > 0 && !audio.reverse
+        ? sequence.clips.find((c) => c.kind === 'video' && c.linkId === audio.linkId && c.mediaId === audio.mediaId && c.start === audio.start && c.sourceIn === audio.sourceIn && speedRamp(c))
+        : undefined
+    const want = picture ? picture.keyframes['speed']! : null
+    const have = audio.keyframes['speed']
+    if (!want) {
+      if (have) delete audio.keyframes['speed']
+    } else if (!have || !sameKeyframes(have, want)) audio.keyframes['speed'] = want.map((k) => cloneKeyframe(k))
+  }
+}
+
+/** Inverse of sourceTimeAt for clips playing forwards: the sequence time at which media time `media` plays. */
+export function timeForMedia(clip: Clip, media: Ticks): number {
+  const ramp = speedRamp(clip)
+  const d = media - clip.sourceIn
+  if (!ramp) return clip.start + d / clip.speed
+  return clip.start + (d >= 0 ? timelineForMedia(ramp, 0, d, 1) : -timelineForMedia(ramp, 0, -d, -1))
 }
 
 /** How much media a clip uses, in ticks (its duration × speed, or what its speed ramp covers; 0 for a frame hold). */

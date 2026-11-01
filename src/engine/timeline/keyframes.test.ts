@@ -10,7 +10,7 @@ import { applyPreset, evaluate, normaliseTrack, putKeyframe, speedIntegral, time
 import { animatedRefs, resolveClip, valueAt } from '../keyframes/properties'
 import { rescaleEffects } from '../effects/presets'
 import { addEffect } from './effect-edits'
-import { placeMedia, setClipSpeed, splitClips, trimClips, addFrameHold, type TimelineCommand } from './edits'
+import { placeMedia, setClipSpeed, splitClips, trimClips, addFrameHold, unlinkClips, linkClips, type TimelineCommand } from './edits'
 import {
   addKeyframe,
   applyMoveKeyframes,
@@ -26,7 +26,7 @@ import {
   type KeyframeRef
 } from './keyframe-edits'
 import { gainAt, videoLayersAt } from './render-plan'
-import { frameTicks, handles, sourceSpan, sourceTimeAt } from './timeline'
+import { frameTicks, handles, sourceSpan, sourceTimeAt, timeForMedia } from './timeline'
 import { produce } from 'immer'
 
 let counter = 0
@@ -224,11 +224,39 @@ describe('speed ramps', () => {
     expect(hold.keyframes['speed']).toBeUndefined()
   })
 
-  it('notes that a ramp on a linked clip leaves the sound alone, and when media runs out', () => {
+  it("linked sound follows its picture's ramp; unlinked sound is left alone (decision 41)", () => {
+    const { run, video, audio, frame, history } = setup()
+    const clip = video()
+    const ref = { clipId: clip.id, effectId: null, param: 'speed' }
+    run(setAnimated(ref, true, clip.start))
+    run(setValue(ref, 250, clip.start + 2 * T))
+    expect(audio().keyframes['speed']).toEqual(video().keyframes['speed'])
+    for (const x of [0.5, 1.7, 3, 6]) expect(sourceTimeAt(audio(), clip.start + s(x), frame)).toBe(sourceTimeAt(video(), clip.start + s(x), frame))
+    // The inverse: where a media time plays.
+    const media = sourceTimeAt(video(), clip.start + s(1.7), frame)
+    expect(Math.abs(timeForMedia(audio(), media) - (clip.start + s(1.7)))).toBeLessThanOrEqual(1)
+    // Trimming both keeps them together.
+    run(trimClips({ clipIds: [clip.id, audio().id], edge: 'in', delta: 10 * frame }))
+    expect(audio().sourceIn).toBe(video().sourceIn)
+    expect(audio().keyframes['speed']).toEqual(video().keyframes['speed'])
+    // Unlinked: the sound goes back to playing as it is.
+    run(unlinkClips([clip.id]))
+    expect(audio().keyframes['speed']).toBeUndefined()
+    run(linkClips([clip.id, audio().id], ids))
+    expect(audio().keyframes['speed']).toEqual(video().keyframes['speed'])
+    // Reopening rebuilds the sound's copy from the picture.
+    const reopened = parseProject(serializeProject(history.state))
+    expect(reopened.sequence.clips.find((c) => c.kind === 'audio')!.keyframes['speed']).toEqual(video().keyframes['speed'])
+    // Turning the ramp off turns it off for the sound too.
+    run(setAnimated(ref, false, clip.start))
+    expect(audio().keyframes['speed']).toBeUndefined()
+  })
+
+  it('notes that linked sound follows the ramp, and when media runs out', () => {
     const { run, video } = setup(SHORT, 0, 0, 6)
     const clip = video()
     const on = run(setAnimated({ clipId: clip.id, effectId: null, param: 'speed' }, true, clip.start))
-    expect(on.notice).toMatch(/picture only/)
+    expect(on.notice).toMatch(/linked sound follows/)
     const fast = run(setValue({ clipId: clip.id, effectId: null, param: 'speed' }, 200, clip.start))
     expect(fast.notice).toMatch(/runs out of media/)
   })

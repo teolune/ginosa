@@ -2,7 +2,8 @@ import type { Sequence } from '@engine/project/model'
 import type { MediaItem } from '@engine/project/media'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { GAIN_CURVE_STEP_SECONDS, audibleTracks, audioSegments, gainAt, type AudioSegment } from '@engine/timeline/render-plan'
-import { clipEnd, sourceSpan } from '@engine/timeline/timeline'
+import { speedAt } from '@engine/keyframes/keyframes'
+import { clipEnd, sourceSpan, sourceTimeAt, speedRamp, timeForMedia } from '@engine/timeline/timeline'
 import type { WrappedAudioBuffer } from 'mediabunny'
 import { openMedia } from './sources'
 
@@ -67,9 +68,42 @@ export class ClipFeeder {
 
   /** Context time at which this clip's media time `seconds` plays. */
   private ctxTimeFor(mediaSeconds: number): number {
+    return this.engine.ctxTimeOf(timeForMedia(this.segment.clip, secondsToTicks(mediaSeconds)))
+  }
+
+  /**
+   * A speed-ramped clip (its picture's Speed keyframes, decision 41): each decoded piece
+   * starts when the ramp reaches it, and its playback rate follows the ramp (sampled every
+   * millisecond), so the sound speeds up and slows down with the picture, like tape.
+   */
+  private scheduleRamped(buffer: WrappedAudioBuffer, ramp: Parameters<typeof speedAt>[0]): void {
     const clip = this.segment.clip
-    const timeline = clip.start + (secondsToTicks(mediaSeconds) - clip.sourceIn) / clip.speed
-    return this.engine.ctxTimeOf(timeline)
+    const mediaStart = buffer.timestamp - this.origin
+    const mediaEnd = mediaStart + buffer.buffer.duration
+    const from = timeForMedia(clip, secondsToTicks(mediaStart))
+    const to = timeForMedia(clip, secondsToTicks(mediaEnd))
+    let lo = Math.max(from, clip.start, this.engine.startTime)
+    const hi = Math.min(to, clipEnd(clip))
+    // Running late (live playback): start from now.
+    const late = this.engine.ctx.currentTime - this.engine.ctxTimeOf(lo)
+    if (late > 0) lo += secondsToTicks(late)
+    if (hi - lo < secondsToTicks(0.0005)) return
+    const mediaAt = (time: number) => ticksToSeconds(sourceTimeAt(clip, time, 0))
+    const offset = Math.max(0, mediaAt(lo) - mediaStart)
+    const length = Math.max(0, mediaAt(hi) - mediaStart - offset)
+    const seconds = ticksToSeconds(hi - lo)
+    const points = Math.max(2, Math.ceil(seconds / 0.001) + 1)
+    const curve = new Float32Array(points)
+    for (let i = 0; i < points; i++) curve[i] = speedAt(ramp, lo + ((hi - lo) * i) / (points - 1) - clip.start) / 100
+    const source = this.engine.ctx.createBufferSource()
+    source.buffer = buffer.buffer
+    source.playbackRate.value = curve[0]!
+    source.playbackRate.setValueCurveAtTime(curve, this.engine.ctxTimeOf(lo), seconds)
+    source.connect(this.gain)
+    source.start(this.engine.ctxTimeOf(lo), offset, length)
+    this.engine.noteScheduled(this.engine.ctxTimeOf(lo), mediaStart + offset, this.segment)
+    this.sources.add(source)
+    source.onended = () => this.sources.delete(source)
   }
 
   async pump(until: number): Promise<void> {
@@ -85,7 +119,7 @@ export class ClipFeeder {
         }
         // Start where playback starts (or where the clip starts, if later).
         const from = Math.max(clip.start, this.engine.startTime)
-        const sourceFrom = ticksToSeconds(clip.sourceIn + (from - clip.start) * clip.speed)
+        const sourceFrom = ticksToSeconds(sourceTimeAt(clip, from, 0))
         const sourceTo = ticksToSeconds(clip.sourceIn + sourceSpan(clip))
         this.origin = media.origin
         this.iterator = media.audioSink.buffers(media.origin + Math.max(0, sourceFrom - 0.05), media.origin + sourceTo + 0.05)
@@ -101,6 +135,12 @@ export class ClipFeeder {
           break
         }
         this.pending = null
+        const ramp = speedRamp(clip)
+        if (ramp) {
+          this.scheduleRamped(buffer, ramp)
+          if (when >= clipEndCtx) this.done = true
+          continue
+        }
         // At other speeds the sound is played faster or slower, so its pitch changes (varispeed).
         const speed = clip.speed
         const lo = Math.max(when, clipStartCtx, this.engine.ctx.currentTime)

@@ -2,7 +2,7 @@ import type { MediaItem } from '@engine/project/media'
 import type { Clip, Marker, Sequence } from '@engine/project/model'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
-import { clipEnd } from '@engine/timeline/timeline'
+import { clipEnd, sourceTimeAt, speedRamp } from '@engine/timeline/timeline'
 import type { MediaRuntime } from '../state/media-controller'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
 import type { GapSelection } from './timeline-controller'
@@ -148,9 +148,11 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x
   const right = Math.min(x + w, scene.width)
   const buckets = wave.peaks.length / 2
   for (let px = Math.floor(left); px < right; px++) {
-    // Timeline time at this column and the next, mapped into the media (at the clip's speed).
-    const t0 = ticksToSeconds(clip.sourceIn) + ((px - x) / view.pps) * clip.speed
-    const t1 = t0 + clip.speed / view.pps
+    // Timeline time at this column and the next, mapped into the media (at the clip's speed, or along its ramp).
+    const ramped = speedRamp(clip) !== null
+    const at = (column: number) => ticksToSeconds(sourceTimeAt(clip, clip.start + secondsToTicks((column - x) / view.pps), 0))
+    const t0 = ramped ? at(px) : ticksToSeconds(clip.sourceIn) + ((px - x) / view.pps) * clip.speed
+    const t1 = ramped ? at(px + 1) : t0 + clip.speed / view.pps
     let b0 = Math.floor(t0 * wave.bucketsPerSecond)
     const b1 = Math.max(b0 + 1, Math.floor(t1 * wave.bucketsPerSecond))
     if (b0 >= buckets) break
@@ -170,7 +172,8 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x
 function drawKeyframeTicks(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x: number, y: number, w: number, h: number): void {
   if (h < 20 || w < 8) return
   const times = new Set<Ticks>()
-  for (const track of Object.values(clip.keyframes)) for (const k of track) times.add(k.time)
+  // Linked sound's copy of its picture's speed ramp isn't its own to edit, so it isn't marked.
+  for (const [param, track] of Object.entries(clip.keyframes)) if (!(clip.kind === 'audio' && param === 'speed')) for (const k of track) times.add(k.time)
   for (const effect of clip.effects) for (const track of Object.values(effect.keyframes)) for (const k of track) times.add(k.time)
   if (times.size === 0) return
   const cy = y + h - 5

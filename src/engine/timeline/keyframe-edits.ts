@@ -75,7 +75,7 @@ function groupByProperty(refs: KeyframeRef[]): Map<string, { ref: PropertyRef; i
 /** A note when speed keyframes go on a clip whose sound is linked (it keeps its own speed). */
 function speedNote(sequence: Sequence, clip: Clip): string | undefined {
   if (!clip.linkId || !sequence.clips.some((c) => c.id !== clip.id && c.linkId === clip.linkId && c.kind === 'audio')) return undefined
-  return 'Speed keyframes change the picture only: the linked sound keeps playing at its own speed, as in Premiere.'
+  return 'The linked sound follows the speed ramp: it speeds up and slows down with the picture, and its pitch changes like tape.'
 }
 
 /** A note when a speed ramp now needs more media than the file has (the last frame holds). */

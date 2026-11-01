@@ -6,17 +6,19 @@
   - Keyframes are kept relative to the clip, so they travel with it, and stay with the picture through trims, splits and speed changes.
   - Interpolation per keyframe: **hold**, **linear** or **bezier** (free handles), with Premiere's **Ease In**, **Ease Out** and **Ease In and Out**. Choices and on/off settings always hold.
 - **Effect Controls:** a stopwatch on every value, **◀ ◆ ▶** to go between keyframes and add or remove one at the playhead, and a right-click menu (**Create Keyframes**, …).
+- **Warning before keyframes are removed** (stopwatch off, Reset), with **Don't ask me again**; ginosa → **Show All Warnings Again** (decision 42).
 - **Keyframe Editor** (⌥0):
   - **dope sheet:** every animated value of the selected clips; drag (snapping to frames, playhead, markers, edges and keyframes), Option-drag to stretch timing, box-select
   - **graph:** the focused value's curve, keyframes dragged in time and value, bezier handles
   - interpolation buttons, ⌘C/⌘V (onto any value of the same kind), Delete, ⌘A, F to fit; each drag is one undo step
-- **Speed ramps:** Speed keyframes (0–10,000%) under Time Remapping. The picture follows the ramp exactly (the integral is computed exactly, not stepped). The linked sound keeps its own speed, as in Premiere.
+- **Speed ramps:** Speed keyframes (0–10,000%) under Time Remapping. The picture follows the ramp exactly (the integral is computed exactly, not stepped). **Linked sound follows the ramp** (pitch changes, like tape) and stays in sync; unlinked sound plays as it is (decision 41).
 - **Volume automation:** Volume keyframes in dB, followed by the sound in playback and export (sampled every millisecond).
 - **Presets and copy/paste of effects** keep their keyframes; keyframed positions scale with the clip.
 - **Timeline:** small diamonds on clips with keyframes; a **[Speed ramp]** badge.
 - **Tests:**
   - the done-when export test: preview vs file within 0.0011; the square's edges within 0.12 px of the keyframes in every frame; the speed ramp right in every exported and played frame; sound level within 0.001 dB of the Volume keyframes
-  - 25 new unit tests (234 in all)
+  - linked sound on a ramp: every beep within 0.04 ms of where the ramp puts it
+  - 26 new unit tests (235 in all)
 - **Project format v7.**
 
 ## M6 · Effects pipeline

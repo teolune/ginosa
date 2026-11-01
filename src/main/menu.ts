@@ -37,6 +37,8 @@ export class AppMenu {
         submenu: [
           { role: 'about', label: 'About ginosa' },
           { type: 'separator' },
+          { label: 'Show All Warnings Again', click: () => this.send({ type: 'show-warnings' }) },
+          { type: 'separator' },
           { role: 'hide', label: 'Hide ginosa' },
           { role: 'hideOthers' },
           { role: 'unhide' },

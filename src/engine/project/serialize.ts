@@ -2,6 +2,7 @@ import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
 import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition } from './model'
 import { defaultMotion, sourceSize } from '../timeline/motion'
+import { syncLinkedRamps } from '../timeline/timeline'
 import { effectById } from '../../effects/registry'
 import { sanitiseKeyframes, sanitiseParams, upgradeInstance } from '../effects/params'
 import { normaliseTrack, type Interpolation, type Keyframe, type KeyframeMap } from '../keyframes/keyframes'
@@ -465,6 +466,8 @@ export function parseProject(input: string | unknown): Project {
     clip.keyframes = keyframes
   }
   const markers = markersRaw.map(parseMarker)
+  // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,

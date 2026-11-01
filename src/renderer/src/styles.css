@@ -432,3 +432,4 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .segment { height: 22px; padding: 0 10px; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 11.5px; }
 .segment + .segment { border-left: 1px solid var(--border-strong); }
 .segment.active { background: var(--accent-soft); color: var(--text); }
+.check-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text-muted); font-size: 12px; cursor: pointer; }
