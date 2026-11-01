@@ -230,6 +230,13 @@ fn fsAdjust(in: VsOut) -> @location(0) vec4f {
 @group(0) @binding(5) var finalTex: texture_2d<f32>;
 @group(0) @binding(6) var finalSampler: sampler;
 
+// The composite as it is (no display transform), for preview files (M9).
+@fragment
+fn fsCopy(in: VsOut) -> @location(0) vec4f {
+  let c = textureSampleLevel(finalTex, finalSampler, in.uv, 0.0);
+  return vec4f(c.rgb, 1.0);
+}
+
 @fragment
 fn fsPresent(in: VsOut) -> @location(0) vec4f {
   // On screen, Rec.709 is shown the way QuickTime shows the exported file.

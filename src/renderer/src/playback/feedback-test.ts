@@ -9,6 +9,7 @@ import { readRowBoxes } from './colour-probe'
 import { exporter } from './exporter'
 import { capturePlayback, comparePlayback } from './playback-capture'
 import { player } from './player'
+import { renderCache } from '../render-cache/render-cache'
 
 /**
  * M9 "done when", part 2: a Feedback effect (85%, no zoom) on an adjustment layer over a
@@ -131,6 +132,57 @@ export async function feedbackTest() {
   if (!(afterEdit.worst <= 0.006)) reasons.push(`after changing Feedback to 60%, 4 s differs from the expected by ${afterEdit.worst.toFixed(4)}`)
   projectController.dispatch(setEffectValues(layer, effect, { params: { amount: K * 100 } }))
 
+  // The render cache: every frame has an effect (yellow); Enter renders them all (green).
+  const counts = () => {
+    const status = renderCache.status ?? new Uint8Array()
+    return { plain: status.filter((v) => v === 0).length, live: status.filter((v) => v === 1).length, cached: status.filter((v) => v === 2).length }
+  }
+  await renderCache.settle()
+  const before = counts()
+  if (before.live !== frames) reasons.push(`render bar: expected ${frames} yellow frames before rendering, found ${JSON.stringify(before)}`)
+  timelineController.select([], 'replace')
+  const rendered = await renderCache.renderSection([])
+  const renderSeconds = (renderCache.last?.ms ?? 0) / 1000
+  const after = counts()
+  if (rendered !== frames || after.cached !== frames) reasons.push(`render: wrote ${rendered} frames, ${after.cached} green`)
+  const bytesPerFrame = (renderCache.last?.bytes ?? 0) / Math.max(1, rendered)
+
+  // Cached frames, paused and playing, against the export (8-bit JPEG: within 0.02 on flat stretches).
+  const cachedJumps: Array<{ frame: number; fromCache: boolean; worst: number }> = []
+  for (const j of [150, 37, 199, 0, 101]) {
+    timelineController.setPlayhead(j * FRAME)
+    await player.settled()
+    const row = await readRowBoxes(player.lastStill!, XS, ROW_Y)
+    cachedJumps.push({ frame: j, fromCache: player.lastStillCached, worst: Math.round(comparePlayback([{ j, row }], b).worst * 10000) / 10000 })
+  }
+  if (!cachedJumps.every((c) => c.fromCache)) reasons.push('a cached frame was rendered again instead of shown from the cache')
+  const cachedWorst = Math.max(...cachedJumps.map((c) => c.worst))
+  if (!(cachedWorst <= 0.02)) reasons.push(`cached frames differ from the export by up to ${cachedWorst.toFixed(4)}`)
+  const cachedPlay = await capturePlayback(XS, ROW_Y, frames, 7.96)
+  const cachedPlayback = comparePlayback(cachedPlay, b)
+  const fromCache = player.stats.cached
+  if (fromCache < frames * 0.9) reasons.push(`cached playback showed only ${fromCache} frames from the cache`)
+  if (!(cachedPlayback.worst <= 0.02)) reasons.push(`cached playback differs from the export by up to ${cachedPlayback.worst.toFixed(4)}`)
+
+  // An edit at 4–5 s (the square fades to 50%) invalidates exactly the frames from there on
+  // (the feedback carries it to the end); rendering again redoes only those; undo brings the old previews back.
+  const square = projectController.project!.sequence.clips.find((c) => !c.adjustment)!.id
+  projectController.dispatch(setAnimated({ clipId: square, effectId: null, param: 'opacity' }, true, s(4)))
+  projectController.dispatch(setValue({ clipId: square, effectId: null, param: 'opacity' }, 50, s(5)))
+  await renderCache.settle()
+  const status = renderCache.status!
+  const firstInvalid = status.findIndex((v) => v !== 2)
+  const invalid = counts()
+  if (firstInvalid !== 101 || invalid.live !== frames - 101) reasons.push(`after the edit: expected frames 101–199 invalid, found from ${firstInvalid} (${JSON.stringify(invalid)})`)
+  const rerendered = await renderCache.renderSection([])
+  const catchUp = renderCache.last?.catchUp ?? 0
+  if (rerendered !== frames - 101) reasons.push(`rendering again wrote ${rerendered} frames (expected ${frames - 101})`)
+  projectController.undo()
+  projectController.undo()
+  await renderCache.settle()
+  const undone = counts()
+  if (undone.cached !== frames) reasons.push(`after undo, ${undone.cached} of ${frames} frames are green again`)
+
   return {
     verdict: reasons.length ? 'fail' : 'pass',
     reasons,
@@ -138,6 +190,17 @@ export async function feedbackTest() {
     playbackVsExport: { framesCompared: playback.compared, points: playback.points, worst: Math.round(playback.worst * 10000) / 10000, approximateFrames: approximate },
     jumps,
     afterEdit: { frame: j, caughtUp: player.lastCatchUp?.frames ?? null, worst: Math.round(afterEdit.worst * 10000) / 10000 },
-    stateMemoryMB: Math.round((player.temporal?.bytes() ?? 0) / 1e6)
+    stateMemoryMB: Math.round((player.temporal?.bytes() ?? 0) / 1e6),
+    renderCache: {
+      beforeRender: before,
+      rendered,
+      seconds: Math.round(renderSeconds * 10) / 10,
+      fps: Math.round((rendered / Math.max(renderSeconds, 1e-3)) * 10) / 10,
+      previewMBPerFrame: Math.round(bytesPerFrame / 1e4) / 100,
+      cachedJumps,
+      cachedPlayback: { framesFromCache: fromCache, framesCompared: cachedPlayback.compared, worst: Math.round(cachedPlayback.worst * 10000) / 10000 },
+      afterEdit: { firstInvalid, ...invalid, rerendered, caughtUpFirst: catchUp },
+      afterUndo: undone
+    }
   }
 }

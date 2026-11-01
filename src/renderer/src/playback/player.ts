@@ -20,6 +20,7 @@ import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './vide
 import { TemporalStore } from './temporal'
 import { ExactRenderer } from './exact-render'
 import { checkpointEvery } from '@engine/timeline/temporal'
+import { renderCache } from '../render-cache/render-cache'
 
 export type PlaybackResolution = 1 | 0.5 | 0.25
 
@@ -32,6 +33,8 @@ export interface PlaybackStats {
   renderMs: number
   /** How far the shown picture trails the sound, ms (positive = picture late). */
   lagMs: number
+  /** Frames shown from the render cache (M9) since playback started. */
+  cached: number
 }
 
 /** One presented frame, recorded for the sync test. */
@@ -74,7 +77,7 @@ export class Player extends Observable {
   rate = 1
   resolution: PlaybackResolution = 1
   showStats = false
-  stats: PlaybackStats = { fps: 0, dropped: 0, renderMs: 0, lagMs: 0 }
+  stats: PlaybackStats = { fps: 0, dropped: 0, renderMs: 0, lagMs: 0, cached: 0 }
   message: string | null = null
 
   audio: AudioEngine | null = null
@@ -103,6 +106,10 @@ export class Player extends Observable {
   recording: PresentedFrame[] | null = null
   /** The last paused-frame composite (for tests that read pixels back). */
   lastStill: GPUTexture | null = null
+  /** Whether it came from the render cache. */
+  lastStillCached = false
+  /** Cached previews decoded ahead of playback, by frame number. */
+  private previews = new Map<number, { key: string; bitmap: ImageBitmap | null | undefined }>()
   /** Why frames were counted as dropped (for diagnosis). */
   debug = { skipped: 0, missing: {} as Record<string, number> }
   /** Test hook: called with each composited frame during playback. */
@@ -264,6 +271,22 @@ export class Player extends Observable {
     const sequence = project.sequence
     const time = this.host.playhead
     const layers = videoLayersAt(sequence, project.media, time, this.host.modulation?.() ?? null)
+    // A cached preview of this frame (M9) is shown as it is.
+    const key = renderCache.keyFor(sequence, project.media, this.host.modulation?.() ?? null, Math.floor(time / ticksPerFrame(frameRateOf(sequence.settings)) + 1e-6))
+    if (key && renderCache.cached.has(key)) {
+      const bitmap = await renderCache.bitmap(key)
+      if (bitmap) {
+        if (this.playing && !duringPlayback) return bitmap.close()
+        this.prepareTarget(sequence)
+        const texture = this.compositor.previewTexture(bitmap)
+        bitmap.close()
+        this.compositor.present(texture, this.context, this.format)
+        this.lastStill = texture
+        this.lastStillCached = true
+        return
+      }
+    }
+    this.lastStillCached = false
     if (layers.some((l) => l.temporal) && !(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
     const samples: VideoSample[] = []
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
@@ -362,7 +385,7 @@ export class Player extends Observable {
     this.lastClock = from
     this.wallStart = performance.now()
     this.sequenceAtStart = project.sequence
-    this.stats = { fps: 0, dropped: 0, renderMs: 0, lagMs: 0 }
+    this.stats = { fps: 0, dropped: 0, renderMs: 0, lagMs: 0, cached: 0 }
     this.debug = { skipped: 0, missing: {} }
     this.presentedCount = 0
     this.renderTotal = 0
@@ -429,6 +452,8 @@ export class Player extends Observable {
   private stopStreams(): void {
     for (const stream of this.streams.values()) stream.close()
     this.streams.clear()
+    for (const entry of this.previews.values()) entry.bitmap?.close()
+    this.previews.clear()
   }
 
   private tick(): void {
@@ -475,10 +500,22 @@ export class Player extends Observable {
       for (const layer of videoLayersAt(sequence, project.media, shown + secondsToTicks(0.6 * this.rate), this.host.modulation?.() ?? null)) this.ensureStream(layer, Math.max(visibleFrom(sequence, layer.clip), shown), sequence)
     }
 
+    // A cached preview of this frame (M9), decoded ahead, is shown instead of rendering it.
+    const modulation = this.host.modulation?.() ?? null
+    const key = this.rate > 0 ? renderCache.keyFor(sequence, project.media, modulation, frameIndex) : null
+    const ahead = key ? this.previews.get(frameIndex) : undefined
+    const preview = ahead && ahead.key === key && ahead.bitmap ? ahead.bitmap : null
+    if (this.rate > 0) this.prefetchPreviews(sequence, project.media, modulation, frameIndex)
+
     const composite: CompositeStep[] = []
     const frames: VideoFrame[] = []
     let missing = false
     for (const layer of layers) {
+      if (preview) {
+        // Decoders still keep up, so playback carries on smoothly past the cached stretch.
+        if (layer.item && layer.item.kind !== 'image') this.ensureStream(layer, shown, sequence)?.frameAt(ticksToSeconds(layer.sourceTime))
+        continue
+      }
       if (!layer.item) {
         composite.push(this.layers!.adjustment(layer))
         continue
@@ -515,7 +552,11 @@ export class Player extends Observable {
     }
     if (missing && Math.abs(this.rate) === 1) this.stats.dropped++
     const scale = this.prepareTarget(sequence)
-    const result = this.compositor.render(composite, scale)
+    let result: GPUTexture
+    if (preview) {
+      result = this.compositor.previewTexture(preview)
+      this.stats.cached++
+    } else result = this.compositor.render(composite, scale)
     this.compositor.present(result, this.context, this.format)
     frames.forEach((f) => f.close())
     this.probe?.(result, shown)
@@ -530,7 +571,8 @@ export class Player extends Observable {
         fps: (this.presentedCount * 1000) / elapsed,
         dropped: this.stats.dropped,
         renderMs: this.renderTotal / this.presentedCount,
-        lagMs: ticksToSeconds(heard - shown) * 1000 - (1000 / frameRateValue(rate)) / 2
+        lagMs: ticksToSeconds(heard - shown) * 1000 - (1000 / frameRateValue(rate)) / 2,
+        cached: this.stats.cached
       }
       this.presentedCount = 0
       this.renderTotal = 0
@@ -541,6 +583,30 @@ export class Player extends Observable {
   }
 
   private reverseBusy = false
+
+  /** Decodes the next second's cached previews ahead of the playhead; lets go of passed ones. */
+  private prefetchPreviews(sequence: Sequence, media: MediaItem[], modulation: ModulationContext | null, frameIndex: number): void {
+    for (const [j, entry] of this.previews) {
+      if (j < frameIndex || j > frameIndex + 30) {
+        entry.bitmap?.close()
+        this.previews.delete(j)
+      }
+    }
+    for (let j = frameIndex; j < frameIndex + 12; j++) {
+      if (this.previews.has(j)) continue
+      const key = renderCache.keyFor(sequence, media, modulation, j)
+      if (!key || !renderCache.cached.has(key)) continue
+      const entry: { key: string; bitmap: ImageBitmap | null | undefined } = { key, bitmap: undefined }
+      this.previews.set(j, entry)
+      void renderCache.bitmap(key).then(
+        (bitmap) => {
+          if (this.previews.get(j) === entry) entry.bitmap = bitmap
+          else bitmap?.close()
+        },
+        () => (entry.bitmap = null)
+      )
+    }
+  }
 
   private renderStillWhilePlaying(): void {
     if (this.reverseBusy) return

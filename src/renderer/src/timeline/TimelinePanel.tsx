@@ -3,11 +3,12 @@ import { produce } from 'immer'
 import { addTrack, CommandError, removeTrack, renameTrack, setTrackFlag, type Command } from '@engine/project/commands'
 import type { MediaItem } from '@engine/project/media'
 import { frameRateOf, type Sequence, type Track } from '@engine/project/model'
-import { frameRateValue, parseTimecode, ticksToSeconds, type Ticks } from '@engine/time'
+import { frameRateValue, parseTimecode, ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
 import { applyPlace, removeMarkers, removeTransition, renameMarker, resetMotion, rippleDeleteClips, deleteClips, rippleDeleteGap, setTransitionDuration, type EditMode } from '@engine/timeline/edits'
 import { snapTargets, snapTime } from '@engine/timeline/snapping'
 import { EditContext, clipEnd, sequenceEnd, toFrame, trackIndex, tracksOf } from '@engine/timeline/timeline'
 import { CommitInput } from '../app/CommitInput'
+import { renderCache } from '../render-cache/render-cache'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { Icon } from '../app/Icon'
@@ -155,6 +156,7 @@ export function TimelinePanel() {
   useObservable(projectController)
   useObservable(tl)
   useObservable(mediaController)
+  useObservable(renderCache)
   const project = projectController.project
   const areaRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -236,7 +238,8 @@ export function TimelinePanel() {
         return img.complete && img.naturalWidth > 0 ? img : null
       },
       timecode: (time) => tl.timecode(time),
-      focused: true
+      focused: true,
+      render: renderCache.status && sequence === project.sequence ? { status: renderCache.status, frame: ticksPerFrame(frameRateOf(sequence.settings)) } : null
     })
   })
 
@@ -530,6 +533,23 @@ export function TimelinePanel() {
         </div>
         {soloNote && <span className="small warn-text">Solo on</span>}
         <span className="spacer" />
+        {renderCache.rendering ? (
+          <span className="render-progress small" title="Rendering previews of the frames with effects (Esc stops; what's done is kept)">
+            Rendering {renderCache.rendering.done} / {renderCache.rendering.total}
+            {renderCache.rendering.catchingUp > 0 ? ` (+${renderCache.rendering.catchingUp} catch-up)` : ''}
+            <button className="button compact" onClick={() => renderCache.cancel()}>
+              Stop
+            </button>
+          </span>
+        ) : (
+          <button
+            className="button compact"
+            title="Render previews (Enter): the frames with effects that aren't cached yet, in the selected clips or the whole sequence. Yellow on the ruler: rendered live; green: cached."
+            onClick={() => void renderCache.renderSection()}
+          >
+            Render
+          </button>
+        )}
         <button className="tool-button" title="Zoom out (−)" onClick={() => tl.zoom(1 / 1.5)}>
           <Icon name="zoomOut" fallback="−" />
         </button>

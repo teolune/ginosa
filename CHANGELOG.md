@@ -1,5 +1,31 @@
 # Changelog
 
+## M9 · Masks and the temporal engine
+
+- **Shared masks:** a mask belongs to the sequence and any effect can use it. Adjustment layers also have a whole-layer mask. Each use has its own Invert.
+  - Shapes: rectangle (with rounded corners), ellipse, bezier pen path, edge (distance in from the frame's edges) and luminance range (each effect's own input).
+  - Each shape has feather, expansion, opacity and invert, and combines with the shapes above it by add, subtract or intersect.
+  - Every setting can be keyframed (in sequence time) and linked to audio or any modulator.
+  - Masks are drawn in frame pixels, so a moved clip's effect keeps its mask in place.
+- **Masks window** (⌥⇧3): masks, their shapes, each shape's settings, and what uses them. The selected shape is drawn on the Program monitor: drag to move, resize and turn it; for a pen path, drag, add, remove and smooth points and bend its handles. Effect Controls has a **Mask** row on every effect and adjustment layer (with New Mask…). Mask settings appear in the Modulation window and Link to Audio.
+- **Stateful effects:** an effect can read its own output from the frame before.
+  - The state starts at the clip's first visible frame and is thrown away by any edit that could change it.
+  - A checkpoint is kept every second (within 1 GB of video memory). After a jump, the frames since the nearest checkpoint are rendered unseen first, so stills and export are always exact.
+  - Playback carries on after a dropped frame, marked approximate in the stats overlay.
+  - A frame that's already kept is shown again without running the effect.
+- **Feedback** (Effects › Time): each frame over the previous one, zoomed and turned about a centre; Over, Add, Screen and Lighten.
+- **Render cache:**
+  - **Enter** (or Render) renders the frames with effects into preview files: one JPEG per frame, named by a key covering everything that decides how it looks. An edit invalidates exactly the frames it changes, including through feedback.
+  - Playback and the paused frame show previews; export always renders.
+  - **Render bar** on the ruler: yellow (effects, live), green (cached).
+- **Cache Manager:** a size limit for preview renders across projects (least recently used go first), and **Clean Up Finished Project**.
+- **Export and catch-up** now share one exact renderer (`exact-render.ts`).
+- **Tests:**
+  - the done-when test: Feedback exports as "this frame over the last" within 0.0016; playback matches the export within 0.0012; seven jumps within 0.0011; an edit re-renders its state; rendering to the cache (51 fps), cached frames within 0.0047, an edit invalidating exactly frames 101–199, undo bringing them back
+  - masks on the GPU vs the reference maths over every pixel (0.0017); a keyframed edge mask exported within 0.12 px of its keyframes
+  - 25 new unit tests (288 in all)
+- **Project format v10.**
+
 ## M8 · Audio and modulation
 
 - **Analysis sources:** a clip, a track (even muted: a sidechain) or the mix. Mixed offline with the playback mixer, analysed in a worker, cached in the project's analysis cache, and redone only when that sound changes.

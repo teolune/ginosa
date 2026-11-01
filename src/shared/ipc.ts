@@ -240,6 +240,13 @@ export interface GinosaBridge {
     read(): Promise<unknown>
     write(data: unknown): Promise<void>
   }
+  /** Preview renders in the project's cache (M9): one JPEG per frame, by frame key. */
+  renders: {
+    list(projectId: string): Promise<string[]>
+    read(projectId: string, key: string): Promise<ArrayBuffer | null>
+    /** Returns previews let go of to stay within the size limit (any project). */
+    write(projectId: string, key: string, data: ArrayBuffer): Promise<Array<{ projectId: string; key: string }>>
+  }
   /** Audio analysis results in the project's cache (M8). */
   analysis: {
     read(projectId: string, key: string): Promise<ArrayBuffer | null>
@@ -258,6 +265,9 @@ export interface GinosaBridge {
     registerProject(projectId: string, name: string, path: string): Promise<void>
     usage(): Promise<{ root: string; projects: CacheProjectUsage[] }>
     clear(projectId: string, category: CacheCategory | 'all'): Promise<void>
+    /** Preview renders' size limit and how much they take now (all projects), bytes. */
+    previewLimit(): Promise<{ limit: number; used: number }>
+    setPreviewLimit(bytes: number): Promise<Array<{ projectId: string; key: string }>>
     reveal(): Promise<void>
     chooseLocation(): Promise<{ root: string; previous: string } | null>
   }

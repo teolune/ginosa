@@ -90,6 +90,8 @@ class TimelineController extends Observable {
   clipboard: ClipboardClip[] = []
   mediaDrag: MediaDrag | null = null
   transport: Transport | null = null
+  /** The render cache (M9): Enter renders previews, Escape stops it. */
+  previews: { renderSection(): Promise<number>; cancel(): void; rendering: unknown } | null = null
   private projectId: string | null = null
 
   constructor() {
@@ -553,6 +555,14 @@ class TimelineController extends Observable {
     if (focus !== 'timeline') return false
 
     const shift = event.shiftKey
+    if (key === 'Enter' && plain && !shift && this.previews) {
+      void this.previews.renderSection()
+      return true
+    }
+    if (key === 'Escape' && this.previews?.rendering) {
+      this.previews.cancel()
+      return true
+    }
     if (event.altKey && !cmd && (key === 'ArrowLeft' || key === 'ArrowRight')) {
       this.nudge((key === 'ArrowLeft' ? -1 : 1) * (shift ? 5 : 1), 0)
       return true

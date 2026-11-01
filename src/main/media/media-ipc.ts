@@ -6,6 +6,7 @@ import { parseCube } from '../../engine/colour/cube'
 import { IMPORT_EXTENSIONS, type MediaFingerprint, type MediaInfo, type MediaKind, type OptimiseReason } from '../../engine/project/media'
 import { CACHE_CATEGORIES, CacheService, type CacheCategory } from '../cache/cache-service'
 import { JsonFile } from '../settings-store'
+import { DEFAULT_PREVIEW_LIMIT, PreviewStore } from '../cache/preview-store'
 import { ensureThumbnail, ensureWaveform } from './generate'
 import { checkFile, classifyImportPaths, fingerprintFile, probeFiles, probeFile, searchForMoved } from './media-files'
 import { OptimiseQueue, type OptimiseJob } from './optimise'
@@ -14,6 +15,8 @@ import { OptimiseQueue, type OptimiseJob } from './optimise'
 
 interface AppSettings {
   cacheParent?: string
+  /** Preview renders' size limit, bytes (M9). */
+  previewLimit?: number
 }
 
 export interface MediaServices {
@@ -26,6 +29,8 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
   const settings = ((await settingsFile.read()) ?? {}) as AppSettings
   const cache = new CacheService(options.cacheRoot ?? join(app.getPath('videos'), 'ginosa Cache'))
   if (settings.cacheParent && !options.cacheRoot) cache.setParentFolder(settings.cacheParent)
+
+  const previews = new PreviewStore(cache, settings.previewLimit ?? DEFAULT_PREVIEW_LIMIT)
 
   const queue = new OptimiseQueue(cache, (job: OptimiseJob) => {
     getWindow()?.webContents.send('media:jobUpdate', job)
@@ -81,6 +86,19 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     const file = await analysisFile(projectId, key)
     await writeFile(`${file}.partial`, Buffer.from(data))
     await rename(`${file}.partial`, file)
+  })
+
+  // Preview renders (M9): one JPEG per frame, named by its frame key.
+  ipcMain.handle('renders:list', (_event, projectId: string) => previews.list(projectId))
+  ipcMain.handle('renders:read', (_event, projectId: string, key: string) => previews.read(projectId, key))
+  ipcMain.handle('renders:write', (_event, projectId: string, key: string, data: ArrayBuffer) => previews.write(projectId, key, data))
+  ipcMain.handle('cache:previewLimit', async () => ({ limit: previews.limit, used: await previews.total() }))
+  ipcMain.handle('cache:setPreviewLimit', async (_event, bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes < 256 * 1024 ** 2) throw new Error('The limit is at least 256 MB')
+    previews.limit = bytes
+    settings.previewLimit = bytes
+    await settingsFile.write(settings)
+    return previews.enforce()
   })
 
   ipcMain.handle('media:checkFiles', async (_event, items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>) =>
@@ -149,6 +167,7 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
   ipcMain.handle('cache:clear', async (_event, projectId: string, category: CacheCategory | 'all') => {
     if (category === 'all' || category === 'optimised') queue.cancelProject(projectId)
     await cache.remove(projectId, category)
+    previews.forget()
   })
   ipcMain.handle('cache:reveal', async () => {
     await (await import('node:fs/promises')).mkdir(cache.rootPath, { recursive: true })
@@ -167,6 +186,7 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     if (!parent) return null
     const previous = cache.rootPath
     const root = cache.setParentFolder(parent)
+    previews.forget()
     settings.cacheParent = parent
     await settingsFile.write(settings)
     return { root, previous }

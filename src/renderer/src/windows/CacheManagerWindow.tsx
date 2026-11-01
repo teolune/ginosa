@@ -3,6 +3,50 @@ import { CACHE_CATEGORIES, CACHE_CATEGORY_LABELS, type CacheCategory, type Cache
 import { formatBytes } from '../media-panel/format'
 import { mediaController } from '../state/media-controller'
 import { projectController } from '../state/project-controller'
+import { renderCache } from '../render-cache/render-cache'
+
+const GB = 1024 ** 3
+const LIMITS = [2, 5, 10, 20, 50, 100, 200]
+
+/** Preview renders' size limit (all projects together): past it, the least recently used go first. */
+function PreviewLimit({ onChange }: { onChange(): void }) {
+  const [state, setState] = useState<{ limit: number; used: number } | null>(null)
+  useEffect(() => {
+    void window.ginosa.cache.previewLimit().then(setState)
+  }, [])
+  if (!state) return null
+  const current = Math.round(state.limit / GB)
+  const options = LIMITS.includes(current) ? LIMITS : [...LIMITS, current].sort((a, b) => a - b)
+  return (
+    <section className="cache-section cache-limit">
+      <h3>Preview renders</h3>
+      <div className="cache-limit-row">
+        <span className="muted small">
+          {formatBytes(state.used)} of
+        </span>
+        <select
+          className="input compact"
+          aria-label="Preview renders limit"
+          value={current}
+          onChange={async (event) => {
+            const bytes = Number(event.target.value) * GB
+            const evicted = await window.ginosa.cache.setPreviewLimit(bytes)
+            renderCache.forget(evicted)
+            setState(await window.ginosa.cache.previewLimit())
+            onChange()
+          }}
+        >
+          {options.map((gb) => (
+            <option key={gb} value={gb}>
+              {gb} GB
+            </option>
+          ))}
+        </select>
+        <span className="muted small">for all projects; past it, the least recently used previews are deleted first.</span>
+      </div>
+    </section>
+  )
+}
 
 /** A button that asks for a second click before doing something irreversible. */
 function ConfirmButton({ label, confirmLabel, onConfirm, disabled }: { label: string; confirmLabel: string; onConfirm(): void; disabled?: boolean }) {
@@ -61,7 +105,10 @@ export function CacheManagerWindow() {
 
   const clear = async (projectId: string, category: CacheCategory | 'all') => {
     await window.ginosa.cache.clear(projectId, category)
-    if (projectId === currentId) mediaController.recheckAll()
+    if (projectId === currentId) {
+      mediaController.recheckAll()
+      if (category === 'all' || category === 'renders') renderCache.reload()
+    }
     await refresh()
   }
 
@@ -100,6 +147,7 @@ export function CacheManagerWindow() {
       </div>
       {moved && <p className="small muted pad-x">New files now go to the folder above. The previous cache stays at {moved}; delete it in Finder if you no longer need it.</p>}
       <p className="small muted pad-x">Everything here can be regenerated. Clearing it only costs time. Your original media is never touched.</p>
+      <PreviewLimit onChange={() => void refresh()} />
 
       {active.length > 0 && (
         <section className="cache-section">
@@ -128,12 +176,14 @@ export function CacheManagerWindow() {
             {!project.projectExists && <span className="status-pill warn" title={project.projectPath ?? ''}>Project not found</span>}
             <span className="spacer" />
             <span className="mono">{formatBytes(project.total)}</span>
-            <ConfirmButton
-              label="Clean Up"
-              confirmLabel="Delete all? Click again"
-              disabled={project.total === 0}
-              onConfirm={() => void clear(project.projectId, 'all')}
-            />
+            <span title="For a finished project: deletes everything ginosa made for it (thumbnails, waveforms, optimised copies, previews, analysis). The project file and your media stay.">
+              <ConfirmButton
+                label="Clean Up Finished Project"
+                confirmLabel="Delete all its cache? Click again"
+                disabled={project.total === 0}
+                onConfirm={() => void clear(project.projectId, 'all')}
+              />
+            </span>
           </div>
           <table className="cache-table">
             <tbody>

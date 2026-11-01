@@ -124,7 +124,8 @@ export class Compositor {
   private effectLayout: GPUPipelineLayout | null = null
   private scratch = new Map<string, GPUTexture[]>()
   private uniformUsed = 0
-  private presentPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
+  private presentPipelines = new Map<string, GPURenderPipeline>()
+  private preview: GPUTexture | null = null
   private targets: [GPUTexture, GPUTexture] | null = null
   private uniformPool: GPUBuffer[] = []
   private storagePool: GPUBuffer[] = []
@@ -204,19 +205,53 @@ export class Compositor {
     return pipeline
   }
 
-  private presentPipeline(format: GPUTextureFormat): GPURenderPipeline {
-    let pipeline = this.presentPipelines.get(format)
+  private presentPipeline(format: GPUTextureFormat, entryPoint: 'fsPresent' | 'fsCopy' = 'fsPresent'): GPURenderPipeline {
+    const key = `${format}:${entryPoint}`
+    let pipeline = this.presentPipelines.get(key)
     if (!pipeline) {
       pipeline = this.device.createRenderPipeline({
-        label: `present ${format}`,
+        label: `${entryPoint} ${format}`,
         layout: 'auto',
         vertex: { module: this.module, entryPoint: 'vs' },
-        fragment: { module: this.module, entryPoint: 'fsPresent', targets: [{ format }] },
+        fragment: { module: this.module, entryPoint, targets: [{ format }] },
         primitive: { topology: 'triangle-list' }
       })
-      this.presentPipelines.set(format, pipeline)
+      this.presentPipelines.set(key, pipeline)
     }
     return pipeline
+  }
+
+  /** Copies a composite into another texture as it is (e.g. 8-bit, for a preview file). */
+  copy(result: GPUTexture, target: GPUTexture): void {
+    const pipeline = this.presentPipeline(target.format, 'fsCopy')
+    const bindGroup = this.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 5, resource: result.createView() },
+        { binding: 6, resource: this.sampler }
+      ]
+    })
+    const encoder = this.device.createCommandEncoder({ label: 'copy' })
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+    pass.setPipeline(pipeline)
+    pass.setBindGroup(0, bindGroup)
+    pass.draw(3)
+    pass.end()
+    this.device.queue.submit([encoder.finish()])
+  }
+
+  /** A cached preview's picture as a composite-like texture (for presenting, and test probes). */
+  previewTexture(bitmap: ImageBitmap): GPUTexture {
+    if (!this.preview || this.preview.width !== bitmap.width || this.preview.height !== bitmap.height) {
+      this.preview?.destroy()
+      this.preview = this.device.createTexture({
+        size: [bitmap.width, bitmap.height],
+        format: 'rgba16float',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+      })
+    }
+    this.device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: this.preview }, [bitmap.width, bitmap.height])
+    return this.preview
   }
 
   /** A uniform buffer for one pass. Each pass in a frame needs its own (writes land before the frame runs). */
@@ -460,6 +495,7 @@ export class Compositor {
     this.storagePool.forEach((b) => b.destroy())
     this.noMask.destroy()
     this.noPrevious.destroy()
+    this.preview?.destroy()
     for (const list of this.scratch.values()) list.forEach((t) => t.destroy())
     this.scratch.clear()
     this.noLut.destroy()

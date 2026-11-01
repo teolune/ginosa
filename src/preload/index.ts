@@ -80,6 +80,11 @@ const bridge: GinosaBridge = {
     read: () => ipcRenderer.invoke('presets:read'),
     write: (data) => ipcRenderer.invoke('presets:write', data)
   },
+  renders: {
+    list: (projectId) => ipcRenderer.invoke('renders:list', projectId),
+    read: (projectId, key) => ipcRenderer.invoke('renders:read', projectId, key),
+    write: (projectId, key, data) => ipcRenderer.invoke('renders:write', projectId, key, data)
+  },
   analysis: {
     read: (projectId, key) => ipcRenderer.invoke('analysis:read', projectId, key),
     write: (projectId, key, data) => ipcRenderer.invoke('analysis:write', projectId, key, data)
@@ -97,6 +102,8 @@ const bridge: GinosaBridge = {
     registerProject: (projectId, name, path) => ipcRenderer.invoke('cache:registerProject', projectId, name, path),
     usage: () => ipcRenderer.invoke('cache:usage'),
     clear: (projectId, category) => ipcRenderer.invoke('cache:clear', projectId, category),
+    previewLimit: () => ipcRenderer.invoke('cache:previewLimit'),
+    setPreviewLimit: (bytes) => ipcRenderer.invoke('cache:setPreviewLimit', bytes),
     reveal: () => ipcRenderer.invoke('cache:reveal'),
     chooseLocation: () => ipcRenderer.invoke('cache:chooseLocation')
   },

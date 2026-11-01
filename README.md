@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M8 · Audio and modulation.** ginosa listens to your music: analysis sources (a clip, a track, a sidechain or the mix), six bands, loudness, transients and hits; tempo detection with a beat grid on the ruler and beat snapping; modulators (audio, tempo, LFOs, random) driving any value through a shaping chain; the Audio Analysis and Modulation windows. Built on M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M9 (masks and temporal engine).
+**M9 · Masks and the temporal engine.** Shared masks (rectangle, ellipse, pen path, edge, luminance range) that any effect or adjustment layer can use, keyframed or driven by the music and drawn on the Program monitor; stateful effects with checkpoints, starting with Feedback; a render cache with a render bar, Enter to render, and a full Cache Manager. Built on M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M10 (Colour & Light, Mosaic).
 
 ## Setup (once)
 
@@ -29,7 +29,8 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
 | `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
 | `npm run speed-test` | Plays speed, reverse, hold and dissolve clips and checks every frame; writes `renders/speed/speed.json` |
-| `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` |
+| `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` (also `masksgpu` and `feedbackgpu`) |
+| `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |
 | `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |
 

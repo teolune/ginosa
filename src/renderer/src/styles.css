@@ -126,6 +126,9 @@ select.input { padding-right: 4px; }
 /* ---- Timeline ---- */
 .timeline-panel { outline: none; }
 .timeline-toolbar { gap: 6px; }
+.timeline-toolbar > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
+.timeline-toolbar > .button.compact { padding-left: 7px; padding-right: 7px; }
+.timeline-toolbar > button, .timeline-toolbar > .tool-group { flex-shrink: 0; }
 .tool-group { display: flex; align-items: center; gap: 2px; margin-left: 10px; }
 .tool-button {
   height: 22px; min-width: 26px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: none;
@@ -493,3 +496,7 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .mask-overlay .mask-tangent { stroke: rgba(232,176,74,0.7); vector-effect: non-scaling-stroke; stroke-width: 1; }
 .mask-overlay .mask-tangent-end { fill: #e8b04a; stroke: none; cursor: pointer; }
 .mask-overlay .mask-rotate { fill: #1b1d22; stroke: #e8b04a; vector-effect: non-scaling-stroke; stroke-width: 1.5; cursor: grab; }
+
+/* Render cache (M9) */
+.render-progress { display: inline-flex; align-items: center; gap: 6px; color: #d9b23c; font-variant-numeric: tabular-nums; }
+.cache-limit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

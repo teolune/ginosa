@@ -19,6 +19,7 @@ import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runFeedbackGpuTest } from '../playback/feedback-gpu-test'
 import { feedbackTest } from '../playback/feedback-test'
+import { renderCacheDemo } from '../render-cache/render-cache-demo'
 import { maskTest } from '../masks/mask-test'
 import { buildMaskUiTimeline } from '../masks/mask-ui-demo'
 import { sourcePlayer } from '../playback/source-player'
@@ -314,6 +315,14 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(1500)
       await window.ginosa.snapshot.report(await feedbackTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       timelineController.zoomToFit()
+      break
+    }
+    case 'cacheui': {
+      // M9: the render bar, half rendered, over footage with a Feedback tunnel.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await renderCacheDemo().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      await wait(1000)
       break
     }
     case 'feedbackgpu': {

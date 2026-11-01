@@ -31,6 +31,8 @@ export interface Scene {
   image: (url: string) => HTMLImageElement | null
   timecode: (time: Ticks) => string
   focused: boolean
+  /** The render bar (M9): per frame 0 plain, 1 effects rendered live (yellow), 2 cached (green). */
+  render: { status: Uint8Array; frame: Ticks } | null
 }
 
 const COLOURS = {
@@ -62,6 +64,8 @@ const COLOURS = {
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22',
   keyframe: '#e8e8ea',
+  renderLive: '#d9b23c',
+  renderCached: '#3fae5c',
   beat: 'rgba(232,176,74,0.55)',
   bar: '#e8b04a',
   barGrid: 'rgba(232,176,74,0.07)'
@@ -111,6 +115,7 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
     const x = Math.round((s - view.scroll) * view.pps)
     ctx.fillText(scene.timecode(secondsToTicks(s)), x + 3, 4)
   }
+  drawRenderBar(ctx, scene)
   drawBeatGrid(ctx, scene)
   // Markers
   for (const marker of scene.sequence.markers) drawMarker(ctx, scene, marker)
@@ -119,6 +124,28 @@ function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene): void {
   ctx.moveTo(0, RULER_HEIGHT - 0.5)
   ctx.lineTo(width, RULER_HEIGHT - 0.5)
   ctx.stroke()
+}
+
+/** Along the top of the ruler: yellow where frames have effects rendered live, green where they're cached. */
+function drawRenderBar(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const render = scene.render
+  if (!render) return
+  const { view, width } = scene
+  const first = Math.max(0, Math.floor((secondsToTicks(view.scroll) / render.frame)))
+  const last = Math.min(render.status.length, Math.ceil(secondsToTicks(view.scroll + width / view.pps) / render.frame) + 1)
+  let j = first
+  while (j < last) {
+    const status = render.status[j]!
+    let k = j + 1
+    while (k < last && render.status[k] === status) k++
+    if (status !== 0) {
+      const x0 = timeToX(j * render.frame, view)
+      const x1 = timeToX(k * render.frame, view)
+      ctx.fillStyle = status === 2 ? COLOURS.renderCached : COLOURS.renderLive
+      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), 3)
+    }
+    j = k
+  }
 }
 
 /** Bars (numbered) and beats along the bottom of the ruler, once there's a beat grid. */
