@@ -214,10 +214,13 @@ export function animatedRefs(clip: Clip): PropertyRef[] {
   return refs
 }
 
-/** Whether a value can be modulated: numbers and points (not Speed, choices or toggles). */
+/** Whether a value can be modulated: numbers and points (not Speed, choices, toggles or curves, nor what an effect marks `modulatable: false`). */
 export function modulatable(clip: Clip, effectId: string | null, param: string): boolean {
   const spec = propertySpec(clip, effectId, param)
-  return spec !== null && spec.kind !== 'stepped' && !(effectId === null && param === 'speed')
+  if (spec === null || spec.kind === 'stepped' || (effectId === null && param === 'speed')) return false
+  if (effectId === null) return true
+  const effect = clip.effects.find((e) => e.id === effectId)
+  return effectById(effect?.effectId ?? '')?.params.find((p) => p.id === param)?.modulatable !== false
 }
 
 /**

@@ -1,7 +1,7 @@
 import { BLEND_MODES, type BlendMode } from '@engine/project/model'
 import type { Affine } from '@engine/timeline/motion'
 import type { Matrix3 } from '@engine/colour/colour'
-import type { EffectManifest, ParamValue } from '@engine/effects/types'
+import type { EffectClock, EffectManifest, ParamValue } from '@engine/effects/types'
 import blendSource from './blend.wgsl?raw'
 import compositeSource from './composite.wgsl?raw'
 import maskSource from './mask.wgsl?raw'
@@ -35,6 +35,8 @@ export interface GpuEffect {
   mask: GpuMask | null
   /** Stateful effects: their state from the frame before, and where this frame's goes. */
   state?: EffectState | null
+  /** The frame and beat being rendered (M11), for effects that read the clock. */
+  clock?: EffectClock
 }
 
 /** A stateful effect's state, as one pass sees it (temporal.ts keeps it between frames). */
@@ -414,7 +416,7 @@ export class Compositor {
           entries: [
             { binding: 0, resource: current.createView() },
             { binding: 1, resource: this.sampler },
-            { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, null, temporal, sizes)) } },
+            { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, null, temporal, sizes, effect.clock)) } },
             { binding: 3, resource: { buffer: paramsUniform } },
             { binding: 4, resource: { buffer: this.noMask } },
             { binding: 5, resource: this.noPrevious.createView() },
@@ -430,7 +432,7 @@ export class Compositor {
         if (prepass) this.release(prepass)
         prepass = target
       }
-      const frameUniform = this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal, { output: inputSize, prepass: prepass ? { width: prepass.width, height: prepass.height } : null }))
+      const frameUniform = this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal, { output: inputSize, prepass: prepass ? { width: prepass.width, height: prepass.height } : null }, effect.clock))
       const bindGroup = this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [

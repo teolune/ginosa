@@ -18,8 +18,11 @@ import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
+import { runGrainGpuTest } from '../playback/grain-gpu-test'
+import { grainExportTest } from '../playback/grain-export-test'
 import { colourLightExportTest } from '../playback/colour-light-export-test'
 import { buildColourLightUi } from '../effects/colour-light-demo'
+import { buildGrainUi } from '../effects/grain-demo'
 import { runFeedbackGpuTest } from '../playback/feedback-gpu-test'
 import { feedbackTest } from '../playback/feedback-test'
 import { renderCacheDemo } from '../render-cache/render-cache-demo'
@@ -355,6 +358,27 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(2500)
       await buildColourLightUi()
       await wait(2500)
+      break
+    }
+    case 'exportgrain': {
+      // M11 end to end: Grain exported (ProRes 4444) and played, against the CPU maths frame by frame.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /patches_rec709\.mov$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await grainExportTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      workspaceController.open('effect-controls')
+      await wait(800)
+      break
+    }
+    case 'grainui': {
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
+      await wait(2500)
+      await buildGrainUi()
+      await wait(2500)
+      break
+    }
+    case 'graingpu': {
+      // M11: Grain on the GPU against its CPU maths, pixel by pixel.
+      await window.ginosa.snapshot.report(await runGrainGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'colourlightgpu': {

@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M10 · Colour & Light, Mosaic.** Basic Correction, Curves (with a curve editor) and Levels; Mosaic with exact cell averages; built-in audio-reactive presets (Kick Flash, Bass Mosaic). Built on M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M11 (Grain).
+**M11 · Grain.** Film grain and sensor noise generated on the GPU, refreshing every frame, every N frames or on the beat, with grain presets and the audio-reactive Hi-Hat Grain. Built on M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M12 (Posterize Time and the drum sequencer).
 
 ## Setup (once)
 
@@ -29,8 +29,8 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
 | `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
 | `npm run speed-test` | Plays speed, reverse, hold and dissolve clips and checks every frame; writes `renders/speed/speed.json` |
-| `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` (also `masksgpu`, `feedbackgpu` and `colourlightgpu`) |
-| `npm run snapshot -- --scenario exportcolourlight` | M10's effects and Kick Flash through playback and export, against the CPU maths; writes `renders/ui/exportcolourlight.json` |
+| `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` (also `masksgpu`, `feedbackgpu`, `colourlightgpu` and `graingpu`) |
+| `npm run snapshot -- --scenario exportcolourlight` | M10's effects and Kick Flash through playback and export, against the CPU maths; writes `renders/ui/exportcolourlight.json` (also `exportgrain`) |
 | `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |
 | `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |

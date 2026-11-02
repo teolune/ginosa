@@ -32,6 +32,8 @@ interface ParamBase {
   help?: string
   /** Effect Controls shows parameters with the same group under one heading (e.g. "Tone"). */
   group?: string
+  /** Shown only while a choice parameter has one of these values (e.g. Every N Frames only with Refresh on "Every N frames"). */
+  showIf?: { param: string; is: readonly string[] }
 }
 
 export interface NumberParam extends ParamBase {
@@ -110,7 +112,22 @@ export interface EffectManifest {
   passes?: readonly EffectPass[]
   /** Parameter groups Effect Controls shows folded at first (e.g. Levels' Red, Green, Blue). */
   closedGroups?: readonly string[]
+  /**
+   * The effect changes with the frame number or the beat even on a still picture (M11:
+   * grain), through `frameIndex()`, `beatPosition()`, `beatsPerFrame()` and `beatsPerBar()`.
+   * The render cache then keys its frames by them too.
+   */
+  readsClock?: boolean
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>
+}
+
+/** Where a frame is in time, for effects that read it (sequence frames from 0, and beats on the beat grid). */
+export interface EffectClock {
+  frame: number
+  /** Beats since the grid's downbeat (negative before it); the default 120 BPM grid without one. */
+  beat: number
+  beatsPerFrame: number
+  beatsPerBar: number
 }
 
 export interface EffectPass {

@@ -39,7 +39,7 @@ export class LayerBuilder {
       if (!manifest) return []
       const t = layer.temporal
       const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
-      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state }]
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.clock }]
     })
   }
 

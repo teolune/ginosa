@@ -6,6 +6,9 @@ import { resolveClip } from '../keyframes/properties'
 import type { ModulationContext } from '../modulation/types'
 import { resolveMasks, type FrameSize, type ResolvedShape } from '../masks/masks'
 import { hasStatefulEffect, stateFrame, stateKey } from './temporal'
+import { beatAt } from '../audio/beat-grid'
+import { DEFAULT_GRID } from '../modulation/curve'
+import type { EffectClock } from '../effects/types'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -28,6 +31,15 @@ export interface VideoLayer {
   masks: FrameMasks
   /** Clips with stateful effects (M9): frames since their state's reset, and what that state depends on. */
   temporal: LayerTemporal | null
+  /** Where this moment is in frames and beats (M11), for effects that change with it (the same for every layer). */
+  clock: EffectClock
+}
+
+/** The clock at a sequence time: its frame number, and its place on the beat grid (120 BPM from 0 without one). */
+export function clockAt(sequence: Sequence, time: Ticks): EffectClock {
+  const frame = frameTicks(sequence)
+  const grid = sequence.beatGrid ?? DEFAULT_GRID
+  return { frame: Math.round(time / frame), beat: beatAt(grid, time), beatsPerFrame: beatAt(grid, frame) - beatAt(grid, 0), beatsPerBar: grid.beatsPerBar }
 }
 
 export interface LayerTemporal {
@@ -131,6 +143,7 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
   const frame = frameTicks(sequence)
   const layers: VideoLayer[] = []
   const masks: { frame: FrameSize; byId: Map<string, ResolvedShape[]> } = { frame: { width: sequence.settings.width, height: sequence.settings.height }, byId: new Map() }
+  const clock = clockAt(sequence, time)
   for (const track of tracks) {
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
@@ -144,12 +157,12 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
       if ((clip.opacity <= 0 || weight <= 0) && !temporal) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
-        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal })
+        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal, clock })
         continue
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal })
+      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock })
     }
   }
   if (sequence.masks.length > 0) {

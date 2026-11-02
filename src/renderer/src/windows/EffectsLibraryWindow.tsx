@@ -114,7 +114,7 @@ export function EffectsLibraryWindow() {
               key={preset.id}
               className="library-item"
               draggable
-              title={`${preset.description} Links to the first source in Audio Analysis. Drag onto a clip, or double-click to apply to the selected clips.`}
+              title={`${preset.description}${preset.links.length ? ' Links to the first source in Audio Analysis.' : ''} Drag onto a clip, or double-click to apply to the selected clips.`}
               onDragStart={(event) => {
                 event.dataTransfer.setData(PRESET_DRAG_TYPE, preset.id)
                 event.dataTransfer.effectAllowed = 'copy'
@@ -125,7 +125,9 @@ export function EffectsLibraryWindow() {
                 setMenu({ x: event.clientX, y: event.clientY, entries: [{ label: 'Apply to Selected Clips', disabled: targets.length === 0, onSelect: () => effectsController.applyPreset(preset.id, targets) }] })
               }}
             >
-              <span className="library-badge preset builtin">∿</span>
+              <span className={`library-badge preset ${preset.links.length ? 'builtin' : ''}`} title={preset.links.length ? 'Follows the music' : 'Settings only'}>
+                {preset.links.length ? '∿' : 'P'}
+              </span>
               {preset.name}
             </div>
           ))}

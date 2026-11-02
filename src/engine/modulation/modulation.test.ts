@@ -17,7 +17,9 @@ import { applyLinks } from './apply'
 import { CURVE_RATE, curveValue, modulatorCurve, responseCurve, sourceSignal, thresholdKnee, type CurveInputs } from './curve'
 import type { ModLink, Modulator, ModulationContext } from './types'
 import { newModulator } from '../timeline/modulation-edits'
-import { applyBuiltinPreset } from '../timeline/builtin-presets'
+import { applyBuiltinPreset, BUILTIN_PRESETS } from '../timeline/builtin-presets'
+import { effectById } from '../../effects/registry'
+import { sanitiseValue } from '../effects/params'
 
 const s = secondsToTicks
 let counter = 0
@@ -274,5 +276,32 @@ describe('built-in presets (M10)', () => {
     expect(effect.effectId).toBe('basic-correction')
     expect(effect.modulation).toEqual({})
     expect(history.state.sequence.modulators).toHaveLength(0)
+  })
+})
+
+describe('built-in presets (M11)', () => {
+  it('only use real effects and settings within their ranges', () => {
+    for (const preset of BUILTIN_PRESETS)
+      for (const e of preset.effects) {
+        const manifest = effectById(e.effectId)
+        expect(manifest, preset.name).toBeDefined()
+        for (const [id, value] of Object.entries(e.params)) {
+          const spec = manifest!.params.find((p) => p.id === id)
+          expect(spec, `${preset.name}: ${id}`).toBeDefined()
+          expect(sanitiseValue(spec!, value, { width: 1920, height: 1080 }), `${preset.name}: ${id}`).toEqual(value)
+        }
+      }
+  })
+
+  it('Heavy Noise is grey grain in Overlay, with no audio message; Hi-Hat Grain follows the high band', () => {
+    const { history, run, video } = setup()
+    const command = run(applyBuiltinPreset([video().id], 'builtin:heavy-noise', s(2), ids))
+    expect(command.notice).toBeUndefined()
+    expect(video().effects[0]).toMatchObject({ effectId: 'grain', blendMode: 'overlay', params: { composite: 'layer', grainType: 'mono', amount: 60 } })
+    expect(history.state.sequence.modulators).toHaveLength(0)
+    run(applyBuiltinPreset([video().id], 'builtin:hihat-grain', s(2), ids))
+    const grain = video().effects[1]!
+    expect(grain.modulation['amount']![0]).toMatchObject({ mode: 'add', min: [0], max: [30] })
+    expect(history.state.sequence.modulators[0]!.source).toMatchObject({ signal: 'level', band: 'high' })
   })
 })

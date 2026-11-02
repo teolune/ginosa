@@ -50,7 +50,9 @@ export function layerContent(layer: VideoLayer): string {
     media: item ? { id: item.id, fingerprint: item.fingerprint, colour: item.colour, kind: item.kind, rotation: item.info.video?.rotation ?? 0 } : null,
     // Images show the same picture throughout.
     at: item?.kind === 'image' ? 0 : layer.sourceTime,
-    masks: maskIds.map((id) => (layer.masks.byId.get(id) ?? []).map(shapeContent))
+    masks: maskIds.map((id) => (layer.masks.byId.get(id) ?? []).map(shapeContent)),
+    // Effects that change with the frame or the beat (grain) differ on every frame, even on a still.
+    clock: clip.effects.some((e) => e.enabled && effectById(e.effectId)?.readsClock) ? { frame: layer.clock.frame, beat: Math.round(layer.clock.beat * 1e6) / 1e6 } : null
   })
 }
 

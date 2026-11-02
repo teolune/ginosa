@@ -481,6 +481,14 @@ function CurveTabs({ clip, effect, specs, locked }: { clip: Clip; effect: Effect
   )
 }
 
+/** Whether a parameter applies right now (`showIf`): always, while its choice is keyframed, since that changes over time. */
+function applies(effect: EffectInstance, spec: ParamSpec): boolean {
+  const rule = spec.showIf
+  if (!rule) return true
+  if ((effect.keyframes[rule.param]?.length ?? 0) > 0) return true
+  return rule.is.includes(String(effect.params[rule.param]))
+}
+
 /** Consecutive parameters with the same group, in manifest order (ungrouped ones alone). */
 function paramSections(manifest: EffectManifest): Array<{ group: string | null; specs: ParamSpec[] }> {
   const out: Array<{ group: string | null; specs: ParamSpec[] }> = []
@@ -513,7 +521,7 @@ function ParamGroup({ clip, effect, manifest, group, specs, locked }: { clip: Cl
       </div>
       {open && (
         <div className="fx-group-body">
-          {curves ? <CurveTabs clip={clip} effect={effect} specs={specs as CurveParam[]} locked={locked} /> : specs.map((spec) => <ParamRow key={spec.id} clip={clip} effect={effect} spec={spec} locked={locked} />)}
+          {curves ? <CurveTabs clip={clip} effect={effect} specs={specs as CurveParam[]} locked={locked} /> : specs.filter((spec) => applies(effect, spec)).map((spec) => <ParamRow key={spec.id} clip={clip} effect={effect} spec={spec} locked={locked} />)}
         </div>
       )}
     </div>
@@ -613,7 +621,7 @@ function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; ef
               <MaskRow clip={clip} effectId={effect.id} value={effect.mask} locked={locked} />
               {paramSections(manifest).map((section) =>
                 section.group === null ? (
-                  <ParamRow key={section.specs[0]!.id} clip={clip} effect={effect} spec={section.specs[0]!} locked={locked} />
+                  applies(effect, section.specs[0]!) && <ParamRow key={section.specs[0]!.id} clip={clip} effect={effect} spec={section.specs[0]!} locked={locked} />
                 ) : (
                   <ParamGroup key={`group-${section.group}-${section.specs[0]!.id}`} clip={clip} effect={effect} manifest={manifest} group={section.group} specs={section.specs} locked={locked} />
                 )

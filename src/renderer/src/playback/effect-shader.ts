@@ -1,6 +1,6 @@
 import { blendIndex } from '@engine/effects/blend'
 import { DISPLAY_GAMMA } from '@engine/effects/colour-spaces'
-import type { EffectManifest, ImageSize, ParamValue } from '@engine/effects/types'
+import type { EffectClock, EffectManifest, ImageSize, ParamValue } from '@engine/effects/types'
 import type { BlendMode } from '@engine/project/model'
 import blendSource from './blend.wgsl?raw'
 import maskSource from './mask.wgsl?raw'
@@ -90,9 +90,10 @@ export interface PassTemporal {
 /**
  * The frame uniform: image size, Mix (0–1), blend mode, pixel scale, then the mask's shape
  * count, edge softness, invert and placement, then a stateful effect's place in time, then
- * the size of the image this pass writes and of the earlier pass it reads (M10).
+ * the size of the image this pass writes and of the earlier pass it reads (M10), then the
+ * clock: frame number and beat (M11).
  */
-export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null, temporal: PassTemporal | null = null, sizes: { output: ImageSize; prepass: ImageSize | null } | null = null): Float32Array {
+export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null, temporal: PassTemporal | null = null, sizes: { output: ImageSize; prepass: ImageSize | null } | null = null, clock: EffectClock | null = null): Float32Array {
   const m = mask?.toFrame ?? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
   return new Float32Array([
     width, height, mix, blendIndex(blend),
@@ -100,7 +101,8 @@ export function packFrame(width: number, height: number, mix: number, blend: Ble
     m.a, m.b, m.c, m.d,
     m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height,
     temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, 0, 0,
-    sizes?.output.width ?? width, sizes?.output.height ?? height, sizes?.prepass?.width ?? 1, sizes?.prepass?.height ?? 1
+    sizes?.output.width ?? width, sizes?.output.height ?? height, sizes?.prepass?.width ?? 1, sizes?.prepass?.height ?? 1,
+    clock?.frame ?? 0, clock?.beat ?? 0, clock?.beatsPerFrame ?? 0, clock?.beatsPerBar ?? 4
   ])
 }
 
@@ -126,6 +128,7 @@ struct EffectFrame {
   toFrame1: vec4f, // e, f, frame width, frame height
   temporal: vec4f, // has a previous frame (stateful effects), frames since the reset
   passes: vec4f, // the size of the image this pass writes, then of the earlier pass it reads
+  clock: vec4f, // sequence frame number, beat on the grid, beats per frame, beats per bar
 };
 
 struct EffectParams {
@@ -216,6 +219,12 @@ fn curveAt(index: u32, x: f32) -> f32 {
 fn passSize() -> vec2i { return vec2i(frame.passes.xy + 0.5); }
 fn prepassSize() -> vec2i { return vec2i(frame.passes.zw + 0.5); }
 fn prepassLoad(p: vec2i) -> vec4f { return textureLoad(prepassTex, clamp(p, vec2i(0), prepassSize() - 1), 0); }
+
+// The clock (M11): which sequence frame this is, and where it falls on the beat grid.
+fn frameIndex() -> f32 { return frame.clock.x; }
+fn beatPosition() -> f32 { return frame.clock.y; }
+fn beatsPerFrame() -> f32 { return frame.clock.z; }
+fn beatsPerBar() -> f32 { return frame.clock.w; }
 
 fn hasPrevious() -> bool { return frame.temporal.x > 0.5; }
 fn framesSinceReset() -> f32 { return frame.temporal.y; }

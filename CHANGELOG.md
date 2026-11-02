@@ -1,5 +1,22 @@
 # Changelog
 
+## M11 · Grain
+
+- **Grain** (Effects › Noise & Grain): Gaussian grain on a lattice sized relative to the picture's height, with a coarser layer for clumps, generated on the GPU and seeded by the frame, so every frame is repeatable.
+  - Controls: Amount, Size, Softness.
+  - Composite: Film (density), Digital (sensor noise), or Grain layer (grey grain for the Blend Mode).
+  - Monochrome or Colour, with Colour Amount and red, green and blue sizes.
+  - Response: Shadows, Midtones, Highlights.
+  - Time: Refresh every frame, every N frames or on a note value (beat grid), Boil (how much carries over) and Seed.
+- **Built-in presets:** Fine 35 mm, 16 mm and Super 8 Grain, Digital Sensor Noise, Heavy Noise (Overlay), and the audio-reactive **Hi-Hat Grain** (the high band thickens the grain).
+- **Effect pipeline:** effects can read the frame number and the beat (the effect clock); the render cache keys such effects by frame, so stills with grain cache correctly.
+- **Effect Controls:** settings that don't apply are hidden (Every N Frames shows only with Refresh on "Every N frames"); parameters marked not modulatable can't be linked.
+- **Plan:** M12's drum sequencer will look like FL Studio's Channel Rack (your screenshot).
+- **Tests:**
+  - Grain on the GPU against its CPU maths: within 0.0015 on 10,553 pixels in 12 cases
+  - end to end: the preview within 0.0014 of the maths; the exported ProRes 4444 file's grain correlates 0.994 with it
+  - 14 new unit tests (323 in all)
+
 ## M10 · Colour & Light, Mosaic
 
 - **Basic Correction** (Effects › Colour & Light): Temperature, Tint and Exposure as gains on linear light, then Brightness, Contrast, Highlights, Shadows, Whites and Blacks on perceptual (OKLab) lightness, then Saturation, Vibrance (sparing vivid colours and skin) and Hue. Grouped as White Balance, Tone and Colour.
