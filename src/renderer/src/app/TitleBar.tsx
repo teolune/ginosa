@@ -37,7 +37,7 @@ export function TitleBar() {
         </>
       )}
       {!project && <span className="spacer" />}
-      <span className="milestone muted">M9</span>
+      <span className="milestone muted">M10</span>
     </header>
   )
 }

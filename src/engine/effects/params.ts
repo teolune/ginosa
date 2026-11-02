@@ -1,6 +1,7 @@
 import { cloneKeyframeMap, normaliseTrack, type KeyframeMap } from '../keyframes/keyframes'
 import { cloneModulationMap } from '../modulation/apply'
 import type { EffectInstance, EffectManifest, ImageSize, ParamSpec, ParamValue } from './types'
+import { parseCurve } from './curves'
 
 /** A parameter's default for an image of `size` (points are fractions of it). */
 export function paramDefault(spec: ParamSpec, size: ImageSize): ParamValue {
@@ -26,7 +27,14 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
       return typeof value === 'boolean' ? value : fallback
     case 'point':
       return Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [value[0] as number, value[1] as number] : fallback
+    case 'curve':
+      return typeof value === 'string' && parseCurve(value) ? value : fallback
   }
+}
+
+/** Parameters that hold between keyframes rather than move smoothly. */
+export function isStepped(spec: ParamSpec): boolean {
+  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve'
 }
 
 export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unknown>, size: ImageSize): Record<string, ParamValue> {
@@ -44,7 +52,7 @@ export function sanitiseKeyframes(manifest: EffectManifest, keyframes: KeyframeM
     }
     const spec = manifest.params.find((p) => p.id === key)
     if (!spec) continue
-    out[key] = normaliseTrack(track, (v) => sanitiseValue(spec, v, size), spec.type === 'choice' || spec.type === 'toggle')
+    out[key] = normaliseTrack(track, (v) => sanitiseValue(spec, v, size), isStepped(spec))
   }
   return out
 }

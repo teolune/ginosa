@@ -20,7 +20,9 @@ const shaderHashes = new Map<string, string>()
 function shaderHash(effectId: string): string {
   let h = shaderHashes.get(effectId)
   if (h === undefined) {
-    h = hashText(effectById(effectId)?.shader ?? 'missing')
+    // The main shader and any earlier passes' (M10), so changing either invalidates its frames.
+    const manifest = effectById(effectId)
+    h = hashText(manifest ? [manifest.shader, ...(manifest.passes ?? []).map((p) => p.shader)].join('\n// pass\n') : 'missing')
     shaderHashes.set(effectId, h)
   }
   return h

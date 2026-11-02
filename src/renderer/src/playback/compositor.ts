@@ -5,7 +5,7 @@ import type { EffectManifest, ParamValue } from '@engine/effects/types'
 import blendSource from './blend.wgsl?raw'
 import compositeSource from './composite.wgsl?raw'
 import maskSource from './mask.wgsl?raw'
-import { effectShaderSource, maskAa, packFrame, packParams } from './effect-shader'
+import { effectShaderSource, maskAa, packData, packFrame, packParams, prepassShaderSource } from './effect-shader'
 import { invertAffine } from '@engine/timeline/motion'
 
 const shaderSource = `${blendSource}\n${compositeSource}\n${maskSource}`
@@ -192,10 +192,12 @@ export class Compositor {
     return pipeline
   }
 
-  private effectPipeline(manifest: EffectManifest): GPURenderPipeline {
-    let pipeline = this.effectPipelines.get(manifest.id)
+  /** An effect's main pass, or (with a number) one of its earlier passes. */
+  private effectPipeline(manifest: EffectManifest, stage: 'effect' | number = 'effect'): GPURenderPipeline {
+    const key = `${manifest.id}:${stage}`
+    let pipeline = this.effectPipelines.get(key)
     if (!pipeline) {
-      const module = this.device.createShaderModule({ label: `effect ${manifest.id}`, code: effectShaderSource(manifest) })
+      const module = this.device.createShaderModule({ label: `effect ${manifest.id} ${stage}`, code: stage === 'effect' ? effectShaderSource(manifest) : prepassShaderSource(manifest, stage) })
       // One explicit layout for every effect, so bindings an effect doesn't use are still valid.
       this.effectLayout ??= this.device.createPipelineLayout({
         bindGroupLayouts: [
@@ -206,7 +208,9 @@ export class Compositor {
               { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
               { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
               { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-              { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
+              { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+              { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
             ]
           })
         ]
@@ -215,10 +219,10 @@ export class Compositor {
         label: `effect ${manifest.id}`,
         layout: this.effectLayout,
         vertex: { module, entryPoint: 'vs' },
-        fragment: { module, entryPoint: 'fsEffect', targets: [{ format: 'rgba16float' }] },
+        fragment: { module, entryPoint: stage === 'effect' ? 'fsEffect' : 'fsPrepass', targets: [{ format: 'rgba16float' }] },
         primitive: { topology: 'triangle-list' }
       })
-      this.effectPipelines.set(manifest.id, pipeline)
+      this.effectPipelines.set(key, pipeline)
     }
     return pipeline
   }
@@ -284,16 +288,21 @@ export class Compositor {
 
   /** A mask's data for one pass (pooled like uniforms; grown when a mask needs more). */
   private maskBuffer(mask: GpuMask | null): GPUBuffer {
-    if (!mask || mask.parts === 0) return this.noMask
-    const bytes = Math.max(256, 2 ** Math.ceil(Math.log2(mask.data.byteLength)))
+    return !mask || mask.parts === 0 ? this.noMask : this.storageBuffer(mask.data)
+  }
+
+  /** Read-only data for one pass (masks, an effect's tables), pooled like uniforms and grown when needed. */
+  private storageBuffer(data: Float32Array | null): GPUBuffer {
+    if (!data || data.length === 0) return this.noMask
+    const bytes = Math.max(256, 2 ** Math.ceil(Math.log2(data.byteLength)))
     let buffer = this.storagePool[this.storageUsed]
-    if (!buffer || buffer.size < mask.data.byteLength) {
+    if (!buffer || buffer.size < data.byteLength) {
       buffer?.destroy()
       buffer = this.device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
       this.storagePool[this.storageUsed] = buffer
     }
     this.storageUsed++
-    this.device.queue.writeBuffer(buffer, 0, mask.data)
+    this.device.queue.writeBuffer(buffer, 0, data)
     return buffer
   }
 
@@ -388,15 +397,51 @@ export class Compositor {
       const temporal = effect.state ? { hasPrevious: previous !== null, frames: effect.state.frames } : null
       const output = this.take(input.width, input.height)
       const pipeline = this.effectPipeline(effect.manifest)
+      // Earlier passes (M10) each render their own image (e.g. Mosaic's cells), reading the
+      // one before; the main pass reads the last. Sizes go in the frame uniform.
+      const paramsUniform = this.uniform(packParams(effect.manifest, effect.params, pixelScale))
+      const data = this.storageBuffer(packData(effect.manifest, effect.params))
+      const inputSize = { width: input.width, height: input.height }
+      let prepass: GPUTexture | null = null
+      for (const [index, pass] of (effect.manifest.passes ?? []).entries()) {
+        const limit = this.device.limits.maxTextureDimension2D
+        const size = pass.size(inputSize, effect.params)
+        const target = this.take(Math.max(1, Math.min(limit, Math.round(size.width))), Math.max(1, Math.min(limit, Math.round(size.height))))
+        const sizes = { output: { width: target.width, height: target.height }, prepass: prepass ? { width: prepass.width, height: prepass.height } : null }
+        const passPipeline = this.effectPipeline(effect.manifest, index)
+        const passGroup = this.device.createBindGroup({
+          layout: passPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: current.createView() },
+            { binding: 1, resource: this.sampler },
+            { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, null, temporal, sizes)) } },
+            { binding: 3, resource: { buffer: paramsUniform } },
+            { binding: 4, resource: { buffer: this.noMask } },
+            { binding: 5, resource: this.noPrevious.createView() },
+            { binding: 6, resource: { buffer: data } },
+            { binding: 7, resource: (prepass ?? this.noPrevious).createView() }
+          ]
+        })
+        const run = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
+        run.setPipeline(passPipeline)
+        run.setBindGroup(0, passGroup)
+        run.draw(3)
+        run.end()
+        if (prepass) this.release(prepass)
+        prepass = target
+      }
+      const frameUniform = this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal, { output: inputSize, prepass: prepass ? { width: prepass.width, height: prepass.height } : null }))
       const bindGroup = this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: current.createView() },
           { binding: 1, resource: this.sampler },
-          { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal)) } },
-          { binding: 3, resource: { buffer: this.uniform(packParams(effect.manifest, effect.params, pixelScale)) } },
+          { binding: 2, resource: { buffer: frameUniform } },
+          { binding: 3, resource: { buffer: paramsUniform } },
           { binding: 4, resource: { buffer: this.maskBuffer(effect.mask) } },
-          { binding: 5, resource: (previous ?? this.noPrevious).createView() }
+          { binding: 5, resource: (previous ?? this.noPrevious).createView() },
+          { binding: 6, resource: { buffer: data } },
+          { binding: 7, resource: (prepass ?? this.noPrevious).createView() }
         ]
       })
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -405,6 +450,7 @@ export class Compositor {
       pass.draw(3)
       pass.end()
       effect.state?.commit(encoder, output)
+      if (prepass) this.release(prepass)
       if (current !== input) this.release(current)
       current = output
     }

@@ -30,6 +30,8 @@ interface ParamBase {
   keyframable?: boolean
   modulatable?: boolean
   help?: string
+  /** Effect Controls shows parameters with the same group under one heading (e.g. "Tone"). */
+  group?: string
 }
 
 export interface NumberParam extends ParamBase {
@@ -67,7 +69,16 @@ export interface PointParam extends ParamBase {
   default: readonly [number, number]
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam
+/**
+ * A curve (M10): points as text, "x,y x,y …" with both 0–1 (curves.ts). Shown as a curve
+ * editor; holds between keyframes; the shader reads it baked into a table: `curveAt(CURVE_<id>, x)`.
+ */
+export interface CurveParam extends ParamBase {
+  type: 'curve'
+  default: string
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam
 
 export interface EffectManifest {
   id: string
@@ -89,7 +100,23 @@ export interface EffectManifest {
    * and `framesSinceReset()`.
    */
   shader: string
+  /**
+   * Optional passes before the main shader (M10), each into its own image (e.g. Mosaic: one
+   * value per cell and pixel row, then one per cell). Each pass's WGSL defines
+   * `fn prepass(texel: vec2i) -> vec4f`, with the same helpers as the shader plus
+   * `passSize()` (the size it writes); each pass reads the one before it, and the main
+   * shader the last, with `prepassLoad(texel)` and `prepassSize()`.
+   */
+  passes?: readonly EffectPass[]
+  /** Parameter groups Effect Controls shows folded at first (e.g. Levels' Red, Green, Blue). */
+  closedGroups?: readonly string[]
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>
+}
+
+export interface EffectPass {
+  shader: string
+  /** The image this pass writes, for an effect input of `input` pixels. */
+  size(input: ImageSize, params: Record<string, ParamValue>): ImageSize
 }
 
 /** An effect on a clip or adjustment layer. */

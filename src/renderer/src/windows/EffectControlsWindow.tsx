@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
-import type { EffectInstance, ParamSpec, ParamValue } from '@engine/effects/types'
+import type { CurveParam, EffectInstance, EffectManifest, ParamSpec, ParamValue } from '@engine/effects/types'
+import { IDENTITY_CURVE, parseCurve } from '@engine/effects/curves'
+import { CHANNEL_COLOURS, CurveEditor } from './CurveEditor'
 import { addEffect, moveEffect, removeEffects, resetEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
 import { effectById } from '../../../effects/registry'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
@@ -168,7 +170,8 @@ function PropertyRow({
   locked,
   help,
   unavailable,
-  children
+  children,
+  below
 }: {
   clip: Clip
   effectId: string | null
@@ -179,6 +182,8 @@ function PropertyRow({
   /** Why this value can't be keyframed right now (e.g. Speed on a reversed clip). */
   unavailable?: string | null
   children(value: ParamValue, onChange: (value: ParamValue) => void, animated: boolean): ReactNode
+  /** A full-width control under the row (the curve editor). */
+  below?(value: ParamValue, onChange: (value: ParamValue) => void): ReactNode
 }) {
   useObservable(keyframeController)
   useObservable(modulationController)
@@ -244,7 +249,8 @@ function PropertyRow({
     { label: 'Reset', onSelect: () => void resetValue(), disabled: locked || (effectId === null && param === 'speed') }
   ]
   const stopwatchTitle = unavailable ?? (animated ? `Turn off animation (removes the ${track.length} keyframe${track.length === 1 ? '' : 's'})` : inside ? 'Animate: set a keyframe at the playhead' : 'Move the playhead over the clip to animate this')
-  return (
+  const change = (v: ParamValue) => dispatch(setValue(ref, v, playhead))
+  const row = (
     <div
       className={`fx-row kf-row ${keyframeController.isFocused(ref) ? 'focused' : ''}`}
       title={help}
@@ -269,7 +275,7 @@ function PropertyRow({
         </span>
       </span>
       <span className="fx-values">
-        {children(value, (v) => dispatch(setValue(ref, v, playhead)), animated)}
+        {children(value, change, animated)}
         {links.length > 0 && (
           <button className="fx-mod-badge" title={`Modulated by ${links.length === 1 ? 'a modulator' : `${links.length} modulators`}; now ${formatLive(live)}. Click to edit.`} onClick={openModulation}>
             ∿ {formatLive(live)}
@@ -290,6 +296,13 @@ function PropertyRow({
         </span>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+    </div>
+  )
+  if (!below) return row
+  return (
+    <div className="fx-row-block">
+      {row}
+      <div className="fx-below">{below(value, change)}</div>
     </div>
   )
 }
@@ -411,7 +424,100 @@ function ParamControl({ spec, value, onChange, disabled }: { spec: ParamSpec; va
         </>
       )
     }
+    case 'curve': {
+      const points = parseCurve(String(value ?? spec.default))
+      const straight = String(value ?? spec.default) === IDENTITY_CURVE
+      return (
+        <span className="muted small">
+          {straight ? 'Straight' : `${points?.length ?? 2} points`}
+          {!straight && (
+            <button className="button compact" style={{ marginLeft: 8 }} disabled={disabled} title={`Make the ${spec.label} curve straight again`} onClick={() => onChange(IDENTITY_CURVE)}>
+              Straighten
+            </button>
+          )}
+        </span>
+      )
+    }
   }
+}
+
+/** One parameter's row: its control, and for a curve the editor under it. */
+function ParamRow({ clip, effect, spec, locked }: { clip: Clip; effect: EffectInstance; spec: ParamSpec; locked: boolean }) {
+  return (
+    <PropertyRow
+      clip={clip}
+      effectId={effect.id}
+      param={spec.id}
+      label={spec.label}
+      locked={locked}
+      help={spec.help}
+      below={spec.type === 'curve' ? (value, onChange) => <CurveEditor value={String(value)} onChange={onChange} colour={CHANNEL_COLOURS[spec.id] ?? CHANNEL_COLOURS['master']!} disabled={locked} label={spec.label} /> : undefined}
+    >
+      {(value, onChange) => <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} />}
+    </PropertyRow>
+  )
+}
+
+/** A group made only of curves (Curves' RGB, Red, Green, Blue): tabs, one editor at a time. */
+function CurveTabs({ clip, effect, specs, locked }: { clip: Clip; effect: EffectInstance; specs: CurveParam[]; locked: boolean }) {
+  const [shown, setShown] = useState(specs[0]!.id)
+  const spec = specs.find((s) => s.id === shown) ?? specs[0]!
+  return (
+    <>
+      <div className="curve-tabs" role="tablist" aria-label="Curve">
+        {specs.map((s) => {
+          const changed = String(effect.params[s.id] ?? s.default) !== IDENTITY_CURVE || (effect.keyframes[s.id]?.length ?? 0) > 0
+          return (
+            <button key={s.id} role="tab" aria-selected={s.id === spec.id} className={`curve-tab ${s.id === spec.id ? 'active' : ''}`} title={changed ? `${s.label} (changed)` : s.label} onClick={() => setShown(s.id)}>
+              <span className="curve-tab-dot" style={{ background: CHANNEL_COLOURS[s.id] ?? CHANNEL_COLOURS['master'] }} />
+              {s.label}
+              {changed && <span className="fx-group-changed">●</span>}
+            </button>
+          )
+        })}
+      </div>
+      <ParamRow clip={clip} effect={effect} spec={spec} locked={locked} />
+    </>
+  )
+}
+
+/** Consecutive parameters with the same group, in manifest order (ungrouped ones alone). */
+function paramSections(manifest: EffectManifest): Array<{ group: string | null; specs: ParamSpec[] }> {
+  const out: Array<{ group: string | null; specs: ParamSpec[] }> = []
+  for (const spec of manifest.params) {
+    const group = spec.group ?? null
+    const last = out[out.length - 1]
+    if (last && group !== null && last.group === group) last.specs.push(spec)
+    else out.push({ group, specs: [spec] })
+  }
+  return out
+}
+
+/** A parameter group's heading (fold it away), with a dot when anything in it differs from its default. */
+function ParamGroup({ clip, effect, manifest, group, specs, locked }: { clip: Clip; effect: EffectInstance; manifest: EffectManifest; group: string; specs: ParamSpec[]; locked: boolean }) {
+  const [open, setOpen] = useState(!manifest.closedGroups?.includes(group))
+  const changed = specs.some((s) => JSON.stringify(effect.params[s.id] ?? null) !== JSON.stringify(s.default) || (effect.keyframes[s.id]?.length ?? 0) > 0 || (effect.modulation[s.id]?.length ?? 0) > 0)
+  const curves = specs.every((s) => s.type === 'curve') && specs.length > 1
+  return (
+    <div className="fx-group">
+      <div className="fx-group-head" onClick={() => setOpen(!open)}>
+        <button className="twisty" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} ${group}`}>
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} fallback={open ? '▾' : '▸'} />
+        </button>
+        <span>{group}</span>
+        {changed && (
+          <span className="fx-group-changed" title="Something here is changed, animated or modulated">
+            ●
+          </span>
+        )}
+      </div>
+      {open && (
+        <div className="fx-group-body">
+          {curves ? <CurveTabs clip={clip} effect={effect} specs={specs as CurveParam[]} locked={locked} /> : specs.map((spec) => <ParamRow key={spec.id} clip={clip} effect={effect} spec={spec} locked={locked} />)}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function dragKind(event: DragEvent): 'stack' | 'effect' | 'preset' | null {
@@ -505,11 +611,13 @@ function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; ef
                 <BlendSelect label="Effect blend mode" value={effect.blendMode} disabled={locked} onChange={(blendMode) => change({ blendMode })} />
               </Row>
               <MaskRow clip={clip} effectId={effect.id} value={effect.mask} locked={locked} />
-              {manifest.params.map((spec) => (
-                <PropertyRow key={spec.id} clip={clip} effectId={effect.id} param={spec.id} label={spec.label} locked={locked} help={spec.help}>
-                  {(value, onChange) => <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} />}
-                </PropertyRow>
-              ))}
+              {paramSections(manifest).map((section) =>
+                section.group === null ? (
+                  <ParamRow key={section.specs[0]!.id} clip={clip} effect={effect} spec={section.specs[0]!} locked={locked} />
+                ) : (
+                  <ParamGroup key={`group-${section.group}-${section.specs[0]!.id}`} clip={clip} effect={effect} manifest={manifest} group={section.group} specs={section.specs} locked={locked} />
+                )
+              )}
             </>
           )}
         </div>

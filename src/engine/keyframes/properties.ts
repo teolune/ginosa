@@ -3,6 +3,7 @@ import type { EffectInstance, ParamSpec, ParamValue } from '../effects/types'
 import type { Clip } from '../project/model'
 import type { Ticks } from '../time'
 import { CommandError } from '../project/commands'
+import { parseCurve } from '../effects/curves'
 import { components, evaluate, putKeyframe, type Keyframe } from './keyframes'
 import { applyLinks, hasLinks } from '../modulation/apply'
 import type { ModLink, ModulationContext, ModulationMap } from '../modulation/types'
@@ -78,6 +79,7 @@ function paramProperty(spec: ParamSpec): PropertySpec {
       return { label: spec.label, kind: 'point', decimals: 1, param: spec }
     case 'choice':
     case 'toggle':
+    case 'curve':
       return { label: spec.label, kind: 'stepped', param: spec }
   }
 }
@@ -142,6 +144,7 @@ export function clampValue(spec: PropertySpec, value: ParamValue): ParamValue | 
     const p = spec.param
     if (p?.type === 'choice') return typeof value === 'string' && p.options.some((o) => o.id === value) ? value : null
     if (p?.type === 'toggle') return typeof value === 'boolean' ? value : null
+    if (p?.type === 'curve') return typeof value === 'string' && parseCurve(value) ? value : null
     return null
   }
   const c = components(value)
@@ -263,7 +266,7 @@ export function resolveClip(clip: Clip, time: Ticks, modulation: ModulationConte
         const spec = specs?.find((p) => p.id === param)
         const l = links(effect.modulation, param)
         const parts = components(value)
-        if (l && parts && spec && spec.type !== 'choice' && spec.type !== 'toggle') {
+        if (l && parts && spec && spec.type !== 'choice' && spec.type !== 'toggle' && spec.type !== 'curve') {
           const out = applyLinks(parts, l, modulation!, time)
           value = Array.isArray(value) ? [out[0]!, out[1]!] : out[0]!
         }

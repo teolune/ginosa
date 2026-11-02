@@ -220,7 +220,8 @@ export function addLink(ref: PropertyRef, modulatorId: string, at: Ticks, settin
   })
 }
 
-function applyLink(clip: Clip, ref: PropertyRef, modulatorId: string, at: Ticks, settings: LinkSettings, newId: IdFactory): void {
+/** Links a value to a modulator, inside a command (ranges default to the value's own, as Link to Audio's). */
+export function applyLink(clip: Clip, ref: PropertyRef, modulatorId: string, at: Ticks, settings: LinkSettings, newId: IdFactory): void {
   const spec = propertySpec(clip, ref.effectId, ref.param)
   if (!spec || !modulatable(clip, ref.effectId, ref.param)) throw new CommandError(spec ? `${spec.label} can't be modulated` : 'That value is gone')
   const current = components(valueAt(clip, ref.effectId, ref.param, Math.min(Math.max(0, at - clip.start), clip.duration - 1))) ?? [0]

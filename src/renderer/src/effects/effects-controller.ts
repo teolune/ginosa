@@ -1,3 +1,5 @@
+import { applyBuiltinPreset, BUILTIN_PREFIX } from '@engine/timeline/builtin-presets'
+import { timelineController } from '../timeline/timeline-controller'
 import type { EffectInstance, ImageSize } from '@engine/effects/types'
 import { parsePresets, type EffectPreset } from '@engine/effects/presets'
 import { cloneEffect } from '@engine/effects/params'
@@ -83,6 +85,10 @@ class EffectsController extends Observable {
   }
 
   applyPreset(presetId: string, clipIds: string[]): void {
+    if (presetId.startsWith(BUILTIN_PREFIX)) {
+      projectController.dispatch(applyBuiltinPreset(clipIds, presetId, timelineController.playhead))
+      return
+    }
     const preset = this.presets.find((p) => p.id === presetId)
     if (!preset) return
     projectController.dispatch(pasteEffects(clipIds, preset.effects, `Apply Preset “${preset.name}”`, undefined, preset.size))

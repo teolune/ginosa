@@ -17,6 +17,9 @@ import { keyframeController } from '../keyframes/keyframe-controller'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
+import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
+import { colourLightExportTest } from '../playback/colour-light-export-test'
+import { buildColourLightUi } from '../effects/colour-light-demo'
 import { runFeedbackGpuTest } from '../playback/feedback-gpu-test'
 import { feedbackTest } from '../playback/feedback-test'
 import { renderCacheDemo } from '../render-cache/render-cache-demo'
@@ -335,6 +338,28 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     }
     case 'feedbackgpu': {
       await window.ginosa.snapshot.report(await runFeedbackGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'exportcolourlight': {
+      // M10 end to end: Kick Flash on real drums, a grade and Mosaic, preview and export against the CPU maths.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /patches_rec709\.mov$|beat_128bpm\.wav$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await colourLightExportTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      workspaceController.open('effect-controls')
+      timelineController.zoomToFit()
+      await wait(800)
+      break
+    }
+    case 'colourlightui': {
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
+      await wait(2500)
+      await buildColourLightUi()
+      await wait(2500)
+      break
+    }
+    case 'colourlightgpu': {
+      // M10: Basic Correction, Curves, Levels and Mosaic on the GPU against their CPU maths.
+      await window.ginosa.snapshot.report(await runColourLightGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'masksgpu': {

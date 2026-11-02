@@ -413,6 +413,7 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .library-item:hover { background: var(--panel-raised); }
 .library-badge { font-size: 9.5px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: #6a4fb3; color: #fff; }
 .library-badge.preset { background: #3a7f5f; }
+.library-badge.builtin { background: #8a6a1f; }
 .library-empty, .library-hint { margin: 4px 6px; }
 .fx-stack { margin-top: 6px; }
 .fx-stack-head { display: flex; align-items: center; gap: 6px; padding: 6px 4px; border-top: 1px solid var(--border); }
@@ -502,3 +503,27 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .cache-limit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .mask-follow { color: #e8b04a; }
 .masks-window .fx-stack-head .mod-check { white-space: nowrap; }
+
+/* M10: parameter groups and the curve editor (Effect Controls). */
+.fx-group { display: flex; flex-direction: column; gap: 3px; }
+.fx-group-head { display: flex; align-items: center; gap: 4px; height: 24px; margin-left: -16px; color: var(--text); font-weight: 600; font-size: 11.5px; cursor: default; }
+.fx-group-changed { color: #5b8cff; font-size: 9px; }
+.fx-group-body { display: flex; flex-direction: column; gap: 3px; }
+.fx-row-block { display: flex; flex-direction: column; gap: 4px; }
+.fx-below { padding: 0 0 4px; }
+.curve-tabs { display: flex; gap: 2px; }
+.curve-tab { height: 20px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 4px; background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.curve-tab.active { background: rgba(91, 140, 255, 0.18); border-color: #5b8cff; color: var(--text); }
+.curve-tab-dot { width: 6px; height: 6px; border-radius: 3px; }
+.curve-editor { display: flex; flex-direction: column; gap: 3px; max-width: 272px; }
+.curve-graph { width: 100%; aspect-ratio: 1; display: block; touch-action: none; outline: none; cursor: crosshair; }
+.curve-graph:focus-visible .curve-bg { stroke: #5b8cff; }
+.curve-graph.disabled { opacity: 0.55; cursor: default; }
+.curve-bg { fill: rgba(0, 0, 0, 0.28); stroke: var(--border-strong); stroke-width: 1; }
+.curve-grid line, .curve-diagonal { stroke: rgba(255, 255, 255, 0.09); stroke-width: 1; }
+.curve-diagonal { stroke-dasharray: 3 3; }
+.curve-line { fill: none; stroke-width: 1.6; }
+.curve-point { fill: #1d1d20; stroke: #e6e6e6; stroke-width: 1.2; cursor: grab; }
+.curve-point.selected { fill: #e6e6e6; }
+.curve-point.removing { opacity: 0.3; stroke: #ff6b6b; }
+.curve-readout { min-height: 16px; font-variant-numeric: tabular-nums; }

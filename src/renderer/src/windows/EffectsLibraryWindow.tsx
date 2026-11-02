@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { addEffect } from '@engine/timeline/effect-edits'
+import { BUILTIN_PRESETS } from '@engine/timeline/builtin-presets'
 import { EFFECTS } from '../../../effects/registry'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
@@ -33,6 +34,7 @@ export function EffectsLibraryWindow() {
   const effects = EFFECTS.filter((e) => matches(`${e.name} ${e.category} ${e.description}`))
   const categories = [...new Set(effects.map((e) => e.category))]
   const presets = effectsController.presets.filter((p) => matches(p.name))
+  const builtins = BUILTIN_PRESETS.filter((p) => matches(`${p.name} ${p.description}`))
   const targets = selectedVideoClips()
   const apply = (effectId: string) => {
     if (targets.length === 0) projectController.showMessage('Select a video clip or adjustment layer first, or drag the effect onto one')
@@ -102,6 +104,29 @@ export function EffectsLibraryWindow() {
               <span className="library-badge preset">P</span>
               {preset.name}
               <span className="muted small">{preset.effects.length > 1 ? `${preset.effects.length} effects` : ''}</span>
+            </div>
+          ))}
+        </Group>
+        <Group id="builtin" title="Built-in Presets">
+          {builtins.length === 0 && <p className="muted small library-empty">No built-in presets match.</p>}
+          {builtins.map((preset) => (
+            <div
+              key={preset.id}
+              className="library-item"
+              draggable
+              title={`${preset.description} Links to the first source in Audio Analysis. Drag onto a clip, or double-click to apply to the selected clips.`}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(PRESET_DRAG_TYPE, preset.id)
+                event.dataTransfer.effectAllowed = 'copy'
+              }}
+              onDoubleClick={() => (targets.length ? effectsController.applyPreset(preset.id, targets) : projectController.showMessage('Select a video clip or adjustment layer first'))}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setMenu({ x: event.clientX, y: event.clientY, entries: [{ label: 'Apply to Selected Clips', disabled: targets.length === 0, onSelect: () => effectsController.applyPreset(preset.id, targets) }] })
+              }}
+            >
+              <span className="library-badge preset builtin">∿</span>
+              {preset.name}
             </div>
           ))}
         </Group>

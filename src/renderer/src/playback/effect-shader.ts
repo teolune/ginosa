@@ -1,10 +1,11 @@
 import { blendIndex } from '@engine/effects/blend'
 import { DISPLAY_GAMMA } from '@engine/effects/colour-spaces'
-import type { EffectManifest, ParamValue } from '@engine/effects/types'
+import type { EffectManifest, ImageSize, ParamValue } from '@engine/effects/types'
 import type { BlendMode } from '@engine/project/model'
 import blendSource from './blend.wgsl?raw'
 import maskSource from './mask.wgsl?raw'
 import type { Affine } from '@engine/timeline/motion'
+import { CURVE_SAMPLES, curveTable } from '@engine/effects/curves'
 
 /**
  * Turns an effect's WGSL into a complete render pass: its parameters as a uniform
@@ -48,6 +49,15 @@ function fields(manifest: EffectManifest): Field[] {
   return out
 }
 
+/** The effect's tables (M10): each curve parameter baked to CURVE_SAMPLES values, in manifest order. Null when it has none. */
+export function packData(manifest: EffectManifest, params: Record<string, ParamValue>): Float32Array | null {
+  const curves = manifest.params.filter((p) => p.type === 'curve')
+  if (curves.length === 0) return null
+  const out = new Float32Array(curves.length * CURVE_SAMPLES)
+  curves.forEach((spec, i) => out.set(curveTable(String(params[spec.id] ?? spec.default)), i * CURVE_SAMPLES))
+  return out
+}
+
 export function paramsBytes(manifest: EffectManifest): number {
   return fields(manifest).length * 4
 }
@@ -79,22 +89,29 @@ export interface PassTemporal {
 
 /**
  * The frame uniform: image size, Mix (0–1), blend mode, pixel scale, then the mask's shape
- * count, edge softness, invert and placement, then a stateful effect's place in time.
+ * count, edge softness, invert and placement, then a stateful effect's place in time, then
+ * the size of the image this pass writes and of the earlier pass it reads (M10).
  */
-export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null, temporal: PassTemporal | null = null): Float32Array {
+export function packFrame(width: number, height: number, mix: number, blend: BlendMode, pixelScale: number, mask: PassMask | null = null, temporal: PassTemporal | null = null, sizes: { output: ImageSize; prepass: ImageSize | null } | null = null): Float32Array {
   const m = mask?.toFrame ?? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
   return new Float32Array([
     width, height, mix, blendIndex(blend),
     pixelScale, mask ? mask.parts : 0, mask ? maskAa(m) : 1, mask?.invert ? 1 : 0,
     m.a, m.b, m.c, m.d,
     m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height,
-    temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, 0, 0
+    temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, 0, 0,
+    sizes?.output.width ?? width, sizes?.output.height ?? height, sizes?.prepass?.width ?? 1, sizes?.prepass?.height ?? 1
   ])
 }
 
-export function effectShaderSource(manifest: EffectManifest): string {
+/** The WGSL every effect pass shares: uniforms, bindings, colour spaces and helpers. */
+function prelude(manifest: EffectManifest): string {
   const params = fields(manifest)
     .map((f) => `  ${f.name}: f32,`)
+    .join('\n')
+  const curves = manifest.params
+    .filter((p) => p.type === 'curve')
+    .map((p, i) => `const CURVE_${p.id}: u32 = ${i}u;`)
     .join('\n')
   return `
 struct EffectFrame {
@@ -108,6 +125,7 @@ struct EffectFrame {
   toFrame0: vec4f, // a, b, c, d: processed pixel -> frame pixel
   toFrame1: vec4f, // e, f, frame width, frame height
   temporal: vec4f, // has a previous frame (stateful effects), frames since the reset
+  passes: vec4f, // the size of the image this pass writes, then of the earlier pass it reads
 };
 
 struct EffectParams {
@@ -121,6 +139,10 @@ ${params}
 @group(0) @binding(4) var<storage, read> maskData: array<vec4f>;
 // Stateful effects: their own output on the frame before (same size as the input).
 @group(0) @binding(5) var previousTex: texture_2d<f32>;
+// Tables (curves, baked to ${CURVE_SAMPLES} samples each) and the earlier pass's image (M10).
+@group(0) @binding(6) var<storage, read> effectData: array<f32>;
+@group(0) @binding(7) var prepassTex: texture_2d<f32>;
+${curves}
 
 const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
 
@@ -181,6 +203,20 @@ fn inputAt(px: vec2f) -> vec4f {
 
 fn inputNearest(px: vec2f) -> vec4f { return inputLoad(vec2i(floor(px))); }
 
+// A curve parameter at x (0-1): its table, read linearly between samples.
+fn curveAt(index: u32, x: f32) -> f32 {
+  let f = clamp(x, 0.0, 1.0) * f32(${CURVE_SAMPLES - 1});
+  let i = min(u32(floor(f)), ${CURVE_SAMPLES - 2}u);
+  let t = f - f32(i);
+  let base = index * ${CURVE_SAMPLES}u + i;
+  return mix(effectData[base], effectData[base + 1u], t);
+}
+
+// The image this pass writes (the input's size in the main pass), and the earlier pass's.
+fn passSize() -> vec2i { return vec2i(frame.passes.xy + 0.5); }
+fn prepassSize() -> vec2i { return vec2i(frame.passes.zw + 0.5); }
+fn prepassLoad(p: vec2i) -> vec4f { return textureLoad(prepassTex, clamp(p, vec2i(0), prepassSize() - 1), 0); }
+
 fn hasPrevious() -> bool { return frame.temporal.x > 0.5; }
 fn framesSinceReset() -> f32 { return frame.temporal.y; }
 
@@ -196,10 +232,6 @@ ${blendSource}
 
 ${maskSource}
 
-// ---- ${manifest.name} (src/effects/${manifest.id}) ----
-${manifest.shader}
-// ----
-
 struct VsOut {
   @builtin(position) position: vec4f,
 };
@@ -211,6 +243,28 @@ fn vs(@builtin(vertex_index) index: u32) -> VsOut {
   out.position = vec4f(corners[index], 0.0, 1.0);
   return out;
 }
+`
+}
+
+/** An earlier pass (M10): its shader writes one value per texel of its own image, in the effect's colour space. */
+export function prepassShaderSource(manifest: EffectManifest, index: number): string {
+  return `${prelude(manifest)}
+// ---- ${manifest.name} pass ${index + 1} (src/effects/${manifest.id}) ----
+${manifest.passes?.[index]?.shader ?? 'fn prepass(texel: vec2i) -> vec4f { return vec4f(0.0); }'}
+// ----
+
+@fragment
+fn fsPrepass(in: VsOut) -> @location(0) vec4f {
+  return prepass(vec2i(in.position.xy));
+}
+`
+}
+
+export function effectShaderSource(manifest: EffectManifest): string {
+  return `${prelude(manifest)}
+// ---- ${manifest.name} (src/effects/${manifest.id}) ----
+${manifest.shader}
+// ----
 
 @fragment
 fn fsEffect(in: VsOut) -> @location(0) vec4f {

@@ -1,5 +1,21 @@
 # Changelog
 
+## M10 · Colour & Light, Mosaic
+
+- **Basic Correction** (Effects › Colour & Light): Temperature, Tint and Exposure as gains on linear light, then Brightness, Contrast, Highlights, Shadows, Whites and Blacks on perceptual (OKLab) lightness, then Saturation, Vibrance (sparing vivid colours and skin) and Hue. Grouped as White Balance, Tone and Colour.
+- **Curves**: RGB plus Red, Green and Blue curves (smooth through up to 16 points, as Photoshop draws them), edited on a graph in Effect Controls with channel tabs. Click to add a point; drag it, or drag it off to remove it; arrow keys nudge. Curves hold between keyframes.
+- **Levels**: Photoshop's input/output black and white points and gamma, for RGB and each channel.
+- **Mosaic** (Effects › Stylize): blocks sized as a share of the picture's height, each the exact average of the light under it (or its centre pixel), with Cell Aspect and Edge Softness. Off below a pixel, so it can grow from 0%.
+- **Built-in presets** (Effects Library › Built-in Presets), linked to the first audio analysis source as they're applied:
+  - **Kick Flash**: +2 stops of Exposure on every kick (bass hits), fading over 200 ms
+  - **Bass Mosaic**: cell size following the bass level, off when it's quiet
+- **Effect Controls**: foldable parameter groups (with a dot when something inside is changed), and the curve editor.
+- **Effect pipeline**: effects can carry lookup tables (curves) and render extra passes into their own smaller images before the main pass (Mosaic's exact cell averages).
+- **Tests:**
+  - every effect on the GPU against its CPU maths: worst 0.0032 over 26 Basic Correction settings, 12 curve and level sets, a stack and 10 Mosaic cases; times on a 4K frame
+  - end to end: Kick Flash on real drums flashes on exactly the kicks' frames, and every exported frame matches the modulated exposure (0.0022); a graded adjustment layer and Mosaic match in playback and export
+  - 17 new unit tests (309 in all)
+
 ## M9 · Masks and the temporal engine
 
 - **Shared masks:** a mask belongs to the sequence and any effect can use it. Adjustment layers also have a whole-layer mask. Each use has its own Invert.

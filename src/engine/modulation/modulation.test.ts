@@ -17,6 +17,7 @@ import { applyLinks } from './apply'
 import { CURVE_RATE, curveValue, modulatorCurve, responseCurve, sourceSignal, thresholdKnee, type CurveInputs } from './curve'
 import type { ModLink, Modulator, ModulationContext } from './types'
 import { newModulator } from '../timeline/modulation-edits'
+import { applyBuiltinPreset } from '../timeline/builtin-presets'
 
 const s = secondsToTicks
 let counter = 0
@@ -216,5 +217,62 @@ describe('modulation commands and the render plan', () => {
     ])
     run(setModulatorAnimated(made.modulatorId, 'gain', false, s(2)))
     expect(mod().gain).toBeCloseTo(6, 9)
+  })
+})
+
+describe('built-in presets (M10)', () => {
+  it('Kick Flash adds Basic Correction with Exposure linked to the first source’s bass hits', () => {
+    const { history, run, video, songId } = setup()
+    const clip = video()
+    const command = run(applyBuiltinPreset([clip.id], 'builtin:kick-flash', s(2), ids))
+    expect(command.notice).toMatch(/follows “Song”/)
+    const effect = video().effects[0]!
+    expect(effect.effectId).toBe('basic-correction')
+    expect(effect.params['exposure']).toBe(0)
+    const [link] = effect.modulation['exposure']!
+    expect(link).toMatchObject({ mode: 'add', min: [0], max: [2], amount: 100, invert: false })
+    const mod = history.state.sequence.modulators.find((m) => m.id === link!.modulatorId)!
+    expect(mod.source).toEqual({ kind: 'audio', sourceId: songId, signal: 'hits', band: 'bass' })
+    expect([mod.attack, mod.release]).toEqual([0, 200])
+    // Exposure goes 0 → 2 stops with the modulator, 0 → 1.
+    const at = (v: number): ModulationContext => ({ value: () => v })
+    const resolved = (v: number) => resolveClip(video(), s(2), at(v)).effects[0]!.params['exposure']
+    expect(resolved(0)).toBe(0)
+    expect(resolved(1)).toBe(2)
+    expect(resolved(0.25)).toBe(0.5)
+    // Applying it again (here, or on another clip) reuses the same modulator; one undo removes it all.
+    run(applyBuiltinPreset([clip.id], 'builtin:kick-flash', s(2), ids))
+    expect(history.state.sequence.modulators).toHaveLength(1)
+    history.undo()
+    history.undo()
+    expect(video().effects).toHaveLength(0)
+    expect(history.state.sequence.modulators).toHaveLength(0)
+  })
+
+  it('Bass Mosaic links Cell Size to the bass level, off while quiet', () => {
+    const { history, run, video } = setup()
+    run(applyBuiltinPreset([video().id], 'builtin:bass-mosaic', s(2), ids))
+    const effect = video().effects[0]!
+    expect(effect.effectId).toBe('mosaic')
+    expect(effect.params['cellSize']).toBe(0)
+    const mod = history.state.sequence.modulators[0]!
+    expect(mod.source).toMatchObject({ signal: 'level', band: 'bass' })
+    expect(mod.threshold).toBe(0.2)
+    expect(effect.modulation['cellSize']![0]).toMatchObject({ mode: 'add', min: [0], max: [6] })
+  })
+
+  it('adds the effect alone, and says why, when there’s no audio source', () => {
+    const history = new History(createProject({ name: 'Mute', createId: ids }))
+    history.dispatch(importMedia([media('clip', 'video')]))
+    const V1 = history.state.sequence.tracks.find((t) => t.kind === 'video')!.id
+    history.dispatch(placeMedia({ mediaId: 'm-clip', sourceIn: 0, sourceOut: s(4), at: 0, videoTrackId: V1, audioTrackId: null, mode: 'overwrite' }, ids))
+    const clip = history.state.sequence.clips.find((c) => c.kind === 'video')!
+    const command = applyBuiltinPreset([clip.id], 'builtin:kick-flash', 0, ids)
+    expect(history.dispatch(command)).toBeTruthy()
+    expect(command.notice).toMatch(/no audio to follow/)
+    const effect = history.state.sequence.clips.find((c) => c.id === clip.id)!.effects[0]!
+    expect(effect.effectId).toBe('basic-correction')
+    expect(effect.modulation).toEqual({})
+    expect(history.state.sequence.modulators).toHaveLength(0)
   })
 })
