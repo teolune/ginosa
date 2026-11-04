@@ -7,7 +7,9 @@ import { mosaicReference, type RefImage } from '../../effects/mosaic/reference'
 import { effectById } from '../../effects/registry'
 import { toDisplay, toLinear, toOklab } from './colour-spaces'
 import { curveTable, curveValue, formatCurve, IDENTITY_CURVE, parseCurve, tableValue } from './curves'
-import { sanitiseValue } from './params'
+import { sanitiseValue, upgradeInstance } from './params'
+import { warmthStops } from '../../effects/basic-correction/maths'
+import type { EffectInstance } from './types'
 
 type Rgb = [number, number, number]
 const COLOURS: Rgb[] = [
@@ -98,6 +100,21 @@ describe('basic correction', () => {
     expect(magenta[1]).toBeLessThan(magenta[0])
   })
 
+  it('warms along the colour of real light: a full gel at ±100 (version 2)', () => {
+    // A full CTO from 6504 K lands near 3,500 K: red 1.92 stops over blue (linear sRGB).
+    expect(warmthStops(100)).toBeCloseTo(1.92, 2)
+    expect(warmthStops(-100)).toBeCloseTo(-1.57, 2)
+    expect(warmthStops(0)).toBe(0)
+    for (let t = -100; t < 100; t += 0.5) expect(warmthStops(t + 0.5)).toBeGreaterThan(warmthStops(t))
+    // Blue falls further than red rises, and green dips a little, as in tungsten light.
+    const [r, g, b] = whiteBalanceGains(100, 0).map(Math.log2) as Rgb
+    expect(-b).toBeGreaterThan(r)
+    expect(g).toBeLessThan(0)
+    // Tint ±100 is one stop of green against red and blue.
+    const tint = whiteBalanceGains(0, -100).map(Math.log2) as Rgb
+    expect(tint[1] - (tint[0] + tint[2]) / 2).toBeCloseTo(1, 9)
+  })
+
   it('shapes tone with black and white held (except Whites and Blacks)', () => {
     for (const p of [{ brightness: 80 }, { brightness: -80 }, { contrast: 100 }, { contrast: -100 }, { highlights: 100 }, { shadows: -100 }]) {
       const params = { ...BASIC_DEFAULTS, ...p }
@@ -107,14 +124,59 @@ describe('basic correction', () => {
     expect(basicTone(0.5, { ...BASIC_DEFAULTS, contrast: 100 })).toBeCloseTo(0.5, 9)
     expect(basicTone(0.3, { ...BASIC_DEFAULTS, contrast: 100 })).toBeLessThan(0.3)
     expect(basicTone(0.3, { ...BASIC_DEFAULTS, brightness: 50 })).toBeGreaterThan(0.3)
-    expect(basicTone(2 / 3, { ...BASIC_DEFAULTS, highlights: 100 })).toBeCloseTo(2 / 3 + 0.12, 9)
-    expect(basicTone(1 / 3, { ...BASIC_DEFAULTS, shadows: -100 })).toBeCloseTo(1 / 3 - 0.12, 9)
-    expect(basicTone(0, { ...BASIC_DEFAULTS, blacks: 100 })).toBeCloseTo(0.1, 9)
-    expect(basicTone(1, { ...BASIC_DEFAULTS, whites: 100 })).toBeCloseTo(1.1, 9)
+    expect(basicTone(2 / 3, { ...BASIC_DEFAULTS, highlights: 100 })).toBeGreaterThan(2 / 3 + 0.25)
+    expect(basicTone(1 / 3, { ...BASIC_DEFAULTS, shadows: -100 })).toBeLessThan(1 / 3 - 0.2)
+    // Small values are one bump: Highlights 40 moves 2/3 up by 0.296 × 0.4.
+    expect(basicTone(2 / 3, { ...BASIC_DEFAULTS, highlights: 40 })).toBeCloseTo(2 / 3 + 0.296 * 0.4, 9)
+    expect(basicTone(0, { ...BASIC_DEFAULTS, blacks: 100 })).toBeCloseTo(0.25, 9)
+    expect(basicTone(1, { ...BASIC_DEFAULTS, whites: 100 })).toBeCloseTo(1.25, 9)
+    // However far they go, the tone controls never turn the curve back on itself.
+    for (const p of [{ highlights: 100 }, { highlights: -100 }, { shadows: 100 }, { shadows: -100 }, { blacks: 100 }, { whites: -100 }, { highlights: 100, shadows: 100 }]) {
+      const params = { ...BASIC_DEFAULTS, ...p }
+      for (let x = 0; x < 1; x += 0.002) expect(basicTone(x + 0.002, params)).toBeGreaterThanOrEqual(basicTone(x, params) - 1e-12)
+    }
     // Super-whites keep their distance above white, with no step at white.
     const params = { ...BASIC_DEFAULTS, whites: 50, contrast: 40 }
     expect(basicTone(1.25, params) - basicTone(1, params)).toBeCloseTo(0.25, 9)
     expect(basicTone(1.000001, params) - basicTone(0.999999, params)).toBeLessThan(1e-4)
+  })
+
+  it('converts version 1 values (and their keyframes and modulation) so projects look the same', () => {
+    // Version 1's maths, for comparison.
+    const v1Tone = (l0: number, h: number, s: number, w: number, b: number) => {
+      let l = l0
+      l += 0.12 * (h / 100) * 6.75 * l * l * (1 - l)
+      l += 0.12 * (s / 100) * 6.75 * l * (1 - l) * (1 - l)
+      l = Math.min(1, Math.max(0, l))
+      l += 0.1 * (w / 100) * l * l * l
+      const below = Math.max(1 - l, 0)
+      l += 0.1 * (b / 100) * below * below * below
+      return Math.max(l, 0)
+    }
+    const manifest = effectById('basic-correction')!
+    const old: EffectInstance = {
+      id: 'e', effectId: 'basic-correction', version: 1, enabled: true, mix: 100, blendMode: 'normal', mask: null,
+      params: { ...BASIC_DEFAULTS, temperature: 100, tint: -60, highlights: 100, shadows: -100, whites: 80, blacks: -50, contrast: 20 },
+      keyframes: { tint: [{ id: 'k', time: 0, value: 50, interpolation: 'bezier', in: { t: 1 / 3, v: [0] }, out: { t: 1 / 3, v: [20] } }] },
+      modulation: { whites: [{ id: 'l', modulatorId: 'm', mode: 'add', min: [0], max: [100], invert: false, amount: 100 }], contrast: [{ id: 'c', modulatorId: 'm', mode: 'multiply', min: [1], max: [2], invert: false, amount: 100 }] }
+    }
+    const up = upgradeInstance(manifest, old, { width: 100, height: 100 })
+    expect(up.version).toBe(2)
+    const p = up.params as unknown as BasicCorrectionParams
+    for (let l = 0; l <= 1; l += 0.05) expect(basicTone(l, { ...BASIC_DEFAULTS, ...p, contrast: 0, brightness: 0 })).toBeCloseTo(v1Tone(l, 100, -100, 80, -50), 9)
+    // Tint: the same green.
+    const g = whiteBalanceGains(0, p.tint).map(Math.log2) as Rgb
+    expect(g[1] - (g[0] + g[2]) / 2).toBeCloseTo(-0.45 * -0.6, 9)
+    // Temperature: the same red against blue (0.6 stops at version 1's +100); the hue moves under 0.1 stops.
+    const w = whiteBalanceGains(p.temperature, 0).map(Math.log2) as Rgb
+    expect(w[0] - w[2]).toBeCloseTo(0.6, 4)
+    expect(Math.abs(w[1] - (w[0] + w[2]) / 2)).toBeLessThan(0.1)
+    // Keyframes and their handles convert; additive ranges convert; multiply factors don't.
+    const k = up.keyframes['tint']![0]!
+    expect(k.value).toBeCloseTo(22.5, 9)
+    expect(k.out.v[0]).toBeCloseTo(9, 9)
+    expect(up.modulation['whites']![0]!.max[0]).toBeCloseTo(40, 9)
+    expect(up.modulation['contrast']![0]!.max[0]).toBe(2)
   })
 
   it('removes colour at 0% saturation, keeps lightness, and turns hue', () => {

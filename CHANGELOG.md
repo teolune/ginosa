@@ -1,5 +1,13 @@
 # Changelog
 
+## Basic Correction version 2 (4 Nov 2026)
+
+- **Temperature** now follows the colour of real light, and is about three times stronger: +100 is a full orange (CTO) gel, about 3,500 K; −100 a full blue (CTB) gel.
+- **Tint** ±100 is a full minus-green or plus-green gel (one stop).
+- **Highlights / Shadows** reach about 2½ times further, and the tone curve still never turns back on itself; **Whites / Blacks** reach 2½ times further.
+- Projects and presets made before this are converted (values, keyframes and modulation), so they look the same.
+- Effects can now change the scale of a control between versions (`migrateValue`).
+
 ## M12 · Posterize Time and the Channel Rack
 
 - **Posterize Time** (Effects › Time): the picture holds between updates on the beat grid.

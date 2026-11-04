@@ -1,4 +1,5 @@
 import { fromOklab, toDisplay, toLinear, toOklab } from '../../engine/effects/colour-spaces'
+import { BUMP_LIMIT, HIGHLIGHTS_SHADOWS_REACH, TINT_STOPS, WHITES_BLACKS_REACH, temperatureLog2 } from './maths'
 
 /** The CPU version of shader.wgsl, for tests: display R'G'B' (0–1) in, display out. */
 
@@ -33,28 +34,36 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 /**
  * The tone curve on OKLab lightness L (0 black, 1 white), in the order of the controls.
  * Brightness is a gamma (black and white fixed); contrast an S-curve through 0.5; highlights
- * and shadows smooth bumps peaking at 2/3 and 1/3 (12% of L at ±100); whites and blacks lift
- * or lower the ends by up to 10%. Super-whites (L above 1) keep their distance above white.
+ * and shadows smooth bumps peaking at 2/3 and 1/3 (about 0.3 of L at ±100: two bumps of up to
+ * 0.148 each, so the curve never turns back); whites and blacks lift or lower the ends by up
+ * to 0.25. Super-whites (L above 1) keep their distance above white.
  */
 export function basicTone(l0: number, p: BasicCorrectionParams): number {
   let l = clamp(l0, 0, 1)
   l = powPos(l, 2 ** (-p.brightness / 100))
   const k = 2 ** (p.contrast / 100)
   l = l < 0.5 ? 0.5 * powPos(2 * l, k) : 1 - 0.5 * powPos(2 * (1 - l), k)
-  l += 0.12 * (p.highlights / 100) * 6.75 * l * l * (1 - l)
-  l += 0.12 * (p.shadows / 100) * 6.75 * l * (1 - l) * (1 - l)
+  for (const a of bumps(p.highlights)) l += a * 6.75 * l * l * (1 - l)
+  for (const a of bumps(p.shadows)) l += a * 6.75 * l * (1 - l) * (1 - l)
   l = clamp(l, 0, 1)
-  l += 0.1 * (p.whites / 100) * l * l * l
+  l += WHITES_BLACKS_REACH * (p.whites / 100) * l * l * l
   const below = Math.max(1 - l, 0)
-  l += 0.1 * (p.blacks / 100) * below * below * below
+  l += WHITES_BLACKS_REACH * (p.blacks / 100) * below * below * below
   return Math.max(l, 0) + Math.max(l0 - 1, 0)
 }
 
-/** White balance gains on linear R, G, B: equal stops each way, normalised so grey keeps its luminance. */
+/** A Highlights or Shadows value as the two bumps it's applied in (each small enough to keep the curve rising). */
+export function bumps(value: number): [number, number] {
+  const x = HIGHLIGHTS_SHADOWS_REACH * (value / 100)
+  const first = clamp(x, -BUMP_LIMIT, BUMP_LIMIT)
+  return [first, x - first]
+}
+
+/** White balance gains on linear R, G, B (maths.ts), normalised so grey keeps its luminance. */
 export function whiteBalanceGains(temperature: number, tint: number): Rgb {
-  const t = temperature / 100
-  const g = tint / 100
-  const gains: Rgb = [2 ** (0.3 * t + 0.15 * g), 2 ** (-0.3 * g), 2 ** (-0.3 * t + 0.15 * g)]
+  const g = (tint / 100) * TINT_STOPS
+  const [r, gr, b] = temperatureLog2(temperature)
+  const gains: Rgb = [2 ** (r + g / 3), 2 ** (gr - (2 * g) / 3), 2 ** (b + g / 3)]
   const luma = 0.2126 * gains[0] + 0.7152 * gains[1] + 0.0722 * gains[2]
   return gains.map((v) => v / luma) as Rgb
 }

@@ -50,6 +50,7 @@ Put it on a clip of your footage (Effects › Colour & Light), or on an adjustme
 
 - [ ] Its controls are in three foldable groups: **White Balance**, **Tone**, **Colour**. A blue dot on a group's heading means something in it is changed, animated or modulated.
 - [ ] **Temperature** + makes it warmer (orange), − cooler (blue). **Tint** + goes magenta, − green. Neither should brighten or darken greys.
+  - *Since 4 Nov (Basic Correction version 2):* +100 is a full orange gel (about 3,500 K), −100 a full blue one, and Tint ±100 a full green or magenta gel, about three times stronger than before. Highlights, Shadows, Whites and Blacks reach 2½ times further.
 - [ ] **Exposure** works like the lens: +1 stop doubles the light, so highlights clip quickly. Try −1 and +1 on your Apple Log clips.
 - [ ] **Brightness** lifts or lowers the middle without moving black or white. **Contrast** pushes tones away from the middle (or towards it, below 0).
 - [ ] **Highlights** and **Shadows** work on the bright and dark tones; black and white stay put.

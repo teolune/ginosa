@@ -136,6 +136,12 @@ export interface EffectManifest {
   /** What a parameter's value means right now, shown next to it (Posterize Time: "1/16 · 8.53 fps"). */
   readout?(param: string, params: Record<string, ParamValue>, context: { beatGrid: BeatGrid | null }): string | null
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>
+  /**
+   * Converts one number from an older version's units (a parameter's value, its keyframes and
+   * their handles, and modulation ranges), for an effect whose controls changed scale
+   * (Basic Correction version 2). Runs after `migrate`.
+   */
+  migrateValue?(param: string, value: number, from: number): number
 }
 
 /** Where a frame is in time, for effects that read it (sequence frames from 0, and beats on the beat grid). */

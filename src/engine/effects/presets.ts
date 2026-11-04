@@ -1,7 +1,7 @@
 import { effectById } from '../../effects/registry'
 import { BLEND_MODES, type BlendMode } from '../project/model'
 import type { Interpolation, Keyframe, KeyframeMap } from '../keyframes/keyframes'
-import { cloneEffect, sanitiseKeyframes } from './params'
+import { cloneEffect, sanitiseKeyframes, upgradeInstance } from './params'
 import type { EffectInstance, ImageSize, ParamValue } from './types'
 
 /**
@@ -111,10 +111,14 @@ export function parsePresets(raw: unknown): EffectPreset[] {
     }
     const width = Number(p['size']['width'])
     const height = Number(p['size']['height'])
-    for (const effect of effects) {
+    // Presets saved with an older version of an effect are upgraded like a project's effects.
+    const size = { width: width > 0 ? width : 1, height: height > 0 ? height : 1 }
+    effects.forEach((effect, i) => {
       const manifest = effectById(effect.effectId)
-      if (manifest) effect.keyframes = sanitiseKeyframes(manifest, effect.keyframes, { width: width > 0 ? width : 1, height: height > 0 ? height : 1 })
-    }
+      if (!manifest) return
+      const upgraded = upgradeInstance(manifest, effect, size)
+      effects[i] = { ...upgraded, keyframes: sanitiseKeyframes(manifest, upgraded.keyframes, size) }
+    })
     if (effects.length === 0 || !(width > 0) || !(height > 0)) continue
     presets.push({ id: p['id'], name: p['name'], effects, size: { width, height }, createdAt: typeof p['createdAt'] === 'string' ? p['createdAt'] : '' })
   }

@@ -60,14 +60,45 @@ export function sanitiseKeyframes(manifest: EffectManifest, keyframes: KeyframeM
 }
 
 /**
- * Brings an instance made with an older version of its effect up to date. (Keyframes
- * are kept as they are: no effect has changed its parameters yet, so there's no
- * migration for them to need.)
+ * Brings an instance made with an older version of its effect up to date: `migrate` for
+ * renamed or reshaped parameters, then `migrateValue` for numbers whose scale changed, which
+ * converts the values, keyframes (handles too: they're offsets in the same units) and
+ * modulation ranges alike.
  */
 export function upgradeInstance(manifest: EffectManifest, instance: EffectInstance, size: ImageSize): EffectInstance {
   if (instance.version === manifest.version) return instance
-  const raw = instance.version < manifest.version && manifest.migrate ? manifest.migrate({ ...instance.params }, instance.version) : instance.params
-  return { ...instance, version: manifest.version, params: sanitiseParams(manifest, raw, size), keyframes: sanitiseKeyframes(manifest, instance.keyframes, size) }
+  const older = instance.version < manifest.version
+  let raw: Record<string, unknown> = older && manifest.migrate ? manifest.migrate({ ...instance.params }, instance.version) : instance.params
+  let keyframes = instance.keyframes
+  let modulation = instance.modulation
+  const convert = older ? manifest.migrateValue : undefined
+  if (convert) {
+    const from = instance.version
+    const value = (param: string, v: number) => convert(param, v, from)
+    raw = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'number' ? value(k, v) : v]))
+    keyframes = cloneKeyframeMap(keyframes)
+    for (const [param, track] of Object.entries(keyframes)) {
+      for (const k of track) {
+        if (typeof k.value !== 'number') continue
+        const v = k.value
+        const offset = (h: number[]) => (h.length === 1 && Number.isFinite(h[0]) ? [value(param, v + h[0]!) - value(param, v)] : h)
+        k.in = { ...k.in, v: offset(k.in.v) }
+        k.out = { ...k.out, v: offset(k.out.v) }
+        k.value = value(param, v)
+      }
+    }
+    // Ranges are in the value's units for add (as offsets) and replace; multiply's are factors.
+    modulation = cloneModulationMap(modulation ?? {})
+    for (const [param, links] of Object.entries(modulation)) {
+      for (const link of links) {
+        if (link.mode === 'multiply') continue
+        const map = (x: number) => (link.mode === 'add' ? value(param, x) - value(param, 0) : value(param, x))
+        link.min = link.min.length === 1 ? [map(link.min[0]!)] : link.min
+        link.max = link.max.length === 1 ? [map(link.max[0]!)] : link.max
+      }
+    }
+  }
+  return { ...instance, version: manifest.version, params: sanitiseParams(manifest, raw, size), keyframes: sanitiseKeyframes(manifest, keyframes, size), modulation }
 }
 
 /** A deep copy (params hold arrays for points), keyframes included. */
