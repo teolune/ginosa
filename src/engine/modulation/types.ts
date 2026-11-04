@@ -37,6 +37,8 @@ export type ModSource =
   | { kind: 'tempo'; signal: TempoSignal }
   | { kind: 'lfo'; shape: LfoShape; rate: NoteValue; seed: number }
   | { kind: 'random'; seed: number; rate: number }
+  /** A Channel Rack row (M12): fires on its steps. */
+  | { kind: 'pattern'; rowId: string }
 
 export type ResponseCurve = 'linear' | 'exponential' | 'logarithmic' | 's-curve' | 'custom'
 

@@ -114,6 +114,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'channel-rack',
+    title: 'Channel Rack',
+    shortcut: 'Alt+Shift+4',
+    defaultRect: { x: 240, y: 400, w: 900, h: 300 },
+    minSize: { w: 520, h: 180 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

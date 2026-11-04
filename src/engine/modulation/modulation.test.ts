@@ -18,6 +18,7 @@ import { CURVE_RATE, curveValue, modulatorCurve, responseCurve, sourceSignal, th
 import type { ModLink, Modulator, ModulationContext } from './types'
 import { newModulator } from '../timeline/modulation-edits'
 import { applyBuiltinPreset, BUILTIN_PRESETS } from '../timeline/builtin-presets'
+import { addRackRows, STARTER_ROWS } from '../timeline/rack-edits'
 import { effectById } from '../../effects/registry'
 import { sanitiseValue } from '../effects/params'
 
@@ -303,5 +304,20 @@ describe('built-in presets (M11)', () => {
     const grain = video().effects[1]!
     expect(grain.modulation['amount']![0]).toMatchObject({ mode: 'add', min: [0], max: [30] })
     expect(history.state.sequence.modulators[0]!.source).toMatchObject({ signal: 'level', band: 'high' })
+  })
+})
+
+describe('built-in presets and the Channel Rack (M12)', () => {
+  it('Kick Flash follows a Kick row when there is one, even with no audio', () => {
+    const { history, run, video } = setup()
+    const rows = addRackRows(STARTER_ROWS, ids)
+    run(rows)
+    const command = run(applyBuiltinPreset([video().id], 'builtin:kick-flash', s(2), ids))
+    expect(command.notice).toMatch(/Kick row in the Channel Rack/)
+    const link = video().effects[0]!.modulation['exposure']![0]!
+    const mod = history.state.sequence.modulators.find((m) => m.id === link.modulatorId)!
+    expect(mod.source).toEqual({ kind: 'pattern', rowId: rows.rowIds[0] })
+    expect([mod.attack, mod.release]).toEqual([0, 200])
+    expect(mod.name).toBe('Kick Flash: Pattern · Kick')
   })
 })

@@ -29,12 +29,14 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
       return Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [value[0] as number, value[1] as number] : fallback
     case 'curve':
       return typeof value === 'string' && parseCurve(value) ? value : fallback
+    case 'steps':
+      return typeof value === 'number' && Number.isFinite(value) ? Math.min(spec.steps.length - 1, Math.max(0, Math.round(value))) : fallback
   }
 }
 
 /** Parameters that hold between keyframes rather than move smoothly. */
 export function isStepped(spec: ParamSpec): boolean {
-  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve'
+  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps'
 }
 
 export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unknown>, size: ImageSize): Record<string, ParamValue> {

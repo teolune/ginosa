@@ -7,6 +7,7 @@ import {
   MAX_SPEED_PERCENT,
   clampValue,
   findEffect,
+  holds,
   keyframeTime,
   keyframesOf,
   propertySpec,
@@ -114,7 +115,7 @@ export function setAnimated(ref: PropertyRef, on: boolean, at: Ticks, newId: IdF
         id: newId(),
         time,
         value: Array.isArray(value) ? [value[0], value[1]] : value,
-        interpolation: s.kind === 'stepped' ? 'hold' : 'linear',
+        interpolation: holds(s) ? 'hold' : 'linear',
         in: { t: 1 / 3, v: (components(value) ?? [0]).map(() => 0) },
         out: { t: 1 / 3, v: (components(value) ?? [0]).map(() => 0) }
       })
@@ -150,7 +151,7 @@ export function addKeyframe(ref: PropertyRef, at: Ticks, newId: IdFactory = defa
       id: newId(),
       time,
       value: Array.isArray(value) ? [value[0], value[1]] : value,
-      interpolation: s.kind === 'stepped' ? 'hold' : (before?.interpolation ?? 'linear'),
+      interpolation: holds(s) ? 'hold' : (before?.interpolation ?? 'linear'),
       in: { t: 1 / 3, v: (components(value) ?? [0]).map(() => 0) },
       out: { t: 1 / 3, v: (components(value) ?? [0]).map(() => 0) }
     })
@@ -296,7 +297,7 @@ export function setKeyframeInterpolation(refs: KeyframeRef[], preset: Interpolat
     for (const { ref, ids } of groupByProperty(refs).values()) {
       const clip = editableClip(draft.sequence, ref.clipId)
       // Choices and toggles always hold.
-      if (spec(clip, ref).kind === 'stepped') continue
+      if (holds(spec(clip, ref))) continue
       const track = keyframesOf(clip, ref.effectId, ref.param)
       track.forEach((k, index) => {
         if (!ids.has(k.id)) return
@@ -385,7 +386,7 @@ export function pasteKeyframes(target: PropertyRef, clipboard: KeyframeClipboard
       const value = clampValue(s, k.value)
       if (value === null) throw new CommandError(`Those keyframes don’t fit ${s.label} (a value isn’t one of its choices)`)
       const copy = { ...cloneKeyframe(k, newId()), time: start + Math.round(k.time / frame) * frame, value }
-      if (s.kind === 'stepped') copy.interpolation = 'hold'
+      if (holds(s)) copy.interpolation = 'hold'
       track.push(copy)
       pasted.add(copy.id)
     }

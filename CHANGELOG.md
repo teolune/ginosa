@@ -1,5 +1,26 @@
 # Changelog
 
+## M12 · Posterize Time and the Channel Rack
+
+- **Posterize Time** (Effects › Time): the picture holds between updates on the beat grid.
+  - Rate is a detented knob from 1/1 to 1/32, with dotted and triplet values; its readout shows the note and frame rate. Free mode gives a plain frame rate instead.
+  - Its own BPM, Phase, Swing, Sample (start or middle of each hold) and Reset on Cuts.
+  - Every update lands on the frame nearest its musical time, so holds never drift.
+  - On a clip, it holds the picture and the effects above it (Motion keeps moving). On an adjustment layer, it holds everything beneath.
+  - Rate keyframes hold; modulation moves it by whole steps.
+- **Channel Rack** (⌥⇧4), after FL Studio's:
+  - Rows with a light, Swing, name and 16th-note steps on the beat grid through the whole song, shown a page at a time following the playhead.
+  - Click or paint steps; Repeat to End; Clear.
+  - Auto-fill from a source's hits (whole song or these bars) to fix by hand.
+  - Each row drives its own modulator: right-click any value › Link to Pattern, or switch a modulator's source to a row.
+- **Presets follow the rack:** Kick Flash and Hi-Hat Grain link to a Kick or Hat row when there is one.
+- **Effect parameters:** detented steps knobs (hold between keyframes, modulate in whole steps), and value readouts.
+- **Project format v12** (the Channel Rack).
+- **Tests:**
+  - the done-when test: 4 × 250 exported frames of Posterize Time each holding exactly the frame the beat maths says; a Kick row driving Kick Flash, flashing on exactly its steps' frames in the file
+  - Auto-fill on the test drums: 17 kicks on beats, 33 hats on 8ths
+  - 17 new unit tests (340 in all)
+
 ## M11 · Grain
 
 - **Grain** (Effects › Noise & Grain): Gaussian grain on a lattice sized relative to the picture's height, with a coarser layer for clumps, generated on the GPU and seeded by the frame, so every frame is repeatable.

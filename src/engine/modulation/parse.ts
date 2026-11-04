@@ -59,8 +59,10 @@ function parseSource(v: unknown, where: string): ModSource {
     }
     case 'random':
       return { kind: 'random', seed: Math.round(num(v, 'seed', where)), rate: Math.min(60, Math.max(0.01, num(v, 'rate', where))) }
+    case 'pattern':
+      return { kind: 'pattern', rowId: str(v, 'rowId', where) }
     default:
-      throw new ModulationFormatError(`${where}.kind should be audio, tempo, lfo or random`)
+      throw new ModulationFormatError(`${where}.kind should be audio, tempo, lfo, random or pattern`)
   }
 }
 

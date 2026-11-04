@@ -31,6 +31,8 @@ export interface PropertySpec {
   label: string
   /** Numbers and points interpolate; stepped values (choices, toggles) always hold. */
   kind: 'number' | 'point' | 'stepped'
+  /** A number whose keyframes always hold (a steps knob: whole steps, modulation allowed). */
+  hold?: boolean
   min?: number
   max?: number
   unit?: string
@@ -81,7 +83,14 @@ function paramProperty(spec: ParamSpec): PropertySpec {
     case 'toggle':
     case 'curve':
       return { label: spec.label, kind: 'stepped', param: spec }
+    case 'steps':
+      return { label: spec.label, kind: 'number', min: 0, max: spec.steps.length - 1, decimals: 0, hold: true, param: spec }
   }
+}
+
+/** Whether a value's keyframes always hold (choices, toggles, curves and steps knobs). */
+export function holds(spec: PropertySpec): boolean {
+  return spec.kind === 'stepped' || spec.hold === true
 }
 
 const MIX: PropertySpec = { label: 'Mix', kind: 'number', min: 0, max: 100, unit: '%', decimals: 1 }
@@ -151,7 +160,8 @@ export function clampValue(spec: PropertySpec, value: ParamValue): ParamValue | 
   if (!c || c.some((v) => !Number.isFinite(v))) return null
   if (spec.kind === 'point') return c.length === 2 ? [c[0]!, c[1]!] : null
   if (c.length !== 1) return null
-  return Math.min(spec.max ?? Infinity, Math.max(spec.min ?? -Infinity, c[0]!))
+  const v = Math.min(spec.max ?? Infinity, Math.max(spec.min ?? -Infinity, c[0]!))
+  return spec.param?.type === 'steps' ? Math.round(v) : v
 }
 
 /** Writes the value that's used when not animated. Speed isn't written here (Speed/Duration changes the clip's length). */
@@ -273,7 +283,10 @@ export function resolveClip(clip: Clip, time: Ticks, modulation: ModulationConte
           const out = applyLinks(parts, l, modulation!, time)
           value = Array.isArray(value) ? [out[0]!, out[1]!] : out[0]!
         }
-        params[param] = spec?.type === 'number' && typeof value === 'number' ? clamp(value, spec.min, spec.max) : value
+        if (spec?.type === 'number' && typeof value === 'number') value = clamp(value, spec.min, spec.max)
+        // A steps knob moves by whole steps: modulation is rounded to the nearest.
+        if (spec?.type === 'steps' && typeof value === 'number') value = Math.round(clamp(value, 0, spec.steps.length - 1))
+        params[param] = value
       }
       let mix = effect.keyframes['mix']?.length ? Number(evaluate(effect.keyframes['mix']!, t, effect.mix)) : effect.mix
       const mixLinks = links(effect.modulation, 'mix')
@@ -317,7 +330,7 @@ export function writeValueAt(clip: Clip, effectId: string | null, param: string,
   if (!spec) throw new CommandError(`“${clip.name}” has no ${param}`)
   const clean = clampValue(spec, value)
   if (clean === null) throw new CommandError(`${spec.label} can’t be set to that`)
-  if (isAnimated(clip, effectId, param)) putKeyframe(trackFor(clip, effectId, param), keyframeTime(clip, t, frame), clean, newId(), spec.kind === 'stepped')
+  if (isAnimated(clip, effectId, param)) putKeyframe(trackFor(clip, effectId, param), keyframeTime(clip, t, frame), clean, newId(), holds(spec))
   else if (effectId === null && param === 'speed') throw new CommandError('Change the speed with Speed/Duration (⌘R), or turn on Speed keyframes')
   else writeStatic(clip, effectId, param, clean)
 }

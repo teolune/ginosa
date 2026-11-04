@@ -9,6 +9,8 @@ import { hasStatefulEffect, stateFrame, stateKey } from './temporal'
 import { beatAt } from '../audio/beat-grid'
 import { DEFAULT_GRID } from '../modulation/curve'
 import type { EffectClock } from '../effects/types'
+import { effectById } from '../../effects/registry'
+import { holdAt, holdFromCut, posterizeGrid, posterizeSettings } from './posterize'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
 
 export { sourceTimeAt }
@@ -33,6 +35,11 @@ export interface VideoLayer {
   temporal: LayerTemporal | null
   /** Where this moment is in frames and beats (M11), for effects that change with it (the same for every layer). */
   clock: EffectClock
+  /**
+   * Posterize Time (M12) holding this layer: its first `effects` effects (those above Posterize
+   * Time) were worked out at the held moment, so they read that moment's clock.
+   */
+  held?: { effects: number; clock: EffectClock } | null
 }
 
 /** The clock at a sequence time: its frame number, and its place on the beat grid (120 BPM from 0 without one). */
@@ -138,16 +145,63 @@ export function visibleFrom(sequence: Sequence, clip: Clip): Ticks {
  * only those count. With `modulation`, modulated values are worked out too.
  */
 export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null = null): VideoLayer[] {
+  return layersAt(sequence, media, time, modulation, tracksOf(sequence, 'video').length)
+}
+
+/** The first switched-on effect that holds time (Posterize Time) in a clip's stack, or -1. */
+function holdingEffect(clip: Clip): number {
+  return clip.effects.findIndex((e) => e.enabled && effectById(e.effectId)?.holdsTime === true)
+}
+
+/** The latest clip edge (in frames) on these tracks after `from` and up to `to`, or null. */
+function latestCut(sequence: Sequence, trackIds: string[], from: number, to: number, frame: Ticks): number | null {
+  let cut: number | null = null
+  for (const clip of sequence.clips) {
+    if (!trackIds.includes(clip.trackId)) continue
+    for (const edge of [Math.round(clip.start / frame), Math.round(clipEnd(clip) / frame)]) if (edge > from && edge <= to && (cut === null || edge > cut)) cut = edge
+  }
+  return cut
+}
+
+/** The layers of the first `trackLimit` video tracks at `time` (Posterize Time on an adjustment layer asks for those beneath it at the held moment). */
+function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null, trackLimit: number): VideoLayer[] {
   const tracks = tracksOf(sequence, 'video')
   const soloed = tracks.some((t) => t.solo)
   const frame = frameTicks(sequence)
-  const layers: VideoLayer[] = []
+  let layers: VideoLayer[] = []
   const masks: { frame: FrameSize; byId: Map<string, ResolvedShape[]> } = { frame: { width: sequence.settings.width, height: sequence.settings.height }, byId: new Map() }
   const clock = clockAt(sequence, time)
-  for (const track of tracks) {
+  for (const [index, track] of tracks.slice(0, trackLimit).entries()) {
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
-      const clip = resolveClip(stored, time, modulation)
+      let clip = resolveClip(stored, time, modulation)
+      // Posterize Time (M12): the picture (and the effects above it) from the held moment.
+      let shown = time
+      let held: VideoLayer['held'] = null
+      const p = holdingEffect(clip)
+      if (p >= 0) {
+        const settings = posterizeSettings(clip.effects[p]!.params)
+        const f = Math.round(time / frame)
+        let hold = holdAt(settings, posterizeGrid(settings, sequence.beatGrid), frame, f)
+        if (hold && clip.adjustment && settings.cuts === 'switch') {
+          const cut = latestCut(sequence, tracks.slice(0, index).map((t) => t.id), hold.start, f, frame)
+          if (cut !== null) hold = holdFromCut(settings, hold, cut)
+        }
+        if (hold) {
+          let sample = hold.sample * frame
+          // A clip starts on its own first frame, and ends on its last; an adjustment layer
+          // never samples past its own end (it may sample before its start: the old shot).
+          if (!clip.adjustment) sample = Math.min(Math.max(sample, visibleFrom(sequence, stored)), clipEnd(stored) - frame)
+          else sample = Math.min(sample, clipEnd(stored) - frame)
+          if (sample !== time) {
+            shown = sample
+            const then = resolveClip(stored, sample, modulation)
+            clip = { ...clip, effects: [...then.effects.slice(0, p), ...clip.effects.slice(p)] }
+            held = { effects: p, clock: clockAt(sequence, sample) }
+            if (clip.adjustment) layers = layersAt(sequence, media, sample, modulation, index)
+          }
+        }
+      }
       let temporal: LayerTemporal | null = null
       if (hasStatefulEffect(stored)) {
         const resetAt = visibleFrom(sequence, stored)
@@ -157,17 +211,17 @@ export function videoLayersAt(sequence: Sequence, media: MediaItem[], time: Tick
       if ((clip.opacity <= 0 || weight <= 0) && !temporal) continue
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
-        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal, clock })
+        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal, clock, held })
         continue
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, time, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock })
+      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, shown, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock, held })
     }
   }
   if (sequence.masks.length > 0) {
     const used = layers.flatMap((l) => [l.clip.mask?.id, ...l.clip.effects.map((e) => (e.enabled ? e.mask?.id : undefined))]).filter((id): id is string => id !== undefined)
-    for (const [id, shapes] of resolveMasks(sequence.masks, used, time, modulation)) masks.byId.set(id, shapes)
+    for (const [id, shapes] of resolveMasks(sequence.masks, used, time, modulation)) if (!masks.byId.has(id)) masks.byId.set(id, shapes)
   }
   return layers
 }

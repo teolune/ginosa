@@ -1,3 +1,4 @@
+import type { BandId } from '../audio/analysis'
 import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
 import type { EffectInstance } from '../effects/types'
@@ -11,7 +12,7 @@ import type { Mask, MaskRef } from '../masks/types'
  */
 
 /** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. */
-export const PROJECT_SCHEMA_VERSION = 11
+export const PROJECT_SCHEMA_VERSION = 12
 
 export type TrackKind = 'video' | 'audio'
 
@@ -170,7 +171,36 @@ export interface Sequence {
   masks: Mask[]
   /** The timeline's In and Out (decision 59): Enter renders between them. Out is the end of its frame. */
   marks: { in: Ticks | null; out: Ticks | null }
+  /** The drum sequencer (M12, the Channel Rack): rows of steps that fire effects. */
+  rack: Rack
 }
+
+/**
+ * One row of the Channel Rack (M12), e.g. Kick. Its steps are 16th notes counted from the beat
+ * grid's downbeat (both ways), so they cover the whole song and follow tempo changes. Each row
+ * drives a modulator of its own (source `pattern`), which links to any values.
+ */
+export interface RackRow {
+  id: string
+  name: string
+  /** The light: a row that's off fires nothing (its steps are kept). */
+  enabled: boolean
+  /** 0–75%: every second 16th fires later by this share of a 16th. */
+  swing: number
+  /** The 16ths that fire, sorted, no repeats. */
+  steps: number[]
+  /** Where Auto-fill takes hits from. */
+  band: BandId
+  /** The modulator made with the row (renamed and removed with it). Others can listen to the row too. */
+  modulatorId: string | null
+}
+
+export interface Rack {
+  rows: RackRow[]
+}
+
+/** 16th notes to a beat. */
+export const STEPS_PER_BEAT = 4
 
 /**
  * A sound to analyse: one audio clip, every clip on a track (even a muted one, used as a
@@ -270,7 +300,8 @@ export function createProject({ name, settings, createId = defaultId, now = () =
       beatGrid: null,
       modulators: [],
       masks: [],
-      marks: { in: null, out: null }
+      marks: { in: null, out: null },
+      rack: { rows: [] }
     },
     media: [],
     bins: []

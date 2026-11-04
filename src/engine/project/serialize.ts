@@ -1,6 +1,7 @@
+import { BANDS, type BandId } from '../audio/analysis'
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackRow } from './model'
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { syncLinkedRamps } from '../timeline/timeline'
 import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
@@ -143,6 +144,10 @@ function migrate(raw: Json): Json {
   if (version < 11) {
     const sequence = isObject(data['sequence']) ? data['sequence'] : {}
     data = { ...data, schemaVersion: 11, sequence: { ...sequence, marks: { in: null, out: null } } }
+  }
+  if (version < 12) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    data = { ...data, schemaVersion: 12, sequence: { ...sequence, rack: { rows: [] } } }
   }
   return data
 }
@@ -461,6 +466,23 @@ function parseBeatGrid(value: unknown): BeatGrid | null {
 }
 
 /** The timeline's In and Out; a mark that isn't a time is dropped, and an Out before the In too. */
+/** The Channel Rack (M12): rows with valid steps; a damaged row is an error, as for clips. */
+function parseRack(value: unknown): Rack {
+  const rows = isObject(value) && Array.isArray(value['rows']) ? value['rows'] : []
+  const out: RackRow[] = rows.map((row, i) => {
+    const where = `sequence.rack.rows[${i}]`
+    if (!isObject(row)) throw new ProjectFormatError(`${where} should be an object`)
+    const steps = Array.isArray(row['steps']) ? row['steps'] : []
+    if (!steps.every((s) => Number.isInteger(s))) throw new ProjectFormatError(`${where}.steps should be whole numbers`)
+    const band = BANDS.some((b) => b.id === row['band']) ? (row['band'] as BandId) : 'bass'
+    const swing = typeof row['swing'] === 'number' && Number.isFinite(row['swing']) ? Math.min(75, Math.max(0, row['swing'])) : 0
+    const modulatorId = typeof row['modulatorId'] === 'string' ? row['modulatorId'] : null
+    return { id: expectString(row, 'id', where), name: expectString(row, 'name', where), enabled: row['enabled'] !== false, swing, steps: [...new Set(steps as number[])].sort((a, b) => a - b), band, modulatorId }
+  })
+  if (new Set(out.map((r) => r.id)).size !== out.length) throw new ProjectFormatError('Two Channel Rack rows share the same id')
+  return { rows: out }
+}
+
 function parseSequenceMarks(value: unknown): { in: number | null; out: number | null } {
   if (!isObject(value)) return { in: null, out: null }
   const time = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_TICKS ? v : null)
@@ -578,7 +600,9 @@ export function parseProject(input: string | unknown): Project {
   })
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
   const marks = parseSequenceMarks(sequence['marks'])
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks })
+  const rack = parseRack(sequence['rack'])
+  for (const r of rack.rows) if (r.modulatorId && !modulatorIds.has(r.modulatorId)) r.modulatorId = null
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks, rack })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -601,7 +625,8 @@ export function parseProject(input: string | unknown): Project {
       beatGrid,
       modulators,
       masks,
-      marks
+      marks,
+      rack
     },
     media,
     bins

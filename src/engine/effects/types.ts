@@ -1,4 +1,4 @@
-import type { BlendMode } from '../project/model'
+import type { BeatGrid, BlendMode } from '../project/model'
 import type { KeyframeMap } from '../keyframes/keyframes'
 import type { ModulationMap } from '../modulation/types'
 import type { MaskRef } from '../masks/types'
@@ -16,8 +16,7 @@ export type EffectColourSpace = 'display' | 'linear' | 'oklab'
  * each frame also reads the effect's own output on the frame before (feedback, datamosh),
  * so a frame depends on every frame back to the clip's first (its reset); the engine
  * keeps that state, checkpoints it every second and replays from the nearest checkpoint
- * when you jump. (`reads other times`, for Posterize Time and echoes, arrives with its
- * first effect.)
+ * when you jump. (Posterize Time, which shows another moment, is `holdsTime`.)
  */
 export type TimeBehaviour = 'per-frame' | 'stateful'
 
@@ -80,7 +79,18 @@ export interface CurveParam extends ParamBase {
   default: string
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam
+/**
+ * A detented knob (M12): one of a fixed list of steps (e.g. note values), stored as its index.
+ * It holds between keyframes like a choice, but modulation can move it by whole steps (the
+ * result is rounded to the nearest), so loud sections can turn it up.
+ */
+export interface StepsParam extends ParamBase {
+  type: 'steps'
+  default: number
+  steps: ReadonlyArray<{ id: string; label: string }>
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam
 
 export interface EffectManifest {
   id: string
@@ -118,6 +128,13 @@ export interface EffectManifest {
    * The render cache then keys its frames by them too.
    */
   readsClock?: boolean
+  /**
+   * The effect changes which moment is shown rather than the pixels (M12: Posterize Time).
+   * The render plan works it out, and it has no GPU pass of its own.
+   */
+  holdsTime?: boolean
+  /** What a parameter's value means right now, shown next to it (Posterize Time: "1/16 · 8.53 fps"). */
+  readout?(param: string, params: Record<string, ParamValue>, context: { beatGrid: BeatGrid | null }): string | null
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>
 }
 

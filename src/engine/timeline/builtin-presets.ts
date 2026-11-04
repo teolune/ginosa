@@ -25,7 +25,8 @@ export interface BuiltinPreset {
   name: string
   description: string
   effects: ReadonlyArray<{ effectId: string; params: Record<string, ParamValue>; blendMode?: BlendMode }>
-  links: ReadonlyArray<{ effect: number; param: string; signal: AudioSignal; band: BandRef; modulator: ModulatorSettings; link: LinkSettings }>
+  /** `row`: with a Channel Rack row of this name (M12), the link follows that row's steps instead of the audio. */
+  links: ReadonlyArray<{ effect: number; param: string; signal: AudioSignal; band: BandRef; row?: string; modulator: ModulatorSettings; link: LinkSettings }>
 }
 
 export const BUILTIN_PREFIX = 'builtin:'
@@ -37,7 +38,7 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
     description: 'Basic Correction’s Exposure jumps 2 stops on each bass hit (the kick) and falls back over 200 ms.',
     effects: [{ effectId: 'basic-correction', params: {} }],
     // A hit is a one-sample (5 ms) impulse, so the attack is instant: a 5 ms attack would only reach 63%.
-    links: [{ effect: 0, param: 'exposure', signal: 'hits', band: 'bass', modulator: { gain: 0, threshold: 0, knee: 0, attack: 0, release: 200, curve: 'linear' }, link: { mode: 'add', min: [0], max: [2] } }]
+    links: [{ effect: 0, param: 'exposure', signal: 'hits', band: 'bass', row: 'Kick', modulator: { gain: 0, threshold: 0, knee: 0, attack: 0, release: 200, curve: 'linear' }, link: { mode: 'add', min: [0], max: [2] } }]
   },
   {
     id: 'builtin:bass-mosaic',
@@ -51,7 +52,7 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
     name: 'Hi-Hat Grain',
     description: 'Fine grain that thickens on the hi-hats: Grain’s Amount follows the high band, up to +30% on each hat, falling back in 80 ms.',
     effects: [{ effectId: 'grain', params: { amount: 8, size: 1, softness: 35, colourAmount: 30, blueSize: 120, shadows: 60, midtones: 100, highlights: 40 } }],
-    links: [{ effect: 0, param: 'amount', signal: 'level', band: 'high', modulator: { gain: 0, threshold: 0.15, knee: 0.05, attack: 0, release: 80, curve: 'linear' }, link: { mode: 'add', min: [0], max: [30] } }]
+    links: [{ effect: 0, param: 'amount', signal: 'level', band: 'high', row: 'Hat', modulator: { gain: 0, threshold: 0.15, knee: 0.05, attack: 0, release: 80, curve: 'linear' }, link: { mode: 'add', min: [0], max: [30] } }]
   },
   {
     id: 'builtin:grain-35mm',
@@ -104,12 +105,15 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
     if (clips.length === 0) throw new CommandError('Select a video clip or adjustment layer to apply a preset to')
     for (const clip of clips) assertUnlocked(findTrack(sequence, clip.trackId))
     const audio = sequence.audioSources[0] ?? null
+    const followed: string[] = []
     const modulatorIds = preset.links.map((l) => {
-      if (!audio) return null
-      const source: ModSource = { kind: 'audio', sourceId: audio.id, signal: l.signal, band: l.band }
+      const rackRow = l.row ? sequence.rack.rows.find((r) => r.name.trim().toLowerCase() === l.row!.toLowerCase()) : undefined
+      if (!audio && !rackRow) return null
+      const source: ModSource = rackRow ? { kind: 'pattern', rowId: rackRow.id } : { kind: 'audio', sourceId: audio!.id, signal: l.signal, band: l.band }
+      followed.push(rackRow ? `the ${rackRow.name} row in the Channel Rack` : `“${audio!.name}” (the first source in Audio Analysis)`)
       const same = sequence.modulators.find((m) => sameSource(m.source, source) && Object.keys(m.keyframes).length === 0 && (Object.keys(l.modulator) as Array<keyof ModulatorSettings>).every((k) => m[k] === l.modulator[k]))
       if (same) return same.id
-      const made: Modulator = { ...newModulator(newId(), `${preset.name}: ${describeSource(source, () => audio.name)}`, source), ...l.modulator }
+      const made: Modulator = { ...newModulator(newId(), `${preset.name}: ${describeSource(source, (id) => sequence.audioSources.find((a) => a.id === id)?.name ?? rackRow?.name ?? id)}`, source), ...l.modulator }
       sequence.modulators.push(made)
       return made.id
     })
@@ -132,8 +136,8 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
       })
     }
     if (preset.links.length === 0) return
-    command.notice = audio
-      ? `${preset.name} follows “${audio.name}” (the first source in Audio Analysis). Change it in the Modulation window.`
-      : `${preset.name}: there’s no audio to follow yet, so the effect was added without its link. Add a source in Audio Analysis, then apply the preset again.`
+    command.notice = followed.length
+      ? `${preset.name} follows ${followed[0]}. Change it in the Modulation window.`
+      : `${preset.name}: there’s no audio to follow yet, so the effect was added without its link. Add a source in Audio Analysis (or a ${preset.links[0]!.row ?? ''} row in the Channel Rack), then apply the preset again.`
   })
 }

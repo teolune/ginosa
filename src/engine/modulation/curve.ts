@@ -1,9 +1,9 @@
 import { ANALYSIS_RATE, type AudioAnalysis, type BandAnalysis } from '../audio/analysis'
-import { beatAt, beatLength } from '../audio/beat-grid'
+import { beatAt, beatLength, beatTime } from '../audio/beat-grid'
 import { sampleAt } from '../audio/dsp'
 import { evaluate } from '../keyframes/keyframes'
-import type { BeatGrid } from '../project/model'
-import { secondsToTicks, type Ticks } from '../time'
+import { STEPS_PER_BEAT, type BeatGrid, type RackRow } from '../project/model'
+import { secondsToTicks, ticksToSeconds, type Ticks } from '../time'
 import { MODULATOR_PARAMS, NOTE_VALUES, type ModSource, type Modulator, type ModulatorParam, type NoteValue, type ResponseCurve } from './types'
 
 /**
@@ -20,6 +20,8 @@ export interface CurveInputs {
   analysisStart: Ticks
   customBand: BandAnalysis | null
   grid: BeatGrid | null
+  /** A Channel Rack row (M12), and how long a frame is (each step fires for one frame, so the first frame at or after it gets the whole hit). */
+  pattern?: { row: RackRow | null; frameSeconds: number }
 }
 
 /** Without a beat grid, tempo signals and LFOs run at 120 BPM from the sequence start, 4/4. */
@@ -117,6 +119,19 @@ export function sourceSignal(source: ModSource, inputs: CurveInputs, frames: num
         const f = x - n
         const s = f * f * (3 - 2 * f)
         out[i] = hash01(n, source.seed) * (1 - s) + hash01(n + 1, source.seed) * s
+      }
+      return out
+    }
+    case 'pattern': {
+      // A pulse one frame long from each step (the odd 16ths later by the row's swing).
+      const p = inputs.pattern
+      if (!p?.row || !p.row.enabled) return out
+      const sixteenth = 1 / STEPS_PER_BEAT
+      const width = Math.max(1, Math.round(p.frameSeconds * CURVE_RATE))
+      for (const step of p.row.steps) {
+        const beat = step * sixteenth + (Math.abs(step % 2) === 1 ? (p.row.swing / 100) * sixteenth : 0)
+        const start = Math.ceil(ticksToSeconds(beatTime(grid, beat)) * CURVE_RATE - 1e-6)
+        for (let i = Math.max(0, start); i < Math.min(frames, start + width); i++) out[i] = 1
       }
       return out
     }

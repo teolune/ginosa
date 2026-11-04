@@ -30,6 +30,7 @@ function fields(manifest: EffectManifest): Field[] {
         out.push({ name: id, value: (p, scale) => Number(p[id] ?? spec.default) * (spec.pixels ? scale : 1) })
         break
       case 'angle':
+      case 'steps':
         out.push({ name: id, value: (p) => Number(p[id] ?? spec.default) })
         break
       case 'toggle':

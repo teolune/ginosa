@@ -20,6 +20,8 @@ import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
 import { runGrainGpuTest } from '../playback/grain-gpu-test'
 import { grainExportTest } from '../playback/grain-export-test'
+import { posterizeTest } from '../playback/posterize-test'
+import { buildRackUi } from '../rack/rack-demo'
 import { colourLightExportTest } from '../playback/colour-light-export-test'
 import { buildColourLightUi } from '../effects/colour-light-demo'
 import { buildGrainUi } from '../effects/grain-demo'
@@ -374,6 +376,21 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(2500)
       await buildGrainUi()
       await wait(2500)
+      break
+    }
+    case 'rackui': {
+      // M12: Auto-fill from the test drums, Kick Flash on the Kick row, Posterize Time, in the Channel Rack.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$|beat_128bpm\.wav$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await buildRackUi().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      await wait(2500)
+      break
+    }
+    case 'posterize': {
+      // M12 "done when": Posterize Time's holds match the beat grid in every exported frame; a Channel Rack row drives Kick Flash.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /framecode_h264\.mp4$|patches_rec709\.mov$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await posterizeTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'graingpu': {

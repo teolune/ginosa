@@ -34,12 +34,13 @@ export class LayerBuilder {
 
   /** A layer's switched-on effects, ready for the GPU (effects missing from this version are skipped). */
   effects(layer: VideoLayer): GpuEffect[] {
-    return layer.clip.effects.flatMap((effect) => {
+    return layer.clip.effects.flatMap((effect, index) => {
       const manifest = effect.enabled ? effectById(effect.effectId) : undefined
-      if (!manifest) return []
+      // Posterize Time is worked out by the render plan: it has no GPU pass.
+      if (!manifest || manifest.holdsTime) return []
       const t = layer.temporal
       const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
-      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.clock }]
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.held && index < layer.held.effects ? layer.held.clock : layer.clock }]
     })
   }
 

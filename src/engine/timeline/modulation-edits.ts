@@ -38,6 +38,8 @@ export function describeSource(source: ModSource, sourceName: (id: string) => st
       return `LFO ${source.rate} ${source.shape}`
     case 'random':
       return `Random ${source.rate} Hz`
+    case 'pattern':
+      return `Pattern · ${sourceName(source.rowId)}`
   }
 }
 
@@ -48,7 +50,7 @@ export function describeSource(source: ModSource, sourceName: (id: string) => st
  */
 export function newModulator(id: string, name: string, source: ModSource): Modulator {
   const audioLevel = source.kind === 'audio' && source.signal !== 'hits'
-  const trigger = (source.kind === 'audio' && source.signal === 'hits') || (source.kind === 'tempo' && source.signal.endsWith('trigger'))
+  const trigger = (source.kind === 'audio' && source.signal === 'hits') || (source.kind === 'tempo' && source.signal.endsWith('trigger')) || source.kind === 'pattern'
   return {
     id,
     name,
@@ -137,27 +139,32 @@ export function updateModulator(id: string, changes: ModulatorChanges): Timeline
   return command
 }
 
+/** Takes a modulator out of a sequence (inside a command), with every link to it. Returns how many links went. */
+export function dropModulator(sequence: Sequence, id: string): number {
+  sequence.modulators = sequence.modulators.filter((m) => m.id !== id)
+  let links = 0
+  const strip = (map: Record<string, ModLink[]>) => {
+    for (const key of Object.keys(map)) {
+      const kept = map[key]!.filter((l) => l.modulatorId !== id)
+      links += map[key]!.length - kept.length
+      if (kept.length > 0) map[key] = kept
+      else delete map[key]
+    }
+  }
+  for (const clip of sequence.clips) {
+    strip(clip.modulation)
+    for (const effect of clip.effects) strip(effect.modulation)
+  }
+  for (const mask of sequence.masks) for (const shape of mask.shapes) strip(shape.modulation)
+  return links
+}
+
 /** Removes a modulator and every link to it. */
 export function removeModulator(id: string): TimelineCommand {
   return timelineCommand('Remove Modulator', (draft, command) => {
     const sequence = draft.sequence
-    const before = sequence.modulators.length
-    sequence.modulators = sequence.modulators.filter((m) => m.id !== id)
-    if (sequence.modulators.length === before) throw new CommandError('That modulator is gone')
-    let links = 0
-    const strip = (map: Record<string, ModLink[]>) => {
-      for (const key of Object.keys(map)) {
-        const kept = map[key]!.filter((l) => l.modulatorId !== id)
-        links += map[key]!.length - kept.length
-        if (kept.length > 0) map[key] = kept
-        else delete map[key]
-      }
-    }
-    for (const clip of sequence.clips) {
-      strip(clip.modulation)
-      for (const effect of clip.effects) strip(effect.modulation)
-    }
-    for (const mask of sequence.masks) for (const shape of mask.shapes) strip(shape.modulation)
+    if (!sequence.modulators.some((m) => m.id === id)) throw new CommandError('That modulator is gone')
+    const links = dropModulator(sequence, id)
     if (links > 0) command.notice = `Removed it from the ${links} value${links === 1 ? '' : 's'} it drove.`
   })
 }

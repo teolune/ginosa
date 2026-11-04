@@ -3,13 +3,14 @@ import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from 
 import type { CurveParam, EffectInstance, EffectManifest, ParamSpec, ParamValue } from '@engine/effects/types'
 import { IDENTITY_CURVE, parseCurve } from '@engine/effects/curves'
 import { CHANNEL_COLOURS, CurveEditor } from './CurveEditor'
+import { StepsKnob } from './StepsKnob'
 import { addEffect, moveEffect, removeEffects, resetEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
 import { effectById } from '../../../effects/registry'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, STACK_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
 import { MAX_SPEED_PERCENT, clampValue, keyframesOf, linksOf, modulatable, modulatedValueAt, propertySpec, speedKeyframeProblem, valueAt, type PropertyRef } from '@engine/keyframes/properties'
-import { removeLinks } from '@engine/timeline/modulation-edits'
+import { addLink, removeLinks } from '@engine/timeline/modulation-edits'
 import { modulationUi } from '../audio/modulation-ui'
 import { modulationController } from '../audio/modulation-controller'
 import { defaultValueOf } from '../audio/default-values'
@@ -241,6 +242,10 @@ function PropertyRow({
     { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' },
     'separator',
     { label: 'Link to Audio…', onSelect: () => modulationUi.openLinkToAudio(ref), disabled: locked || !canModulate },
+    // The Channel Rack's rows (M12): this value fires on that row's steps.
+    ...(projectController.project?.sequence.rack.rows ?? [])
+      .filter((r) => r.modulatorId)
+      .map((r): MenuEntry => ({ label: `Link to Pattern: ${r.name}`, onSelect: () => dispatch(addLink(ref, r.modulatorId!, playhead)), disabled: locked || !canModulate || links.some((l) => l.modulatorId === r.modulatorId) })),
     { label: 'Modulate Parameter…', onSelect: openModulation, disabled: locked || !canModulate, shortcut: '⌥⇧2' },
     { label: links.length > 1 ? `Remove Modulation (${links.length})` : 'Remove Modulation', onSelect: () => dispatch(removeLinks(ref)), disabled: locked || links.length === 0, danger: true },
     'separator',
@@ -393,8 +398,10 @@ export function BlendSelect({ value, onChange, disabled, label }: { value: Blend
 }
 
 /** One generated control, from the effect's manifest. */
-function ParamControl({ spec, value, onChange, disabled }: { spec: ParamSpec; value: ParamValue | undefined; onChange(value: ParamValue): void; disabled: boolean }) {
+function ParamControl({ spec, value, onChange, disabled, readout }: { spec: ParamSpec; value: ParamValue | undefined; onChange(value: ParamValue): void; disabled: boolean; readout?: string | null }) {
   switch (spec.type) {
+    case 'steps':
+      return <StepsKnob label={spec.label} value={Number(value ?? spec.default)} steps={spec.steps} defaultValue={spec.default} onChange={onChange} disabled={disabled} readout={readout} />
     case 'number': {
       const range = spec.max - spec.min
       return (
@@ -453,7 +460,11 @@ function ParamRow({ clip, effect, spec, locked }: { clip: Clip; effect: EffectIn
       help={spec.help}
       below={spec.type === 'curve' ? (value, onChange) => <CurveEditor value={String(value)} onChange={onChange} colour={CHANNEL_COLOURS[spec.id] ?? CHANNEL_COLOURS['master']!} disabled={locked} label={spec.label} /> : undefined}
     >
-      {(value, onChange) => <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} />}
+      {(value, onChange) => {
+        const manifest = effectById(effect.effectId)
+        const readout = manifest?.readout?.(spec.id, { ...effect.params, [spec.id]: value }, { beatGrid: projectController.project?.sequence.beatGrid ?? null }) ?? null
+        return <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} readout={readout} />
+      }}
     </PropertyRow>
   )
 }

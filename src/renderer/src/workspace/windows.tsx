@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { AudioAnalysisWindow } from '../windows/AudioAnalysisWindow'
 import { CacheManagerWindow } from '../windows/CacheManagerWindow'
+import { ChannelRackWindow } from '../windows/ChannelRackWindow'
 import { DiagnosticsWindow } from '../windows/DiagnosticsWindow'
 import { EffectControlsWindow } from '../windows/EffectControlsWindow'
 import { ExportWindow } from '../windows/ExportWindow'
@@ -40,6 +41,8 @@ export function renderWindow(id: string): ReactNode {
       return <MasksWindow />
     case 'cache-manager':
       return <CacheManagerWindow />
+    case 'channel-rack':
+      return <ChannelRackWindow />
     case 'playback-test':
       return <PlaybackTestWindow />
     default:

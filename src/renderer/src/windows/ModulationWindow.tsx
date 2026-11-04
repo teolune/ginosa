@@ -32,7 +32,7 @@ import { ScrubNumber } from './EffectControlsWindow'
 const dispatch = (command: Parameters<typeof projectController.dispatch>[0]) => projectController.dispatch(command)
 
 function sourceName(sequence: Sequence) {
-  return (id: string) => sequence.audioSources.find((s) => s.id === id)?.name ?? 'Missing source'
+  return (id: string) => sequence.audioSources.find((s) => s.id === id)?.name ?? sequence.rack.rows.find((r) => r.id === id)?.name ?? 'Missing source'
 }
 
 /** A keyframeable modulator setting: stopwatch, value at the playhead, previous/add/next. */
@@ -100,12 +100,19 @@ function SourceEditor({ m, sequence }: { m: Modulator; sequence: Sequence }) {
         if (k === 'tempo') set({ kind: 'tempo', signal: 'beat-trigger' })
         if (k === 'lfo') set({ kind: 'lfo', shape: 'sine', rate: '1/4', seed: 1 })
         if (k === 'random') set({ kind: 'random', seed: 1, rate: 4 })
+        if (k === 'pattern') {
+          const first = sequence.rack.rows[0]
+          if (first) set({ kind: 'pattern', rowId: first.id })
+        }
       }}
     >
       <option value="audio">Audio</option>
       <option value="tempo">Tempo</option>
       <option value="lfo">LFO (synced to the beat)</option>
       <option value="random">Random</option>
+      <option value="pattern" disabled={sequence.rack.rows.length === 0}>
+        Pattern (Channel Rack){sequence.rack.rows.length === 0 ? ': add a row first' : ''}
+      </option>
     </select>
   )
   return (
@@ -114,6 +121,21 @@ function SourceEditor({ m, sequence }: { m: Modulator; sequence: Sequence }) {
         <span className="fx-label">Source</span>
         <span className="fx-values">{kind}</span>
       </div>
+      {s.kind === 'pattern' && (
+        <div className="fx-row">
+          <span className="fx-label">Row</span>
+          <span className="fx-values">
+            <select className="input compact" value={s.rowId} onChange={(e) => set({ kind: 'pattern', rowId: e.target.value })}>
+              {!sequence.rack.rows.some((r) => r.id === s.rowId) && <option value={s.rowId}>(missing row)</option>}
+              {sequence.rack.rows.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </span>
+        </div>
+      )}
       {s.kind === 'audio' && (
         <>
           <div className="fx-row">

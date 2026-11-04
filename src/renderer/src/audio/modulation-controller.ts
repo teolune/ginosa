@@ -1,3 +1,4 @@
+import { frameTicks } from '@engine/timeline/timeline'
 import { hashText } from '@engine/audio/sources'
 import { CURVE_RATE, curveValue, modulatorCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
 import type { Modulator, ModulationContext } from '@engine/modulation/types'
@@ -29,6 +30,12 @@ const MARGIN_SECONDS = 30
 
 function inputsFor(project: Project, m: Modulator): { inputs: CurveInputs; ready: boolean; key: string } {
   const grid = project.sequence.beatGrid
+  if (m.source.kind === 'pattern') {
+    const id = m.source.rowId
+    const row = project.sequence.rack.rows.find((r) => r.id === id) ?? null
+    const frameSeconds = ticksToSeconds(frameTicks(project.sequence))
+    return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid, pattern: { row, frameSeconds } }, ready: true, key: JSON.stringify([row, frameSeconds]) }
+  }
   if (m.source.kind !== 'audio') return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid }, ready: true, key: '' }
   const source = m.source
   const state = analysisController.state(source.sourceId)

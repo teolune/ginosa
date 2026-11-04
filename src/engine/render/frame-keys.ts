@@ -35,6 +35,16 @@ function shapeContent(s: ResolvedShape): unknown {
 }
 
 /** One layer on one frame, as text: what it is and every value that changes how it looks. */
+/** The clocks the layer's clock-reading effects (grain) see: the held moment's above a Posterize Time, else this frame's. */
+function clockKey(layer: VideoLayer): Array<{ frame: number; beat: number }> | null {
+  const clocks = layer.clip.effects.flatMap((e, i) => {
+    if (!e.enabled || !effectById(e.effectId)?.readsClock) return []
+    const c = layer.held && i < layer.held.effects ? layer.held.clock : layer.clock
+    return [{ frame: c.frame, beat: Math.round(c.beat * 1e6) / 1e6 }]
+  })
+  return clocks.length ? clocks : null
+}
+
 export function layerContent(layer: VideoLayer): string {
   const clip = layer.clip
   const item = layer.item
@@ -52,7 +62,7 @@ export function layerContent(layer: VideoLayer): string {
     at: item?.kind === 'image' ? 0 : layer.sourceTime,
     masks: maskIds.map((id) => (layer.masks.byId.get(id) ?? []).map(shapeContent)),
     // Effects that change with the frame or the beat (grain) differ on every frame, even on a still.
-    clock: clip.effects.some((e) => e.enabled && effectById(e.effectId)?.readsClock) ? { frame: layer.clock.frame, beat: Math.round(layer.clock.beat * 1e6) / 1e6 } : null
+    clock: clockKey(layer)
   })
 }
 
