@@ -2,6 +2,7 @@ import { cloneKeyframeMap, normaliseTrack, type KeyframeMap } from '../keyframes
 import { cloneModulationMap } from '../modulation/apply'
 import type { EffectInstance, EffectManifest, ImageSize, ParamSpec, ParamValue } from './types'
 import { parseCurve } from './curves'
+import { parseGradient } from '../gradients/gradient'
 
 /** A parameter's default for an image of `size` (points are fractions of it). */
 export function paramDefault(spec: ParamSpec, size: ImageSize): ParamValue {
@@ -29,6 +30,8 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
       return Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [value[0] as number, value[1] as number] : fallback
     case 'curve':
       return typeof value === 'string' && parseCurve(value) ? value : fallback
+    case 'gradient':
+      return typeof value === 'string' && parseGradient(value) ? value : fallback
     case 'steps':
       return typeof value === 'number' && Number.isFinite(value) ? Math.min(spec.steps.length - 1, Math.max(0, Math.round(value))) : fallback
   }
@@ -36,7 +39,7 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
 
 /** Parameters that hold between keyframes rather than move smoothly. */
 export function isStepped(spec: ParamSpec): boolean {
-  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps'
+  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps' || spec.type === 'gradient'
 }
 
 export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unknown>, size: ImageSize): Record<string, ParamValue> {

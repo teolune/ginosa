@@ -245,6 +245,15 @@ export interface GinosaBridge {
     read(): Promise<unknown>
     write(data: unknown): Promise<void>
   }
+  /** The gradient library (M13), shared by every project; .grd files in and out. */
+  gradients: {
+    read(): Promise<unknown>
+    write(data: unknown): Promise<void>
+    /** Asks for .grd files and reads them (they're never changed); [] if cancelled. */
+    chooseImport(): Promise<Array<{ name: string; bytes: Uint8Array }>>
+    /** Asks where to save a .grd and writes it; the path, or null if cancelled. */
+    export(name: string, bytes: Uint8Array): Promise<string | null>
+  }
   /** Preview renders in the project's cache (M9): one JPEG per frame, by frame key. */
   renders: {
     list(projectId: string): Promise<string[]>
@@ -288,6 +297,8 @@ export interface GinosaBridge {
     /** Files in the repo's media/test folder (snapshot runs only). */
     testMedia(): Promise<string[]>
     referenceClips(): Promise<string[]>
+    /** Your .grd files and Photoshop renders in ../Reference Materials/Gradients (read only), for the fidelity check. */
+    referenceGradients(): Promise<{ libraries: Array<{ name: string; bytes: Uint8Array }>; renders: Array<{ name: string; bytes: Uint8Array }> }>
     analyseExport(path: string, xs: number[]): Promise<ExportAnalysis | null>
     /** renders/export/<name> (snapshot mode only). */
     exportPath(name: string): Promise<string | null>

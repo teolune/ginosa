@@ -90,7 +90,19 @@ export interface StepsParam extends ParamBase {
   steps: ReadonlyArray<{ id: string; label: string }>
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam
+/**
+ * A gradient (M13): the gradient as JSON text (engine/gradients/gradient.ts). Shown as a
+ * swatch that opens the Gradient Editor; holds between keyframes; the shader reads it baked
+ * into a 4096-entry RGBA table: `gradientAt(GRADIENT_<id>, x)`. `methodParam` names the choice
+ * parameter that says how it's drawn (Classic, Perceptual, Linear or Smooth).
+ */
+export interface GradientParam extends ParamBase {
+  type: 'gradient'
+  default: string
+  methodParam?: string
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam
 
 export interface EffectManifest {
   id: string

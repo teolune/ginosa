@@ -1,5 +1,24 @@
 # Changelog
 
+## M13 · Gradient Map
+
+- **Gradient Map** (Effects › Colour & Light), as Photoshop's: the picture's tones mapped to a gradient's colours, using Photoshop's brightness weights.
+  - Method: Classic, Perceptual, Linear or Smooth. Reverse, Dither.
+  - Beyond Photoshop: Input Range, Offset and Repeat with Wrap / Mirror / Clamp (palette cycling, contour bands), Gradient B with Morph, and Use Opacity Stops (Photoshop ignores them).
+  - Any blend mode: Soft Light, Overlay and Color work as in Photoshop.
+- **Photoshop gradient libraries (.grd)**: versions 5 and 3, every colour model, noise gradients and preset folders, read and written. Stops in HSB, Lab, CMYK or book colours keep their model through export. What can't be shown exactly (CMYK, book colours, noise) is flagged.
+- **Gradient Editor** (⌥⇧5): the library (folders, search, Import .grd…, Export, New Folder, Save to Library…), then the gradient: opacity stops over the bar, colour stops under it, midpoint diamonds, add / drag / drag-off-to-delete, Duplicate, Distribute, Reverse, colour as RGB, HSB, hex or the system picker; noise gradient settings.
+- **Effect Controls**: gradient swatches. Click one to edit it in the Gradient Editor, or ▾ to pick from the library.
+- **Gradient library**, shared by every project, starting with Basics.
+- **Photoshop fidelity check** (`gradientfidelity`), with a grey ramp and colour chart to render in Photoshop.
+- **Effect parameters**: gradients (stored as text, keyframes hold, baked to tables for the shader).
+- **Tests:**
+  - both test libraries read in full (3,397 gradients), descriptors byte for byte, every gradient written and read back the same
+  - Classic, Linear and Perceptual against Photoshop's measured half-way values; midpoints, Catmull-Rom tangents and clamping; noise gradients
+  - the library: import, folders, export
+  - the GPU against the reference on a 256-level ramp and 16 colours, through 23 cases (worst 0.72 of its allowance)
+  - 24 new unit tests (364 in all)
+
 ## Basic Correction version 2 (4 Nov 2026)
 
 - **Temperature** now follows the colour of real light, and is about three times stronger: +100 is a full orange (CTO) gel, about 3,500 K; −100 a full blue (CTB) gel.

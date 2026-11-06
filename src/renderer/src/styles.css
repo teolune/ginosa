@@ -560,3 +560,49 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .rack-step.on { background: linear-gradient(#ffd27a, #e89a2c); border-color: #6b4410; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45); }
 .rack-step.bar { margin-left: 6px; }
 .rack-step.playing { outline: 2px solid rgba(255, 255, 255, 0.75); outline-offset: -2px; }
+
+/* ---- Gradients (M13) ---- */
+.gradient-bar { display: block; width: 100%; border-radius: 3px; }
+.gradient-control { display: inline-flex; align-items: center; gap: 4px; }
+.gradient-control-swatch { width: 120px; height: 18px; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; cursor: pointer; }
+.gradient-control-swatch:hover:not(:disabled) { border-color: var(--accent); }
+.gradient-popover { position: fixed; z-index: 9700; padding: 6px; background: var(--panel-raised); border: 1px solid var(--border-strong); border-radius: 7px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); display: flex; }
+.gradient-library { display: flex; gap: 6px; min-height: 0; flex: 1; width: 100%; }
+.gradient-folders { width: 170px; flex: none; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.gradient-folders .input { margin-bottom: 4px; }
+.gradient-folder { display: flex; justify-content: space-between; gap: 6px; width: 100%; padding: 3px 6px; border: 0; border-radius: 4px; background: none; text-align: left; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gradient-folder:hover { background: rgba(255, 255, 255, 0.05); }
+.gradient-folder.on { background: var(--accent-soft); }
+.gradient-swatches { flex: 1; min-width: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; align-content: start; }
+.gradient-swatch { display: flex; flex-direction: column; gap: 3px; padding: 3px; border: 1px solid transparent; border-radius: 4px; background: none; text-align: left; }
+.gradient-swatch:hover { border-color: var(--border-strong); background: rgba(255, 255, 255, 0.03); }
+.gradient-swatch-colours { display: block; height: 22px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.4); }
+.gradient-swatch-name { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gradient-flag { display: inline-block; margin-right: 3px; padding: 0 4px; border-radius: 3px; background: #6b4a10; color: #ffd27a; font-weight: 600; }
+.gradient-editor { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; padding: 8px 10px; overflow-y: auto; }
+.gradient-editor-library { display: flex; flex-direction: column; gap: 6px; height: 210px; flex: none; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.gradient-library-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.gradient-message { padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--panel-raised); display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.gradient-message-text { white-space: pre-line; }
+.gradient-target { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gradient-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.field-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-muted); }
+.gradient-solid, .gradient-noise { display: flex; flex-direction: column; gap: 8px; }
+.gradient-stopbar { display: flex; flex-direction: column; padding: 0 9px; user-select: none; }
+.gradient-track { position: relative; height: 18px; cursor: copy; }
+.gradient-bar-wrap { border: 1px solid var(--border-strong); border-radius: 3px; }
+.gradient-stop { position: absolute; width: 13px; height: 16px; margin-left: -6.5px; padding: 0; border: 1px solid #0c0c0e; background: var(--stop); cursor: grab; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+.gradient-stop.colour { top: 2px; border-radius: 1px 1px 3px 3px; clip-path: polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%); }
+.gradient-stop.opacity { bottom: 2px; border-radius: 3px 3px 1px 1px; clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%); background: linear-gradient(var(--stop), var(--stop)), repeating-conic-gradient(#999 0 25%, #666 0 50%) 0 0 / 6px 6px; }
+.gradient-stop.on { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
+.gradient-mid { position: absolute; width: 9px; height: 9px; margin-left: -4.5px; padding: 0; border: 1px solid #ddd; background: #2a2c31; transform: rotate(45deg); cursor: ew-resize; z-index: 1; }
+.gradient-mid.colour { top: 4px; }
+.gradient-mid.opacity { bottom: 4px; }
+.gradient-stop-panel { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); }
+.gradient-stop-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.gradient-colour { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gradient-colour input[type='color'] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; background: none; }
+.gradient-colour-group { display: inline-flex; gap: 6px; }
+.gradient-hex { width: 76px; }
+.gradient-notes { padding: 6px 8px; border-radius: var(--radius); background: rgba(232, 154, 44, 0.12); color: #ffd27a; }
+.gradient-channel { width: 14px; font-weight: 600; }

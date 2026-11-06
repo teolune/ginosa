@@ -14,7 +14,7 @@ export interface SnapshotOptions {
   height: number
 }
 
-export const SNAPSHOT_SCENARIOS = ['start', 'workspace', 'windows', 'settings', 'docked', 'recovery', 'recovered', 'media', 'source', 'cache', 'waveform', 'icons', 'timeline', 'drag', 'composite', 'playback', 'sync', 'speed', 'speeddialog', 'sourceplay', 'footage', 'footage2', 'exportsync', 'exportcolour', 'exportspeed', 'exporteffects', 'exportui', 'effectsgpu', 'effectsui', 'colour', 'logview', 'exportkeyframes', 'exportrampsync', 'keyframeswarning', 'keyframesui', 'keyframesgraph', 'analysis', 'modulation', 'modulationui', 'masksgpu', 'exportmasks', 'masksui', 'feedbackgpu', 'feedback', 'cacheui', 'followui', 'colourlightgpu', 'exportcolourlight', 'colourlightui', 'graingpu', 'exportgrain', 'grainui', 'posterize', 'rackui'] as const
+export const SNAPSHOT_SCENARIOS = ['start', 'workspace', 'windows', 'settings', 'docked', 'recovery', 'recovered', 'media', 'source', 'cache', 'waveform', 'icons', 'timeline', 'drag', 'composite', 'playback', 'sync', 'speed', 'speeddialog', 'sourceplay', 'footage', 'footage2', 'exportsync', 'exportcolour', 'exportspeed', 'exporteffects', 'exportui', 'effectsgpu', 'effectsui', 'colour', 'logview', 'exportkeyframes', 'exportrampsync', 'keyframeswarning', 'keyframesui', 'keyframesgraph', 'analysis', 'modulation', 'modulationui', 'masksgpu', 'exportmasks', 'masksui', 'feedbackgpu', 'feedback', 'cacheui', 'followui', 'colourlightgpu', 'exportcolourlight', 'colourlightui', 'graingpu', 'exportgrain', 'grainui', 'posterize', 'rackui', 'gradientmapgpu', 'gradientui', 'gradientfidelity'] as const
 
 function flag(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name)

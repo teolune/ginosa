@@ -5,6 +5,7 @@ import { ChannelRackWindow } from '../windows/ChannelRackWindow'
 import { DiagnosticsWindow } from '../windows/DiagnosticsWindow'
 import { EffectControlsWindow } from '../windows/EffectControlsWindow'
 import { ExportWindow } from '../windows/ExportWindow'
+import { GradientEditorWindow } from '../windows/GradientEditorWindow'
 import { EffectsLibraryWindow } from '../windows/EffectsLibraryWindow'
 import { HistoryWindow } from '../windows/HistoryWindow'
 import { KeyframeEditorWindow } from '../windows/KeyframeEditorWindow'
@@ -43,6 +44,8 @@ export function renderWindow(id: string): ReactNode {
       return <CacheManagerWindow />
     case 'channel-rack':
       return <ChannelRackWindow />
+    case 'gradient-editor':
+      return <GradientEditorWindow />
     case 'playback-test':
       return <PlaybackTestWindow />
     default:

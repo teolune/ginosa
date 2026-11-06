@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M12 · Posterize Time and the Channel Rack.** Beat-locked Posterize Time, and an FL Studio-style Channel Rack whose rows fire effects, auto-filled from the song and editable by hand. Built on M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M13 (Gradient Map).
+**M13 · Gradient Map.** Photoshop's Gradient Map, with Photoshop gradient libraries (.grd) in and out, a Gradient Editor and a gradient library. Built on M12's Posterize Time and Channel Rack, M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: Look LUTs, then M14 (Datamosh A).
 
 ## Setup (once)
 

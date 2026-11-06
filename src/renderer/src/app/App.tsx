@@ -18,6 +18,9 @@ import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
+import { runGradientMapGpuTest } from '../playback/gradient-map-gpu-test'
+import { buildGradientUi } from '../gradients/gradient-demo'
+import { runGradientFidelity } from '../gradients/fidelity-test'
 import { runGrainGpuTest } from '../playback/grain-gpu-test'
 import { grainExportTest } from '../playback/grain-export-test'
 import { posterizeTest } from '../playback/posterize-test'
@@ -355,6 +358,19 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(800)
       break
     }
+    case 'gradientfidelity': {
+      // M13's done-when: your Photoshop renders against ginosa's Gradient Map.
+      await window.ginosa.snapshot.report(await runGradientFidelity().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'gradientui': {
+      // M13: Gradient Map, Effect Controls and the Gradient Editor after importing a .grd.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await buildGradientUi().catch((error: Error) => ({ error: error.message, stack: error.stack })))
+      await wait(2500)
+      break
+    }
     case 'colourlightui': {
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
       await wait(2500)
@@ -396,6 +412,11 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'graingpu': {
       // M11: Grain on the GPU against its CPU maths, pixel by pixel.
       await window.ginosa.snapshot.report(await runGrainGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'gradientmapgpu': {
+      // M13: Gradient Map on the GPU against its CPU maths.
+      await window.ginosa.snapshot.report(await runGradientMapGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'colourlightgpu': {

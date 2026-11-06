@@ -124,6 +124,16 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    id: 'gradient-editor',
+    title: 'Gradient Editor',
+    shortcut: 'Alt+Shift+5',
+    defaultRect: { x: 300, y: 80, w: 640, h: 640 },
+    minSize: { w: 480, h: 420 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

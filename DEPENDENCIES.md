@@ -37,3 +37,16 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | Asset | Use | Terms |
 | --- | --- | --- |
 | SF Symbols | Interface icons, drawn by macOS at runtime through Electron's `nativeImage.createFromNamedImage`; nothing is bundled or copied into the repo | Apple's SF Symbols terms: only in apps for Apple platforms, and never in app icons, logos or other trademark use. Fine for a personal Mac-only app; the app icon must be our own |
+
+## Test data and references (M13)
+
+| What | Use | Licence |
+| --- | --- | --- |
+| `kiwi.grd`, `nine.grd` from the [`gradient`](https://github.com/zeevallin/gradient) Ruby gem (Copyright 2015 Philip Vieira) | Test fixtures in `src/engine/gradients/fixtures`, with the licence notice | MIT |
+| [grdkit](https://pub.dev/packages/grdkit) and [psd-grd](https://github.com/hi104/psd-grd) | Cross-checked against while writing ginosa's own .grd reader; no code copied | MIT |
+| Michel Mariani's [Photoshop file formats](https://tonton-pixel.codeberg.page/photoshop-file-formats/gradients-file-format.html) | The .grd and descriptor formats | Documentation |
+| Ilia Malanin, "Photoshop Algorithms Arcana" ([pastila.org](https://pastila.org/essays/classic-gradient-interpolation/)) | How Classic gradients are drawn, reimplemented from the description | Essay |
+| photocraft's published measurements (GitHub, storytold/photocraft) | Gradient Map's brightness weights and where a midpoint is stored | Facts only |
+
+No new npm packages.
+

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
@@ -283,6 +283,49 @@ function registerIpc(): void {
   const presets = new JsonFile(join(app.getPath('userData'), 'effect-presets.json'))
   ipcMain.handle('presets:read', () => presets.read())
   ipcMain.handle('presets:write', (_event, data: unknown) => presets.write(data))
+
+  // The gradient library (M13), like presets; .grd files are only read when imported.
+  const gradients = new JsonFile(join(app.getPath('userData'), 'gradient-library.json'))
+  ipcMain.handle('gradients:read', () => gradients.read())
+  ipcMain.handle('gradients:write', (_event, data: unknown) => gradients.write(data))
+  const MAX_GRD_BYTES = 256 * 1024 * 1024
+  const readGrdFile = async (path: string) => {
+    if ((await stat(path)).size > MAX_GRD_BYTES) throw new Error(`${basename(path)} is larger than any gradient library (256 MB)`)
+    return { name: basename(path), bytes: new Uint8Array(await readFile(path)) }
+  }
+  ipcMain.handle('gradients:chooseImport', async (event) => {
+    const options: Electron.OpenDialogOptions = { title: 'Import Gradients', buttonLabel: 'Import', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Photoshop Gradients', extensions: ['grd'] }] }
+    const window = ownerOf(event.sender)
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? [] : Promise.all(result.filePaths.map(readGrdFile))
+  })
+  ipcMain.handle('gradients:export', async (event, name: string, bytes: Uint8Array) => {
+    const options: Electron.SaveDialogOptions = { title: 'Export Gradients', buttonLabel: 'Export', defaultPath: `${basename(name).replace(/[/:]/g, '-') || 'Gradients'}.grd`, filters: [{ name: 'Photoshop Gradients', extensions: ['grd'] }] }
+    const window = ownerOf(event.sender)
+    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, bytes)
+    return result.filePath
+  })
+
+  // Your gradients for the fidelity check: ../Reference Materials/Gradients (never copied or changed).
+  ipcMain.handle('snapshot:referenceGradients', async () => {
+    const empty = { libraries: [], renders: [] }
+    if (!snapshot) return empty
+    const dir = join(process.cwd(), '..', 'Reference Materials', 'Gradients')
+    const { readdir } = await import('node:fs/promises')
+    const walk = async (folder: string): Promise<string[]> => {
+      const entries = await readdir(folder, { withFileTypes: true }).catch(() => [])
+      const files = await Promise.all(entries.map((e) => (e.isDirectory() ? walk(join(folder, e.name)) : Promise.resolve([join(folder, e.name)]))))
+      return files.flat()
+    }
+    const files = (await walk(dir)).sort()
+    const read = async (path: string) => ({ name: path.slice(dir.length + 1), bytes: new Uint8Array(await readFile(path)) })
+    return {
+      libraries: await Promise.all(files.filter((f) => /\.grd$/i.test(f)).map(read)),
+      renders: await Promise.all(files.filter((f) => /\.png$/i.test(f)).map(read))
+    }
+  })
 
   ipcMain.handle('snapshot:analyseExport', async (_event, path: string, xs: number[]) => (snapshot ? analyseExport(path, xs) : null))
 

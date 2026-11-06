@@ -81,6 +81,12 @@ const bridge: GinosaBridge = {
     read: () => ipcRenderer.invoke('presets:read'),
     write: (data) => ipcRenderer.invoke('presets:write', data)
   },
+  gradients: {
+    read: () => ipcRenderer.invoke('gradients:read'),
+    write: (data) => ipcRenderer.invoke('gradients:write', data),
+    chooseImport: () => ipcRenderer.invoke('gradients:chooseImport'),
+    export: (name, bytes) => ipcRenderer.invoke('gradients:export', name, bytes)
+  },
   renders: {
     list: (projectId) => ipcRenderer.invoke('renders:list', projectId),
     read: (projectId, key) => ipcRenderer.invoke('renders:read', projectId, key),
@@ -117,6 +123,7 @@ const bridge: GinosaBridge = {
     simulateCrash: () => ipcRenderer.invoke('snapshot:simulateCrash'),
     testMedia: () => ipcRenderer.invoke('snapshot:testMedia'),
     referenceClips: () => ipcRenderer.invoke('snapshot:referenceClips'),
+    referenceGradients: () => ipcRenderer.invoke('snapshot:referenceGradients'),
     analyseExport: (path, xs) => ipcRenderer.invoke('snapshot:analyseExport', path, xs),
     exportPath: (name) => ipcRenderer.invoke('snapshot:exportPath', name),
     ready: () => ipcRenderer.invoke('snapshot:ready'),

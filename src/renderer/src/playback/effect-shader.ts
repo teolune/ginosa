@@ -6,6 +6,8 @@ import blendSource from './blend.wgsl?raw'
 import maskSource from './mask.wgsl?raw'
 import type { Affine } from '@engine/timeline/motion'
 import { CURVE_SAMPLES, curveTable } from '@engine/effects/curves'
+import { GRADIENT_SAMPLES, gradientTable } from '@engine/gradients/evaluate'
+import { GRADIENT_METHODS, type GradientMethod } from '@engine/gradients/gradient'
 
 /**
  * Turns an effect's WGSL into a complete render pass: its parameters as a uniform
@@ -50,12 +52,34 @@ function fields(manifest: EffectManifest): Field[] {
   return out
 }
 
-/** The effect's tables (M10): each curve parameter baked to CURVE_SAMPLES values, in manifest order. Null when it has none. */
-export function packData(manifest: EffectManifest, params: Record<string, ParamValue>): Float32Array | null {
+/** Where each table starts in the effect's data: curves first (CURVE_SAMPLES values each), then gradients (GRADIENT_SAMPLES × RGBA each). */
+function dataLayout(manifest: EffectManifest) {
   const curves = manifest.params.filter((p) => p.type === 'curve')
-  if (curves.length === 0) return null
-  const out = new Float32Array(curves.length * CURVE_SAMPLES)
+  const gradients = manifest.params.filter((p) => p.type === 'gradient')
+  const gradientBase = curves.length * CURVE_SAMPLES
+  return { curves, gradients, gradientBase, length: gradientBase + gradients.length * GRADIENT_SAMPLES * 4 }
+}
+
+/** How a gradient parameter is drawn: its method parameter's value, Classic without one. */
+function methodOf(manifest: EffectManifest, methodParam: string | undefined, params: Record<string, ParamValue>): GradientMethod {
+  const spec = manifest.params.find((p) => p.id === methodParam)
+  const value = params[methodParam ?? ''] ?? (spec?.type === 'choice' ? spec.default : 'classic')
+  return GRADIENT_METHODS.some((m) => m.id === value) ? (value as GradientMethod) : 'classic'
+}
+
+/**
+ * The effect's tables: each curve parameter baked to CURVE_SAMPLES values (M10), then each
+ * gradient to GRADIENT_SAMPLES RGBA entries (M13, cached by value), in manifest order. Null when it has none.
+ */
+export function packData(manifest: EffectManifest, params: Record<string, ParamValue>): Float32Array | null {
+  const { curves, gradients, gradientBase, length } = dataLayout(manifest)
+  if (length === 0) return null
+  const out = new Float32Array(length)
   curves.forEach((spec, i) => out.set(curveTable(String(params[spec.id] ?? spec.default)), i * CURVE_SAMPLES))
+  gradients.forEach((spec, i) => {
+    if (spec.type !== 'gradient') return
+    out.set(gradientTable(String(params[spec.id] ?? spec.default), methodOf(manifest, spec.methodParam, params)), gradientBase + i * GRADIENT_SAMPLES * 4)
+  })
   return out
 }
 
@@ -112,10 +136,11 @@ function prelude(manifest: EffectManifest): string {
   const params = fields(manifest)
     .map((f) => `  ${f.name}: f32,`)
     .join('\n')
-  const curves = manifest.params
-    .filter((p) => p.type === 'curve')
-    .map((p, i) => `const CURVE_${p.id}: u32 = ${i}u;`)
-    .join('\n')
+  const layout = dataLayout(manifest)
+  const curves = [
+    ...layout.curves.map((p, i) => `const CURVE_${p.id}: u32 = ${i}u;`),
+    ...layout.gradients.map((p, i) => `const GRADIENT_${p.id}: u32 = ${layout.gradientBase + i * GRADIENT_SAMPLES * 4}u;`)
+  ].join('\n')
   return `
 struct EffectFrame {
   size: vec2f,
@@ -143,7 +168,7 @@ ${params}
 @group(0) @binding(4) var<storage, read> maskData: array<vec4f>;
 // Stateful effects: their own output on the frame before (same size as the input).
 @group(0) @binding(5) var previousTex: texture_2d<f32>;
-// Tables (curves, baked to ${CURVE_SAMPLES} samples each) and the earlier pass's image (M10).
+// Tables (curves, baked to ${CURVE_SAMPLES} samples each; gradients, ${GRADIENT_SAMPLES} RGBA entries each) and the earlier pass's image (M10).
 @group(0) @binding(6) var<storage, read> effectData: array<f32>;
 @group(0) @binding(7) var prepassTex: texture_2d<f32>;
 ${curves}
@@ -214,6 +239,17 @@ fn curveAt(index: u32, x: f32) -> f32 {
   let t = f - f32(i);
   let base = index * ${CURVE_SAMPLES}u + i;
   return mix(effectData[base], effectData[base + 1u], t);
+}
+
+// A gradient parameter at x (0-1), RGBA in display values: its table, read linearly between entries.
+fn gradientAt(base: u32, x: f32) -> vec4f {
+  let f = clamp(x, 0.0, 1.0) * f32(${GRADIENT_SAMPLES - 1});
+  let i = min(u32(floor(f)), ${GRADIENT_SAMPLES - 2}u);
+  let t = f - f32(i);
+  let a = base + i * 4u;
+  let lo = vec4f(effectData[a], effectData[a + 1u], effectData[a + 2u], effectData[a + 3u]);
+  let hi = vec4f(effectData[a + 4u], effectData[a + 5u], effectData[a + 6u], effectData[a + 7u]);
+  return mix(lo, hi, t);
 }
 
 // The image this pass writes (the input's size in the main pass), and the earlier pass's.

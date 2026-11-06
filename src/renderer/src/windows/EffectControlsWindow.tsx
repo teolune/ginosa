@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
-import type { CurveParam, EffectInstance, EffectManifest, ParamSpec, ParamValue } from '@engine/effects/types'
+import type { CurveParam, EffectInstance, EffectManifest, GradientParam, ParamSpec, ParamValue } from '@engine/effects/types'
+import { BLACK_WHITE, GRADIENT_METHODS, parseGradient, type GradientMethod } from '@engine/gradients/gradient'
+import { gradientController } from '../gradients/gradient-controller'
+import { GradientPopover, gradientCss } from '../gradients/GradientViews'
 import { IDENTITY_CURVE, parseCurve } from '@engine/effects/curves'
 import { CHANNEL_COLOURS, CurveEditor } from './CurveEditor'
 import { StepsKnob } from './StepsKnob'
@@ -431,6 +434,8 @@ function ParamControl({ spec, value, onChange, disabled, readout }: { spec: Para
         </>
       )
     }
+    case 'gradient':
+      return null
     case 'curve': {
       const points = parseCurve(String(value ?? spec.default))
       const straight = String(value ?? spec.default) === IDENTITY_CURVE
@@ -448,6 +453,27 @@ function ParamControl({ spec, value, onChange, disabled, readout }: { spec: Para
   }
 }
 
+/**
+ * A gradient parameter (M13): its swatch (click to open the Gradient Editor on it) and ▾ to
+ * pick one from the library.
+ */
+function GradientControl({ clip, effect, spec, value, disabled }: { clip: Clip; effect: EffectInstance; spec: GradientParam; value: ParamValue | undefined; disabled: boolean }) {
+  const [picker, setPicker] = useState<{ x: number; y: number } | null>(null)
+  const gradient = parseGradient(String(value ?? spec.default)) ?? BLACK_WHITE
+  const methodValue = spec.methodParam ? effect.params[spec.methodParam] : 'classic'
+  const method = GRADIENT_METHODS.some((m) => m.id === methodValue) ? (methodValue as GradientMethod) : 'classic'
+  const ref = { clipId: clip.id, effectId: effect.id, param: spec.id }
+  return (
+    <span className="gradient-control">
+      <button className="gradient-control-swatch" style={{ background: gradientCss(gradient, method) }} title={`${gradient.name}: click to edit in the Gradient Editor`} disabled={disabled} onClick={() => gradientController.edit(ref)} />
+      <button className="button compact" disabled={disabled} title="Pick a gradient from the library" aria-label={`Pick ${spec.label} from the library`} onClick={(event) => setPicker({ x: event.clientX - 200, y: event.clientY + 12 })}>
+        ▾
+      </button>
+      {picker && <GradientPopover x={picker.x} y={picker.y} onClose={() => setPicker(null)} onPick={(item) => gradientController.use(item, ref)} />}
+    </span>
+  )
+}
+
 /** One parameter's row: its control, and for a curve the editor under it. */
 function ParamRow({ clip, effect, spec, locked }: { clip: Clip; effect: EffectInstance; spec: ParamSpec; locked: boolean }) {
   return (
@@ -463,6 +489,7 @@ function ParamRow({ clip, effect, spec, locked }: { clip: Clip; effect: EffectIn
       {(value, onChange) => {
         const manifest = effectById(effect.effectId)
         const readout = manifest?.readout?.(spec.id, { ...effect.params, [spec.id]: value }, { beatGrid: projectController.project?.sequence.beatGrid ?? null }) ?? null
+        if (spec.type === 'gradient') return <GradientControl clip={clip} effect={effect} spec={spec} value={value} disabled={locked} />
         return <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} readout={readout} />
       }}
     </PropertyRow>
