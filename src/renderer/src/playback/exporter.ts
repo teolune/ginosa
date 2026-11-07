@@ -1,4 +1,5 @@
 import { FORMATS, type ExportSettings } from '@engine/export/export-settings'
+import { lookLutFiles } from '@engine/colour/look-lut'
 import type { MediaItem } from '@engine/project/media'
 import { frameRateOf, type Project } from '@engine/project/model'
 import { ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
@@ -83,6 +84,7 @@ class Exporter extends Observable {
       const layers = new LayerBuilder(compositor, undefined, undefined, temporal)
       renderer = new ExactRenderer(compositor, layers, path)
       for (const item of items) if (item.colour.lut) await layers.loadLut(item.colour.lut.file)
+      for (const file of lookLutFiles(sequence)) await layers.loadLookLut(file)
 
       progress('sound')
       const sampleRate = sequence.settings.sampleRate

@@ -32,6 +32,8 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
       return typeof value === 'string' && parseCurve(value) ? value : fallback
     case 'gradient':
       return typeof value === 'string' && parseGradient(value) ? value : fallback
+    case 'lut':
+      return typeof value === 'string' && isLutPath(value) ? value : fallback
     case 'steps':
       return typeof value === 'number' && Number.isFinite(value) ? Math.min(spec.steps.length - 1, Math.max(0, Math.round(value))) : fallback
   }
@@ -39,7 +41,7 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
 
 /** Parameters that hold between keyframes rather than move smoothly. */
 export function isStepped(spec: ParamSpec): boolean {
-  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps' || spec.type === 'gradient'
+  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps' || spec.type === 'gradient' || spec.type === 'lut'
 }
 
 export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unknown>, size: ImageSize): Record<string, ParamValue> {
@@ -114,4 +116,9 @@ export function cloneEffect(effect: EffectInstance, id = effect.id): EffectInsta
     modulation: cloneModulationMap(effect.modulation ?? {}),
     mask: effect.mask ? { ...effect.mask } : null
   }
+}
+
+/** A LUT parameter's value: '' (none) or a .cube inside the project's luts folder. */
+export function isLutPath(value: string): boolean {
+  return value === '' || (/^luts\/[^/\\]+\.cube$/i.test(value) && !value.includes('..'))
 }

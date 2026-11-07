@@ -171,6 +171,8 @@ ${params}
 // Tables (curves, baked to ${CURVE_SAMPLES} samples each; gradients, ${GRADIENT_SAMPLES} RGBA entries each) and the earlier pass's image (M10).
 @group(0) @binding(6) var<storage, read> effectData: array<f32>;
 @group(0) @binding(7) var prepassTex: texture_2d<f32>;
+// An effect's LUT (decision 77): a 3D texture over 0-1 (a 1 x 1 x 1 stand-in when there's none).
+@group(0) @binding(8) var effectLut: texture_3d<f32>;
 ${curves}
 
 const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
@@ -250,6 +252,15 @@ fn gradientAt(base: u32, x: f32) -> vec4f {
   let lo = vec4f(effectData[a], effectData[a + 1u], effectData[a + 2u], effectData[a + 3u]);
   let hi = vec4f(effectData[a + 4u], effectData[a + 5u], effectData[a + 6u], effectData[a + 7u]);
   return mix(lo, hi, t);
+}
+
+fn hasEffectLut() -> bool { return textureDimensions(effectLut).x >= 2u; }
+
+// The LUT at a colour (0-1 on each axis), trilinear between its lattice points.
+fn effectLutAt(c: vec3f) -> vec3f {
+  let n = f32(textureDimensions(effectLut).x);
+  let t = clamp(c, vec3f(0.0), vec3f(1.0)) * (n - 1.0) / n + 0.5 / n;
+  return textureSampleLevel(effectLut, linearSampler, t, 0.0).rgb;
 }
 
 // The image this pass writes (the input's size in the main pass), and the earlier pass's.

@@ -1,5 +1,6 @@
 import { APPLE_WIDE_GAMUT_TO_REC709, BT2020_TO_REC709 } from '@engine/colour/colour'
 import { parseCube, sampleCube, type CubeLut } from '@engine/colour/cube'
+import { unitCube } from '@engine/colour/look-lut'
 import { effectiveColour, type MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
 import { defaultMotion, inverseMotion, motionMatrix, sourceSize, type Affine } from '@engine/timeline/motion'
@@ -40,7 +41,11 @@ export class LayerBuilder {
       if (!manifest || manifest.holdsTime) return []
       const t = layer.temporal
       const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
-      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.held && index < layer.held.effects ? layer.held.clock : layer.clock }]
+      // A LUT parameter (decision 77): its cube, once loaded (until then the effect passes the picture through).
+      const lutSpec = manifest.params.find((p) => p.type === 'lut')
+      const lutFile = lutSpec ? String(effect.params[lutSpec.id] ?? '') : ''
+      const lut = lutFile ? this.lookLut(lutFile) : null
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.held && index < layer.held.effects ? layer.held.clock : layer.clock, lut }]
     })
   }
 
@@ -149,8 +154,36 @@ export class LayerBuilder {
     }
   }
 
-  private key(file: string): string {
-    return `${projectController.path ?? ''}::${file}`
+  /** A look LUT (an effect's LUT) if it's loaded; starts loading it otherwise. */
+  lookLut(file: string): GpuLut | null {
+    const entry = this.luts.get(this.key(file, 'look'))
+    if (entry && entry !== 'loading' && entry !== 'failed') return entry
+    if (!entry) void this.loadLookLut(file).then(this.onLoaded, () => undefined)
+    return null
+  }
+
+  /** Loads a look LUT as a cube over 0–1 (1D LUTs and other domains resampled), for export and rendering to wait on. */
+  async loadLookLut(file: string): Promise<GpuLut> {
+    const projectPath = projectController.path
+    if (!projectPath) throw new Error('Save the project first: LUTs live in its folder')
+    const key = this.key(file, 'look')
+    const entry = this.luts.get(key)
+    if (entry && entry !== 'loading' && entry !== 'failed') return entry
+    this.luts.set(key, 'loading')
+    try {
+      const cube = unitCube(parseCube(await window.ginosa.media.readLut(projectPath, file)))
+      const lut = this.compositor.lutTexture(cube.size, cube.data, [0, 0, 0], [1, 1, 1])
+      this.luts.set(key, lut)
+      return lut
+    } catch (error) {
+      this.luts.set(key, 'failed')
+      this.onError(`Look LUT ${file}: ${(error as Error).message}`)
+      throw error
+    }
+  }
+
+  private key(file: string, kind: 'input' | 'look' = 'input'): string {
+    return `${kind}:${projectController.path ?? ''}::${file}`
   }
 }
 

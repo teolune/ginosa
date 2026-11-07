@@ -1,5 +1,16 @@
 # Changelog
 
+## Look LUTs (7 Nov 2026)
+
+- **Look LUT** (Effects › Colour & Light): a .cube look (3D or 1D) on any clip or adjustment layer, with **Strength** 0–200%, as Lumetri's Creative Look. Pick from the project's LUTs or Choose .cube… (copied into the project's `luts` folder).
+- Export and render-to-cache wait for every LUT before the first frame.
+- **Fixed:** LUT colours just under 0.5, 0.125 or 2 came out halved on the GPU (dark specks), since M4. That includes Input LUTs for log footage.
+- .cube files: 1D LUTs up to 65,536 entries (was 256), as Adobe's spec allows.
+- **Tests:**
+  - the GPU against the CPU maths with made-up LUTs (3D, 1D, another domain) and all 40 of your Look LUTs (worst 0.37 of the allowance)
+  - export with a look from the very first frame
+  - 4 new unit tests (368 in all)
+
 ## M13 · Gradient Map
 
 - **Gradient Map** (Effects › Colour & Light), as Photoshop's: the picture's tones mapped to a gradient's colours, using Photoshop's brightness weights.

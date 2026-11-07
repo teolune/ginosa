@@ -5,6 +5,7 @@ import type { Ticks } from '../time'
 import { CommandError } from '../project/commands'
 import { parseCurve } from '../effects/curves'
 import { parseGradient } from '../gradients/gradient'
+import { isLutPath } from '../effects/params'
 import { components, evaluate, putKeyframe, type Keyframe } from './keyframes'
 import { applyLinks, hasLinks } from '../modulation/apply'
 import type { ModLink, ModulationContext, ModulationMap } from '../modulation/types'
@@ -84,6 +85,7 @@ function paramProperty(spec: ParamSpec): PropertySpec {
     case 'toggle':
     case 'curve':
     case 'gradient':
+    case 'lut':
       return { label: spec.label, kind: 'stepped', param: spec }
     case 'steps':
       return { label: spec.label, kind: 'number', min: 0, max: spec.steps.length - 1, decimals: 0, hold: true, param: spec }
@@ -157,6 +159,7 @@ export function clampValue(spec: PropertySpec, value: ParamValue): ParamValue | 
     if (p?.type === 'toggle') return typeof value === 'boolean' ? value : null
     if (p?.type === 'curve') return typeof value === 'string' && parseCurve(value) ? value : null
     if (p?.type === 'gradient') return typeof value === 'string' && parseGradient(value) ? value : null
+    if (p?.type === 'lut') return typeof value === 'string' && isLutPath(value) ? value : null
     return null
   }
   const c = components(value)
@@ -282,7 +285,7 @@ export function resolveClip(clip: Clip, time: Ticks, modulation: ModulationConte
         const spec = specs?.find((p) => p.id === param)
         const l = links(effect.modulation, param)
         const parts = components(value)
-        if (l && parts && spec && spec.type !== 'choice' && spec.type !== 'toggle' && spec.type !== 'curve' && spec.type !== 'gradient') {
+        if (l && parts && spec && spec.type !== 'choice' && spec.type !== 'toggle' && spec.type !== 'curve' && spec.type !== 'gradient' && spec.type !== 'lut') {
           const out = applyLinks(parts, l, modulation!, time)
           value = Array.isArray(value) ? [out[0]!, out[1]!] : out[0]!
         }

@@ -1,4 +1,5 @@
 import { hashText } from '@engine/audio/sources'
+import { lookLutFiles } from '@engine/colour/look-lut'
 import { FrameKeyJob } from '@engine/render/frame-keys'
 import type { MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
@@ -239,6 +240,7 @@ class RenderCacheController extends Observable {
     let lastNotify = 0
     try {
       for (const item of media) if (item.colour.lut && used.has(item.id)) await layers.loadLut(item.colour.lut.file)
+      for (const file of lookLutFiles(sequence)) await layers.loadLookLut(file)
       let previous = -2
       for (const j of todo) {
         if (this.cancelRequested) break

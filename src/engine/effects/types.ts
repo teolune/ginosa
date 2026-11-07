@@ -102,7 +102,17 @@ export interface GradientParam extends ParamBase {
   methodParam?: string
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam
+/**
+ * A LUT file (decision 77): a path inside the project folder (`luts/<name>.cube`), or '' for
+ * none. Shown as a menu of the project's LUTs; holds between keyframes. The shader reads it as
+ * a 3D texture over 0–1: `effectLutAt(rgb)`, with `hasEffectLut()`. One per effect.
+ */
+export interface LutParam extends ParamBase {
+  type: 'lut'
+  default: ''
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam | LutParam
 
 export interface EffectManifest {
   id: string

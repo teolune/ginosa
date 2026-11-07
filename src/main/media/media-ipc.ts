@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { copyFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { PROJECT_EXTENSION } from '../../shared/ipc'
 import { parseCube } from '../../engine/colour/cube'
@@ -112,8 +112,9 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     return dir
   }
 
-  ipcMain.handle('media:chooseLut', async (event) => {
-    const options: Electron.OpenDialogOptions = { title: 'Choose an input LUT', buttonLabel: 'Use LUT', properties: ['openFile'], filters: [{ name: 'Cube LUT', extensions: ['cube'] }] }
+  ipcMain.handle('media:chooseLut', async (event, purpose?: 'input' | 'look') => {
+    const title = purpose === 'look' ? 'Choose a look LUT (it will be copied into the project)' : 'Choose an input LUT'
+    const options: Electron.OpenDialogOptions = { title, buttonLabel: 'Use LUT', properties: ['openFile'], filters: [{ name: 'Cube LUT', extensions: ['cube'] }] }
     const window = owner(event.sender)
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
     return result.canceled ? null : (result.filePaths[0] ?? null)
@@ -128,6 +129,15 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     for (let n = 2; await stat(join(dir, file)).then(() => true, () => false); n++) file = join('luts', `${name} ${n}.cube`)
     await copyFile(source, join(dir, file))
     return { name, file }
+  })
+
+  ipcMain.handle('media:listLuts', async (_event, projectPath: string) => {
+    const dir = await projectDir(projectPath)
+    const names = await readdir(join(dir, 'luts')).catch(() => [] as string[])
+    return names
+      .filter((n) => /\.cube$/i.test(n) && !n.startsWith('.'))
+      .sort((a, b) => a.localeCompare(b))
+      .map((n) => ({ name: n.replace(/\.cube$/i, ''), file: `luts/${n}` }))
   })
 
   ipcMain.handle('media:readLut', async (_event, projectPath: string, file: string) => {

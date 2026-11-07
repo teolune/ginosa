@@ -19,6 +19,8 @@ import { runEffectGpuTest } from '../playback/effect-gpu-test'
 import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
 import { runGradientMapGpuTest } from '../playback/gradient-map-gpu-test'
+import { runLookLutGpuTest } from '../playback/look-lut-gpu-test'
+import { lookLutExportTest } from '../playback/look-lut-export-test'
 import { buildGradientUi } from '../gradients/gradient-demo'
 import { runGradientFidelity } from '../gradients/fidelity-test'
 import { runGrainGpuTest } from '../playback/grain-gpu-test'
@@ -412,6 +414,22 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'graingpu': {
       // M11: Grain on the GPU against its CPU maths, pixel by pixel.
       await window.ginosa.snapshot.report(await runGrainGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'exportlook': {
+      // Look LUTs end to end: imported into the project, preview and export from the first frame.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /patches_rec709\.mov$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await lookLutExportTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      workspaceController.open('effect-controls')
+      timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
+      timelineController.zoomToFit()
+      await wait(1200)
+      break
+    }
+    case 'lookgpu': {
+      // Look LUTs (decision 77) on the GPU against the CPU maths, with your LUTs too.
+      await window.ginosa.snapshot.report(await runLookLutGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'gradientmapgpu': {

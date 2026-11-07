@@ -228,7 +228,10 @@ export interface GinosaBridge {
     checkFiles(items: Array<{ id: string; path: string; fingerprint: MediaFingerprint }>): Promise<Array<{ id: string; status: FileStatus }>>
     chooseRelink(fileName: string): Promise<string | null>
     /** Input LUTs (.cube): pick one, copy it into the project folder, read it back. */
-    chooseLut(): Promise<string | null>
+    /** Asks for a .cube: for a file's input conversion, or a Look LUT effect. */
+    chooseLut(purpose?: 'input' | 'look'): Promise<string | null>
+    /** The .cube files in the project's luts folder. */
+    listLuts(projectPath: string): Promise<Array<{ name: string; file: string }>>
     importLut(projectPath: string, source: string): Promise<{ name: string; file: string }>
     readLut(projectPath: string, file: string): Promise<string>
     searchMoved(folder: string, wanted: Array<{ id: string; fileName: string; size: number }>): Promise<Array<{ id: string; path: string }>>
@@ -297,6 +300,10 @@ export interface GinosaBridge {
     /** Files in the repo's media/test folder (snapshot runs only). */
     testMedia(): Promise<string[]>
     referenceClips(): Promise<string[]>
+    /** The .cube files in ../Reference Materials/Look LUTs (read only), for the Look LUT GPU test. */
+    referenceLooks(): Promise<Array<{ name: string; text: string }>>
+    /** The repo's own test look LUT (src/engine/colour/fixtures/test-look.cube). */
+    testLook(): Promise<string>
     /** Your .grd files and Photoshop renders in ../Reference Materials/Gradients (read only), for the fidelity check. */
     referenceGradients(): Promise<{ libraries: Array<{ name: string; bytes: Uint8Array }>; renders: Array<{ name: string; bytes: Uint8Array }> }>
     analyseExport(path: string, xs: number[]): Promise<ExportAnalysis | null>

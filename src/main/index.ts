@@ -308,6 +308,17 @@ function registerIpc(): void {
     return result.filePath
   })
 
+  // Your look LUTs for the Look LUT GPU test: ../Reference Materials/Look LUTs (never copied or changed).
+  ipcMain.handle('snapshot:referenceLooks', async () => {
+    if (!snapshot) return []
+    const dir = join(process.cwd(), '..', 'Reference Materials', 'Look LUTs')
+    const { readdir } = await import('node:fs/promises')
+    const names = (await readdir(dir).catch(() => [] as string[])).filter((f) => /\.cube$/i.test(f)).sort()
+    return Promise.all(names.map(async (name) => ({ name, text: await readFile(join(dir, name), 'utf8') })))
+  })
+
+  ipcMain.handle('snapshot:testLook', () => (snapshot ? join(process.cwd(), 'src', 'engine', 'colour', 'fixtures', 'test-look.cube') : ''))
+
   // Your gradients for the fidelity check: ../Reference Materials/Gradients (never copied or changed).
   ipcMain.handle('snapshot:referenceGradients', async () => {
     const empty = { libraries: [], renders: [] }

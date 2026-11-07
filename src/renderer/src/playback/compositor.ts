@@ -1,4 +1,5 @@
 import { BLEND_MODES, type BlendMode } from '@engine/project/model'
+import { toHalf } from '@engine/colour/half'
 import type { Affine } from '@engine/timeline/motion'
 import type { Matrix3 } from '@engine/colour/colour'
 import type { EffectClock, EffectManifest, ParamValue } from '@engine/effects/types'
@@ -35,6 +36,8 @@ export interface GpuEffect {
   mask: GpuMask | null
   /** Stateful effects: their state from the frame before, and where this frame's goes. */
   state?: EffectState | null
+  /** The effect's LUT (decision 77), a cube over 0–1, when it has one and it's loaded. */
+  lut?: GpuLut | null
   /** The frame and beat being rendered (M11), for effects that read the clock. */
   clock?: EffectClock
 }
@@ -112,23 +115,6 @@ function compose(m: Affine, n: Affine): Affine {
 /** `m` applied to pixels of an image processed at `scale` (pixel ÷ scale first). */
 function scaledAffine(m: Affine, scale: number): Affine {
   return { a: m.a / scale, b: m.b / scale, c: m.c / scale, d: m.d / scale, e: m.e, f: m.f }
-}
-
-/** float32 → IEEE half, for 16-bit float textures. */
-function toHalf(value: number): number {
-  const f = new Float32Array([value])
-  const x = new Uint32Array(f.buffer)[0]!
-  const sign = (x >>> 16) & 0x8000
-  let exp = ((x >>> 23) & 0xff) - 127 + 15
-  let mant = x & 0x7fffff
-  if (exp <= 0) {
-    if (exp < -10) return sign
-    mant = (mant | 0x800000) >> (1 - exp)
-    return sign | ((mant + 0x1000) >> 13)
-  }
-  if (exp >= 31) return sign | 0x7c00
-  const half = sign | (exp << 10) | ((mant + 0x1000) >> 13)
-  return half
 }
 
 /**
@@ -212,7 +198,8 @@ export class Compositor {
               { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
               { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
               { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-              { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
+              { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '3d' } }
             ]
           })
         ]
@@ -421,7 +408,8 @@ export class Compositor {
             { binding: 4, resource: { buffer: this.noMask } },
             { binding: 5, resource: this.noPrevious.createView() },
             { binding: 6, resource: { buffer: data } },
-            { binding: 7, resource: (prepass ?? this.noPrevious).createView() }
+            { binding: 7, resource: (prepass ?? this.noPrevious).createView() },
+            { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) }
           ]
         })
         const run = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -443,7 +431,8 @@ export class Compositor {
           { binding: 4, resource: { buffer: this.maskBuffer(effect.mask) } },
           { binding: 5, resource: (previous ?? this.noPrevious).createView() },
           { binding: 6, resource: { buffer: data } },
-          { binding: 7, resource: (prepass ?? this.noPrevious).createView() }
+          { binding: 7, resource: (prepass ?? this.noPrevious).createView() },
+          { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) }
         ]
       })
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })

@@ -50,7 +50,8 @@ export function parseCube(text: string): CubeLut {
   const kind = size3 > 0 ? '3d' : size1 > 0 ? '1d' : null
   if (!kind) throw new CubeFormatError('Not a .cube LUT: no LUT_3D_SIZE or LUT_1D_SIZE')
   const size = kind === '3d' ? size3 : size1
-  if (!Number.isInteger(size) || size < 2 || size > 256) throw new CubeFormatError(`Unsupported LUT size ${size}`)
+  // Adobe's .cube spec allows 3D LUTs up to 256 per side and 1D LUTs up to 65,536 entries.
+  if (!Number.isInteger(size) || size < 2 || size > (kind === '3d' ? 256 : 65536)) throw new CubeFormatError(`Unsupported LUT size ${size}`)
   const expected = (kind === '3d' ? size ** 3 : size) * 3
   if (values.length !== expected) throw new CubeFormatError(`Expected ${expected / 3} entries, found ${values.length / 3}`)
   if (domainMin.some((v, i) => !(domainMax[i]! > v))) throw new CubeFormatError('DOMAIN_MAX must be above DOMAIN_MIN')

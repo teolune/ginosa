@@ -585,7 +585,7 @@ export function parseProject(input: string | unknown): Project {
     clip.modulation = keepLinks(clip.modulation, modulatorIds, (key) => key !== 'speed' && propertySpec(clip, null, key)?.kind !== undefined && propertySpec(clip, null, key)?.kind !== 'stepped')
     for (const effect of clip.effects) {
       const manifest = effectById(effect.effectId)
-      effect.modulation = keepLinks(effect.modulation, modulatorIds, (key) => key === 'mix' || !manifest || manifest.params.some((p) => p.id === key && p.type !== 'choice' && p.type !== 'toggle' && p.type !== 'curve' && p.type !== 'gradient'))
+      effect.modulation = keepLinks(effect.modulation, modulatorIds, (key) => key === 'mix' || !manifest || manifest.params.some((p) => p.id === key && p.type !== 'choice' && p.type !== 'toggle' && p.type !== 'curve' && p.type !== 'gradient' && p.type !== 'lut'))
     }
   }
   // Masks: their links to missing modulators are dropped, as are references to missing masks.
