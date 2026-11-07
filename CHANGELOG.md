@@ -1,5 +1,9 @@
 # Changelog
 
+## Transport (7 Nov 2026)
+
+- **Go to start** and **Go to end** buttons either side of the frame-step buttons under the Program monitor (Home and End, as before).
+
 ## Look LUTs (7 Nov 2026)
 
 - **Look LUT** (Effects › Colour & Light): a .cube look (3D or 1D) on any clip or adjustment layer, with **Strength** 0–200%, as Lumetri's Creative Look. Pick from the project's LUTs or Choose .cube… (copied into the project's `luts` folder).

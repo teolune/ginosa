@@ -38,6 +38,8 @@ export const SYMBOLS = {
   zoomFit: 'arrow.left.and.right',
   stepBack: 'backward.frame.fill',
   stepForward: 'forward.frame.fill',
+  goToStart: 'backward.end.fill',
+  goToEnd: 'forward.end.fill',
   gauge: 'gauge.with.dots.needle.50percent'
 } as const
 

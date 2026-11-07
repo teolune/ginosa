@@ -63,6 +63,9 @@ export function ProgramMonitor() {
       <footer className="transport">
         <span className="mono timecode">{timelineController.timecode(timelineController.playhead)}</span>
         <span className="transport-buttons">
+          <button className="tool-button" title="Go to the start (Home)" aria-label="Go to the start" onClick={() => timelineController.gotoEnd(false)}>
+            <Icon name="goToStart" fallback="⏮︎" />
+          </button>
           <button className="tool-button" title="Back one frame (←)" onClick={() => timelineController.stepFrames(-1)}>
             <Icon name="stepBack" fallback="◀︎" />
           </button>
@@ -71,6 +74,9 @@ export function ProgramMonitor() {
           </button>
           <button className="tool-button" title="Forward one frame (→)" onClick={() => timelineController.stepFrames(1)}>
             <Icon name="stepForward" fallback="▶︎" />
+          </button>
+          <button className="tool-button" title="Go to the end (End)" aria-label="Go to the end" onClick={() => timelineController.gotoEnd(true)}>
+            <Icon name="goToEnd" fallback="⏭︎" />
           </button>
           {player.playing && player.rate !== 1 && <span className="mono small muted">{player.rate > 0 ? `${player.rate}×` : `${player.rate}×`}</span>}
         </span>
