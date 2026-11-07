@@ -21,7 +21,8 @@ bash scripts/setup.sh       # installs npm dependencies
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Opens the app with live reload |
+| `npm start` | Builds and opens the app as it really runs: use this for editing |
+| `npm run dev` | Opens the app with live reload and React's development checks (slower; for working on ginosa) |
 | `npm run check` | Typecheck + unit tests |
 | `npm run test-media` | Generates synthetic test clips in `media/test/` |
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
@@ -33,6 +34,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run snapshot -- --scenario exportcolourlight` | M10's effects and Kick Flash through playback and export, against the CPU maths; writes `renders/ui/exportcolourlight.json` (also `exportgrain`) |
 | `npm run snapshot -- --scenario posterize` | M12's done-when test: Posterize Time's holds in every exported frame against the beat grid, and a Channel Rack row driving Kick Flash; writes `renders/ui/posterize.json` |
 | `npm run snapshot -- --scenario exportmosh` | M14: Datamosh exported twice, played, scrubbed and with motion transfer from a hidden track, each checked; writes `renders/ui/exportmosh.json` (also `datamoshgpu`, on the GPU alone) |
+| `npm run snapshot -- --scenario timelineperf4k` | The timeline's speed with your Apple Log clips: pinch, scroll and frame steps timed by the screen's frames, and 4 s of playback; writes `renders/ui/timelineperf4k.json` (`timelineperf` uses the test clips) |
 | `npm run mosh-reference` | M14's side by side: your Apple Log clips moshed by Datamosh and by a real MPEG-4 bitstream edit (`scripts/codec-mosh.py`), as contact sheets and videos in `renders/m14/footage` |
 | `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |

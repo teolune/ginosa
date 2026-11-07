@@ -1,5 +1,17 @@
 # Changelog
 
+## Timeline speed and zoomable waveforms (7 Nov 2026)
+
+- **Zooming and scrolling the timeline no longer re-render the Program monitor** (and the other windows). Before, every step of a pinch redrew the paused frame: with your 4K Apple Log clips, 36 renders during one pinch and a 150 ms stall. Now none.
+- **Stepping and scrubbing are quicker on long-GOP footage** (iPhone HEVC has a keyframe about every second): a paused frame decodes on from the one before instead of seeking back to the keyframe each time. Stepping a frame at a time over your clips now shows 104 of 120 frames (was 21), at most 17.5 ms apart for 95% of them (was 100 ms).
+- **Windows that show values at the playhead** (Effect Controls, Modulation, Channel Rack, Masks, Audio Analysis) refresh 10 times a second while it moves, not every frame. The Effects Library and Gradient Editor don't refresh for it at all.
+- **Waveforms get more detailed as you zoom in**: peaks for every 10 samples of a 48 kHz mix (4,800 a second, was 100), so at the closest zoom each screen pixel has its own and you see the kick's cycles. Coarser copies keep zoomed-out drawing quick (about 0.4 ms for the whole timeline). Waveforms are made again the first time each one shows (the cache’s old ones aren’t used).
+- **`npm start`** opens the app as it really runs; `npm run dev` adds React's development checks and live reload, so use `npm start` for editing.
+- **Tests:**
+  - `timelineperf` and `timelineperf4k` (with your Apple Log clips): a pinch, a scroll and frame steps, timed by the screen's frames, with the timeline's drawing time, the monitor's renders and 4 s of playback (25 fps with Datamosh, nothing dropped)
+  - `waveformzoom` and `waveformzoom2`: the song's waveform at 2400 and 120 px a second
+  - 4 new unit tests for the waveform peaks (375 in all)
+
 ## M14 · Datamosh A (7 Nov 2026)
 
 - **Datamosh** (Effects › Time): a live GPU datamosh on any clip or adjustment layer. A mosh buffer is pushed around by the footage's own motion, found by codec-style block matching, coarse to fine, about 5–8 ms a 1080p frame.

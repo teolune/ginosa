@@ -154,7 +154,8 @@ function placeAll(sequence: Sequence, media: MediaItem[], row: Row, at: Ticks, m
 
 export function TimelinePanel() {
   useObservable(projectController)
-  useObservable(tl)
+  // The timeline is the one place the zoom and scroll show.
+  useObservable(tl, ['state', 'playhead', 'view'])
   useObservable(mediaController)
   useObservable(renderCache)
   const project = projectController.project
@@ -239,7 +240,8 @@ export function TimelinePanel() {
       },
       timecode: (time) => tl.timecode(time),
       focused: true,
-      render: renderCache.status && sequence === project.sequence ? { status: renderCache.status, frame: ticksPerFrame(frameRateOf(sequence.settings)) } : null
+      render: renderCache.status && sequence === project.sequence ? { status: renderCache.status, frame: ticksPerFrame(frameRateOf(sequence.settings)) } : null,
+      pixelRatio: ratio
     })
   })
 
@@ -499,7 +501,7 @@ export function TimelinePanel() {
     target.setPointerCapture(event.pointerId)
     const move = (e: PointerEvent) => {
       tl.view = { ...tl.view, scroll: Math.max(0, startScroll + ((e.clientX - startX) / size.width) * contentSeconds) }
-      tl.changed()
+      tl.viewChanged()
     }
     const up = () => {
       target.removeEventListener('pointermove', move)

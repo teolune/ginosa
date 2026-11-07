@@ -29,7 +29,7 @@ import { workspaceController } from '../state/workspace'
 import { defaultMotion } from '@engine/timeline/motion'
 import { COLOUR_LABELS, effectiveColour } from '@engine/project/media'
 import { Icon } from '../app/Icon'
-import { useObservable } from '../state/observable'
+import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { addMaskTo, setClipMask, setEffectMask } from '@engine/timeline/mask-edits'
@@ -762,7 +762,8 @@ function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
 /** Premiere's Effect Controls for the selected clip: Motion, Opacity and blend mode, Time Remapping, Volume, effects. */
 export function EffectControlsWindow() {
   useObservable(projectController)
-  useObservable(timelineController)
+  // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
+  useObservable(timelineController, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   const project = projectController.project
   if (!project) return null
   const selected = project.sequence.clips.filter((c) => timelineController.selection.has(c.id))

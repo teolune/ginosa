@@ -137,6 +137,11 @@ class TimelineController extends Observable {
     this.notify()
   }
 
+  /** The zoom or scroll changed (only the timeline itself redraws). */
+  viewChanged(): void {
+    this.notify('view')
+  }
+
   frame(): Ticks {
     const sequence = this.committed
     return sequence ? frameTicks(sequence) : secondsToTicks(1 / 25)
@@ -435,8 +440,10 @@ class TimelineController extends Observable {
     const sequence = this.committed
     const frame = this.frame()
     this.playhead = Math.max(0, toFrame(time, frame))
+    const view = this.view
     if (sequence && reveal) this.reveal(this.playhead)
-    this.notify()
+    if (this.view !== view) this.notify('view')
+    this.notify('playhead')
   }
 
   stepFrames(frames: number): void {
@@ -479,20 +486,20 @@ class TimelineController extends Observable {
     const x = anchorX ?? (playheadX >= 0 && playheadX <= this.viewportWidth ? playheadX : this.viewportWidth / 2)
     const anchor = this.view.scroll + x / this.view.pps
     this.view = { pps, scroll: Math.max(0, anchor - x / pps) }
-    this.notify()
+    this.notify('view')
   }
 
   zoomToFit(): void {
     const sequence = this.committed
     const seconds = Math.max(10, ticksToSeconds(sequence ? sequenceEnd(sequence) : 0) * 1.05)
     this.view = { pps: Math.min(MAX_PPS, Math.max(MIN_PPS, this.viewportWidth / seconds)), scroll: 0 }
-    this.notify()
+    this.notify('view')
   }
 
   scrollBy(dx: number, dy: number, maxY: number): void {
     this.view = { ...this.view, scroll: Math.max(0, this.view.scroll + dx / this.view.pps) }
     this.scrollY = Math.min(Math.max(0, maxY), Math.max(0, this.scrollY + dy))
-    this.notify()
+    this.notify('view')
   }
 
   setTool(tool: Tool): void {

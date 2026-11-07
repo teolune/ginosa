@@ -4,6 +4,7 @@ import { IMPORT_EXTENSIONS, optimiseReasons, type MediaItem, type OptimiseReason
 import type { Project } from '@engine/project/model'
 import type { Ticks } from '@engine/time'
 import type { FileStatus, OptimiseJob, ProbedFile } from '@shared/media-types'
+import { readWaveform, type Waveform } from '@shared/waveform'
 import { Observable } from './observable'
 import { projectController } from './project-controller'
 
@@ -12,11 +13,7 @@ import { projectController } from './project-controller'
  * depends on this Mac (thumbnails, waveforms, decodability, optimised copies, offline files).
  */
 
-export interface Waveform {
-  bucketsPerSecond: number
-  /** min, max pairs */
-  peaks: Float32Array
-}
+export type { Waveform }
 
 export interface MediaRuntime {
   status: FileStatus | 'checking'
@@ -183,12 +180,7 @@ export class MediaController extends Observable {
     this.pendingWaves.add(item.id)
     window.ginosa.media
       .waveform({ projectId, mediaId: item.id, path: item.path, kind: item.kind, fingerprint: item.fingerprint, durationSeconds: item.info.durationSeconds })
-      .then((buffer) => {
-        const view = new DataView(buffer)
-        const bucketsPerSecond = view.getUint32(0, true)
-        const count = view.getUint32(4, true)
-        this.set(item.id, { waveform: { bucketsPerSecond, peaks: new Float32Array(buffer.slice(8, 8 + count * 8)) } })
-      })
+      .then((buffer) => this.set(item.id, { waveform: readWaveform(buffer) }))
       .catch((error: Error) => console.warn(`Waveform for ${item.name}: ${error.message}`))
       .finally(() => this.pendingWaves.delete(item.id))
   }

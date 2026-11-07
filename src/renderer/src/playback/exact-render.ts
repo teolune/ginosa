@@ -8,6 +8,9 @@ import type { Compositor, CompositeStep } from './compositor'
 import type { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 
+/** Further ahead than this, a new decode from the nearest keyframe is quicker than decoding on. */
+const JUMP_SECONDS = 2
+
 /**
  * Frames for one clip, exactly, with no deadline. Forward clips decode in order;
  * reversed clips and holds fetch each frame they need.
@@ -35,8 +38,9 @@ export class ExactFrames {
       this.held = sample ? { seconds, sample } : null
       return sample
     }
-    // Going backwards (a new catch-up from an earlier point): start decoding again from there.
-    if (seconds < this.lastSeconds - 1e-9) this.restart()
+    // Going backwards (a new catch-up from an earlier point), or jumping well ahead (a paused
+    // frame far on): start decoding again from there, rather than through everything between.
+    if (seconds < this.lastSeconds - 1e-9 || seconds > this.lastSeconds + JUMP_SECONDS) this.restart()
     this.lastSeconds = seconds
     if (!this.iterator) {
       this.iterator = sink.samples(this.media.origin + Math.max(0, seconds))

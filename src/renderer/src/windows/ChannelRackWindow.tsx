@@ -11,7 +11,7 @@ import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { analysisController } from '../audio/analysis-controller'
 import { modulationController } from '../audio/modulation-controller'
 import { modulationUi } from '../audio/modulation-ui'
-import { useObservable } from '../state/observable'
+import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
@@ -33,7 +33,8 @@ function gridOf(sequence: Sequence) {
 
 export function ChannelRackWindow() {
   useObservable(projectController)
-  useObservable(timelineController)
+  // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
+  useObservable(timelineController, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   useObservable(modulationController)
   useObservable(analysisController)
   const [barsShown, setBarsShown] = useState(2)

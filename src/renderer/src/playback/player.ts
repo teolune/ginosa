@@ -18,7 +18,7 @@ import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
 import { TemporalStore } from './temporal'
-import { ExactRenderer } from './exact-render'
+import { ExactFrames, ExactRenderer } from './exact-render'
 import { checkpointEvery } from '@engine/timeline/temporal'
 import { renderCache } from '../render-cache/render-cache'
 
@@ -91,6 +91,12 @@ export class Player extends Observable {
   /** Stateful effects' state between frames, and the renderer that catches it up after a jump. */
   temporal: TemporalStore | null = null
   private catchUp: ExactRenderer | null = null
+  /**
+   * Decoders for paused frames, one per clip (and file, speed and direction): stepping or
+   * scrubbing forward decodes on from the frame before instead of seeking from the last
+   * keyframe each time (long-GOP footage such as iPhone HEVC has one every second or so).
+   */
+  private stillFrames = new Map<string, ExactFrames>()
   private sequenceId: string | null = null
   /** The last catch-up before a still: how many frames it rendered, and how long it took. */
   lastCatchUp: { frames: number; ms: number } | null = null
@@ -106,6 +112,8 @@ export class Player extends Observable {
   recording: PresentedFrame[] | null = null
   /** The last paused-frame composite (for tests that read pixels back). */
   lastStill: GPUTexture | null = null
+  /** Paused frames rendered so far (the timeline's performance test counts them). */
+  stillCount = 0
   /** Whether it came from the render cache. */
   lastStillCached = false
   /** Cached previews decoded ahead of playback, by frame number. */
@@ -266,6 +274,7 @@ export class Player extends Observable {
   }
 
   private async renderStill(duringPlayback = false): Promise<void> {
+    this.stillCount++
     const project = this.host.scene(true)
     if (!project || !this.compositor || !this.context) return
     const sequence = project.sequence
@@ -288,7 +297,7 @@ export class Player extends Observable {
     }
     this.lastStillCached = false
     if (layers.some((l) => l.temporal) && !(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
-    const samples: VideoSample[] = []
+    const used = new Set<string>()
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
     let message: string | null = null
     for (const layer of layers) {
@@ -305,9 +314,15 @@ export class Player extends Observable {
         if (layer.item.kind === 'image') {
           prepared.push({ layer, source: { kind: 'image', texture: this.layers!.stillTexture(path, await openStill(path)) } })
         } else {
-          const media = await openMedia(path)
-          const sample = media.videoSink ? await media.videoSink.getSample(media.origin + ticksToSeconds(layer.sourceTime) + 1e-6) : null
-          if (sample) samples.push(sample)
+          const key = `${layer.clip.id}:${path}:${layer.clip.speed === 0}:${layer.clip.reverse}`
+          let frames = this.stillFrames.get(key)
+          if (!frames) {
+            frames = new ExactFrames(await openMedia(path), layer.clip)
+            this.stillFrames.set(key, frames)
+          }
+          used.add(key)
+          // The decoder keeps its sample; only the frame made from it is closed after drawing.
+          const sample = await frames.frameAt(ticksToSeconds(layer.sourceTime))
           prepared.push({ layer, source: sample ? { kind: 'video', frame: sample.toVideoFrame() } : null })
         }
       } catch (error) {
@@ -316,7 +331,6 @@ export class Player extends Observable {
     }
     if (this.playing && !duringPlayback) {
       for (const p of prepared) if (p.source?.kind === 'video') p.source.frame.close()
-      samples.forEach((s) => s.close())
       return
     }
     const scale = this.prepareTarget(sequence)
@@ -330,7 +344,12 @@ export class Player extends Observable {
     this.compositor.present(result, this.context, this.format)
     this.lastStill = result
     for (const p of prepared) if (p.source?.kind === 'video') p.source.frame.close()
-    samples.forEach((s) => s.close())
+    // Decoders for clips no longer under the playhead are let go of.
+    for (const [key, frames] of this.stillFrames) {
+      if (used.has(key)) continue
+      frames.close()
+      this.stillFrames.delete(key)
+    }
     if (message !== this.message) {
       this.message = message
       this.notify()

@@ -100,6 +100,9 @@
 
 ## Implementation notes (engineering choices, no approval needed)
 
+- **Change topics** (timeline speed, 7 Nov): controllers say what changed. `state` (most things), `playhead` and `view` (the timeline's zoom and scroll). Only the timeline listens to `view`. The Program monitor re-renders its paused frame for `state` and `playhead`, never for zooming or scrolling. Windows showing values at the playhead take it at most 10 times a second.
+- **Paused frames decode on** (timeline speed): one decoder per clip under the playhead; a frame up to 2 s after the last one decodes forward from it, anything else (back, or further on) seeks from the nearest keyframe. Export and catch-up use the same rule.
+- **Waveform peaks** (timeline speed, `src/shared/waveform.ts`): min/max of every 10 samples of a 48 kHz mono mix as int16 (`.peaks2` in the cache), with copies at a quarter the rate down to about one a second. A column of the timeline (a screen pixel) reads the coarsest copy that still has a peak for it.
 - **Time** is stored as integer ticks at 254,016,000,000 per second (Premiere's rate). See `src/engine/time.ts`.
 - **Local media** is served to the renderer through a read-only `ginosa-media://` protocol with HTTP range support. Mediabunny reads files in pieces rather than loading them whole.
 - **M0 UI** is plain DOM on purpose. It is a diagnostics shell, replaced by the real workspace in M1.

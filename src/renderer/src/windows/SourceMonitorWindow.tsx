@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
+import { levelFor, peakRange } from '@shared/waveform'
 import { setMarks } from '@engine/project/media-commands'
 import type { MediaItem } from '@engine/project/media'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
@@ -35,21 +36,18 @@ function WaveformView({ waveform, duration, position, onSeek }: { waveform: Wave
     if (!ctx) return
     ctx.clearRect(0, 0, width, height)
     if (waveform) {
-      const buckets = waveform.peaks.length / 2
+      const seconds = waveform.duration / width
+      const level = levelFor(waveform, seconds)
       ctx.fillStyle = '#3fb27f'
+      ctx.beginPath()
       for (let x = 0; x < width; x++) {
-        const from = Math.floor((x / width) * buckets)
-        const to = Math.max(from + 1, Math.floor(((x + 1) / width) * buckets))
-        let min = 0
-        let max = 0
-        for (let b = from; b < to && b < buckets; b++) {
-          min = Math.min(min, waveform.peaks[b * 2]!)
-          max = Math.max(max, waveform.peaks[b * 2 + 1]!)
-        }
-        const top = ((1 - max) / 2) * height
-        const bottom = ((1 - min) / 2) * height
-        ctx.fillRect(x, top, 1, Math.max(1, bottom - top))
+        const range = peakRange(level, x * seconds, (x + 1) * seconds)
+        if (!range) continue
+        const top = ((1 - range[1]) / 2) * height
+        const bottom = ((1 - range[0]) / 2) * height
+        ctx.rect(x, top, 1, Math.max(1, bottom - top))
       }
+      ctx.fill()
     }
     if (duration > 0) {
       ctx.fillStyle = '#5b8cff'

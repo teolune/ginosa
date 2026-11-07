@@ -26,7 +26,7 @@ const AWAY = 36
 export function GradientEditorWindow() {
   useObservable(gradientController)
   useObservable(projectController)
-  useObservable(timelineController)
+  useObservable(timelineController, ['state'])
   const [prompt, setPrompt] = useState<PromptRequest | null>(null)
   useEffect(() => void gradientController.load(), [])
   const { gradient, method, label, editingEffect } = gradientController.current()

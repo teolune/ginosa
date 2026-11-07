@@ -23,7 +23,7 @@ function selectedVideoClips(): string[] {
  */
 export function EffectsLibraryWindow() {
   useObservable(effectsController)
-  useObservable(timelineController)
+  useObservable(timelineController, ['state'])
   const [query, setQuery] = useState('')
   const [closed, setClosed] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)

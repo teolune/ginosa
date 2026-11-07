@@ -111,10 +111,17 @@ describe.skipIf(!available)('media pipeline with real FFmpeg', () => {
     const request = { projectId: PROJECT, mediaId: 'clip', path: video.path, kind: video.kind, fingerprint: video.fingerprint, durationSeconds: 3 }
     const thumb = await ensureThumbnail(cache, request)
     expect((await stat(thumb)).size).toBeGreaterThan(1000)
-    const peaks = new DataView(await ensureWaveform(cache, request))
-    expect(peaks.getUint32(0, true)).toBe(100)
-    expect(peaks.getUint32(4, true)).toBeGreaterThanOrEqual(299)
-    expect(peaks.getFloat32(8 + 100 * 8 + 4, true)).toBeCloseTo(0.125, 2) // FFmpeg's sine source peaks at 1/8
+    const file = await ensureWaveform(cache, request)
+    const peaks = new DataView(file)
+    expect(peaks.getUint32(0, true)).toBe(4800)
+    expect(peaks.getUint32(4, true)).toBeGreaterThanOrEqual(299 * 48)
+    // FFmpeg's sine source peaks at 1/8: the highest of the peaks in the second second (a little
+    // over, from the AAC coding's ripple, which shows at the full rate).
+    const pairs = new Int16Array(file, 8)
+    let high = 0
+    for (let i = 4800; i < 9600; i++) high = Math.max(high, pairs[i * 2 + 1]!)
+    expect(high / 32767).toBeGreaterThan(0.12)
+    expect(high / 32767).toBeLessThan(0.14)
   })
 
   it('makes playable optimised copies for ProRes and variable-rate sources, and keeps HDR as HDR', async () => {

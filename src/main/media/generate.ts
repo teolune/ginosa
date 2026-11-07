@@ -3,13 +3,10 @@ import { join } from 'node:path'
 import type { MediaFingerprint } from '../../engine/project/media'
 import type { GenerateRequest } from '../../shared/media-types'
 import type { CacheService } from '../cache/cache-service'
+import { PeakWriter, WAVEFORM_EXTENSION, WAVEFORM_SAMPLE_RATE } from '../../shared/waveform'
 import { runTool } from './ffmpeg'
 
 /** Thumbnails and waveform peaks, generated with FFmpeg into the project's cache. */
-
-export const WAVEFORM_BUCKETS_PER_SECOND = 100
-const WAVEFORM_SAMPLE_RATE = 8000
-const HEADER_BYTES = 8
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -72,12 +69,12 @@ export async function ensureThumbnail(cache: CacheService, request: GenerateRequ
 }
 
 /**
- * Waveform peaks: min/max pairs (Float32) at 100 per second from a mono 8 kHz decode.
- * File layout: uint32 buckets-per-second, uint32 bucket count, then the pairs.
+ * Waveform peaks (shared/waveform.ts): the lowest and highest of every 10 samples of a 48 kHz
+ * mono mix, so the timeline can zoom in to single pixels' worth of sound.
  */
 export async function ensureWaveform(cache: CacheService, request: GenerateRequest): Promise<ArrayBuffer> {
   const dir = await cache.categoryDir(request.projectId, 'waveforms')
-  const out = join(dir, cacheFileName(request.mediaId, request.fingerprint, 'peaks'))
+  const out = join(dir, cacheFileName(request.mediaId, request.fingerprint, WAVEFORM_EXTENSION))
   if (await exists(out)) {
     const data = await (await import('node:fs/promises')).readFile(out)
     return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
@@ -86,11 +83,7 @@ export async function ensureWaveform(cache: CacheService, request: GenerateReque
   const pending = inFlight.get(key)
   if (pending) return pending as Promise<ArrayBuffer>
   const job = limiter.run(async () => {
-    const samplesPerBucket = WAVEFORM_SAMPLE_RATE / WAVEFORM_BUCKETS_PER_SECOND
-    const peaks: number[] = []
-    let min = Infinity
-    let max = -Infinity
-    let count = 0
+    const writer = new PeakWriter()
     let carry: Buffer = Buffer.alloc(0)
     const result = await runTool(
       'ffmpeg',
@@ -100,31 +93,18 @@ export async function ensureWaveform(cache: CacheService, request: GenerateReque
         onStdout(chunk) {
           const data: Buffer = carry.length ? Buffer.concat([carry, chunk]) : chunk
           const usable = data.length - (data.length % 4)
-          for (let offset = 0; offset < usable; offset += 4) {
-            const v = data.readFloatLE(offset)
-            if (v < min) min = v
-            if (v > max) max = v
-            if (++count === samplesPerBucket) {
-              peaks.push(min, max)
-              min = Infinity
-              max = -Infinity
-              count = 0
-            }
-          }
-          carry = data.subarray(usable)
+          // Copied, so the floats are aligned whatever offset the chunk had.
+          writer.add(new Float32Array(Uint8Array.prototype.slice.call(data, 0, usable).buffer))
+          carry = Buffer.from(data.subarray(usable))
         }
       }
     )
     if (result.code !== 0) throw new Error(`Waveform failed: ${result.stderr.trim().split('\n').pop() ?? 'unknown error'}`)
-    if (count > 0) peaks.push(min, max)
-    const buffer = Buffer.alloc(HEADER_BYTES + peaks.length * 4)
-    buffer.writeUInt32LE(WAVEFORM_BUCKETS_PER_SECOND, 0)
-    buffer.writeUInt32LE(peaks.length / 2, 4)
-    peaks.forEach((v, i) => buffer.writeFloatLE(Math.max(-1, Math.min(1, v)), HEADER_BYTES + i * 4))
+    const bytes = writer.finish()
     const temp = `${out}.partial`
-    await writeFile(temp, buffer)
+    await writeFile(temp, bytes)
     await rename(temp, out)
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   })
   inFlight.set(key, job)
   try {

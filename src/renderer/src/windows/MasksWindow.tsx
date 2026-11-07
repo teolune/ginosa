@@ -29,7 +29,7 @@ import { confirmKeyframeRemoval } from '../app/warnings'
 import { modulationController } from '../audio/modulation-controller'
 import { modulationUi } from '../audio/modulation-ui'
 import { maskController } from '../masks/mask-controller'
-import { useObservable } from '../state/observable'
+import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController as tl } from '../timeline/timeline-controller'
@@ -181,7 +181,8 @@ function followName(sequence: Sequence, maskId: string): string | null {
 export function MasksWindow() {
   useObservable(projectController)
   useObservable(maskController)
-  useObservable(tl)
+  // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
+  useObservable(tl, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   useObservable(modulationController)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)

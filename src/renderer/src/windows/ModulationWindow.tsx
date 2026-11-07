@@ -15,7 +15,7 @@ import { MASK_KIND_LABELS, MASK_PARAMS } from '@engine/masks/types'
 import type { ModLink } from '@engine/modulation/types'
 import { maskController } from '../masks/mask-controller'
 import { analysisController } from '../audio/analysis-controller'
-import { useObservable } from '../state/observable'
+import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController as tl } from '../timeline/timeline-controller'
@@ -495,7 +495,8 @@ function maskTargetLabel(sequence: Sequence, ref: MaskValueRef): string | null {
 
 export function ModulationWindow() {
   useObservable(projectController)
-  useObservable(tl)
+  // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
+  useObservable(tl, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   useObservable(modulationController)
   useObservable(modulationUi)
   useObservable(analysisController)

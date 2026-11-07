@@ -5,6 +5,7 @@ import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-pl
 import { clipEnd, sourceTimeAt, speedRamp } from '@engine/timeline/timeline'
 import { barNumber, beatLength, beatsBetween } from '@engine/audio/beat-grid'
 import type { MediaRuntime } from '../state/media-controller'
+import { levelFor, peakRange } from '@shared/waveform'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
 import type { GapSelection } from './timeline-controller'
 
@@ -33,6 +34,8 @@ export interface Scene {
   focused: boolean
   /** The render bar (M9): per frame 0 plain, 1 effects rendered live (yellow), 2 cached (green). */
   render: { status: Uint8Array; frame: Ticks } | null
+  /** Screen pixels per CSS pixel (2 on a Retina screen): waveforms are drawn a screen pixel at a time. */
+  pixelRatio?: number
 }
 
 const COLOURS = {
@@ -236,35 +239,33 @@ function drawMarker(ctx: CanvasRenderingContext2D, scene: Scene, marker: Marker)
 }
 
 function drawWaveform(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x: number, y: number, w: number, h: number): void {
-  const runtime = scene.runtime(clip.mediaId)
-  const wave = runtime.waveform
+  const wave = scene.runtime(clip.mediaId).waveform
   if (!wave) return
   const { view } = scene
+  const ratio = scene.pixelRatio ?? 1
   const mid = y + h / 2
   const half = h / 2 - 2
+  // One column per screen pixel; the coarsest level of peaks that still has one for each.
+  const left = Math.floor(Math.max(x, 0) * ratio)
+  const right = Math.ceil(Math.min(x + w, scene.width) * ratio)
+  const perColumn = 1 / (view.pps * ratio)
+  const ramped = speedRamp(clip) !== null
+  const level = levelFor(wave, perColumn * (ramped ? 1 : Math.max(1e-3, clip.speed)))
+  // Timeline time at a column, mapped into the media (at the clip's speed, or along its ramp).
+  const at = ramped ? (column: number) => ticksToSeconds(sourceTimeAt(clip, clip.start + secondsToTicks((column / ratio - x) / view.pps), 0)) : null
+  const inSeconds = ticksToSeconds(clip.sourceIn)
   ctx.fillStyle = COLOURS.waveform
-  const left = Math.max(x, 0)
-  const right = Math.min(x + w, scene.width)
-  const buckets = wave.peaks.length / 2
-  for (let px = Math.floor(left); px < right; px++) {
-    // Timeline time at this column and the next, mapped into the media (at the clip's speed, or along its ramp).
-    const ramped = speedRamp(clip) !== null
-    const at = (column: number) => ticksToSeconds(sourceTimeAt(clip, clip.start + secondsToTicks((column - x) / view.pps), 0))
-    const t0 = ramped ? at(px) : ticksToSeconds(clip.sourceIn) + ((px - x) / view.pps) * clip.speed
-    const t1 = ramped ? at(px + 1) : t0 + clip.speed / view.pps
-    let b0 = Math.floor(t0 * wave.bucketsPerSecond)
-    const b1 = Math.max(b0 + 1, Math.floor(t1 * wave.bucketsPerSecond))
-    if (b0 >= buckets) break
-    let lo = 0
-    let hi = 0
-    for (; b0 < b1 && b0 < buckets; b0++) {
-      lo = Math.min(lo, wave.peaks[b0 * 2]!)
-      hi = Math.max(hi, wave.peaks[b0 * 2 + 1]!)
-    }
-    const top = mid - hi * half
-    const height = Math.max(1, (hi - lo) * half)
-    ctx.fillRect(px, top, 1, height)
+  ctx.beginPath()
+  for (let c = left; c < right; c++) {
+    const t0 = at ? at(c) : inSeconds + ((c / ratio - x) / view.pps) * clip.speed
+    const t1 = at ? at(c + 1) : t0 + perColumn * clip.speed
+    if (t0 >= wave.duration) break
+    const range = peakRange(level, t0, t1)
+    if (!range) continue
+    const top = mid - range[1] * half
+    ctx.rect(c / ratio, top, 1 / ratio, Math.max(1 / ratio, (range[1] - range[0]) * half))
   }
+  ctx.fill()
 }
 
 /** Small diamonds along a clip's bottom edge where it has keyframes (any property). */
@@ -429,7 +430,17 @@ function drawTransition(ctx: CanvasRenderingContext2D, scene: Scene, span: Trans
 }
 
 /** Draws the whole timeline (ruler, lanes, clips, overlays) into a canvas sized `scene.width × scene.height`. */
+/** How often the timeline is drawn and how long it takes (the performance test reads it). */
+export const drawStats = { count: 0, totalMs: 0 }
+
 export function drawTimeline(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const started = performance.now()
+  drawScene(ctx, scene)
+  drawStats.count++
+  drawStats.totalMs += performance.now() - started
+}
+
+function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
   const { width, height, rows, view, scrollY } = scene
   ctx.fillStyle = COLOURS.bg
   ctx.fillRect(0, 0, width, height)

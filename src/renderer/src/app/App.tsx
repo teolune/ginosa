@@ -53,6 +53,7 @@ import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
+import { timelinePerf, waveformAt } from '../timeline/timeline-perf'
 import { Workspace } from '../workspace/Workspace'
 import { ErrorToast, PromptDialog, RecoveryDialog, WarningDialog, type PromptRequest } from './Dialogs'
 import { confirmKeyframeRemoval, warnings } from './warnings'
@@ -439,6 +440,24 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
       timelineController.zoomToFit()
       await wait(1200)
+      break
+    }
+    case 'timelineperf':
+    case 'timelineperf4k': {
+      // The timeline's speed: zooming, scrolling and the playhead over a 4-minute edit (4k: of your Apple Log clips).
+      const footage = scenario === 'timelineperf4k' ? await window.ginosa.snapshot.referenceClips() : []
+      await mediaController.importPaths([...(await window.ginosa.snapshot.testMedia()).filter((f) => /(testsrc_1080p24_h264\.mp4|beat_128bpm\.wav)$/.test(f)), ...footage], null)
+      await wait(2000)
+      const names = footage.map((f) => (f.split('/').pop() ?? f).replace(/\.[^.]+$/, ''))
+      await window.ginosa.snapshot.report(await timelinePerf(names).catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'waveformzoom':
+    case 'waveformzoom2': {
+      // Zoomable waveforms: the song's first kicks at the closest zoom (2400 px a second), or at 120.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /beat_128bpm\.wav$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await (scenario === 'waveformzoom' ? waveformAt(2400, 0.38) : waveformAt(120, 0)).catch((error: Error) => ({ verdict: 'fail', error: error.message })))
       break
     }
     case 'moshfootage': {

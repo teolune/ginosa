@@ -8,7 +8,7 @@ import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { analysisController, type SourceState } from '../audio/analysis-controller'
 import { modulationController } from '../audio/modulation-controller'
-import { useObservable } from '../state/observable'
+import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController as tl } from '../timeline/timeline-controller'
 import { ScrubNumber } from './EffectControlsWindow'
@@ -317,7 +317,8 @@ function TempoPanel({ sequence, selected }: { sequence: Sequence; selected: stri
 
 export function AudioAnalysisWindow() {
   useObservable(projectController)
-  useObservable(tl)
+  // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
+  useObservable(tl, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   useObservable(analysisController)
   useObservable(modulationController)
   const [selected, setSelected] = useState<string | null>(null)
