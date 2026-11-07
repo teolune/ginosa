@@ -321,3 +321,31 @@ describe('built-in presets and the Channel Rack (M12)', () => {
     expect(mod.name).toBe('Kick Flash: Pattern · Kick')
   })
 })
+
+describe('datamosh modes (M14)', () => {
+  it('Bass Edge Mosh adds an Edge mask and links Strength to the bass; one undo removes both', () => {
+    const { history, run, video } = setup()
+    run(applyBuiltinPreset([video().id], 'builtin:mosh-bass-edges', s(2), ids))
+    const mosh = video().effects[0]!
+    expect(mosh).toMatchObject({ effectId: 'datamosh', params: { strength: 0, leak: 15 } })
+    const mask = history.state.sequence.masks.find((m) => m.id === mosh.mask?.id)!
+    expect(mask.shapes[0]).toMatchObject({ kind: 'edge', width: 216, feather: 108 })
+    expect(mosh.modulation['strength']![0]).toMatchObject({ mode: 'add', min: [0], max: [250] })
+    expect(history.state.sequence.modulators[0]!.source).toMatchObject({ signal: 'level', band: 'bass' })
+    history.undo()
+    expect(history.state.sequence.masks).toHaveLength(0)
+    expect(video().effects).toHaveLength(0)
+  })
+
+  it('Kick Bloom triggers Bloom on each kick, long enough for a frame to see it', () => {
+    const { history, run, video } = setup()
+    run(applyBuiltinPreset([video().id], 'builtin:mosh-kick-bloom', s(2), ids))
+    const link = video().effects[0]!.modulation['bloomTrigger']![0]!
+    expect(link).toMatchObject({ mode: 'add', min: [0], max: [100] })
+    const mod = history.state.sequence.modulators.find((m) => m.id === link.modulatorId)!
+    expect(mod.source).toMatchObject({ signal: 'hits', band: 'bass' })
+    // Linear release: above 50% for half the release, which is longer than a 24 fps frame.
+    expect(mod.release / 2).toBeGreaterThan(1000 / 24)
+  })
+})
+

@@ -3,6 +3,8 @@ import { History } from '../history'
 import { importMedia } from '../project/media-commands'
 import type { MediaInfo, MediaItem } from '../project/media'
 import { createProject } from '../project/model'
+import { setTrackFlag } from '../project/commands'
+import { frameKeys } from '../render/frame-keys'
 import { secondsToTicks } from '../time'
 import { placeMedia, setClipProperties, splitClips, type TimelineCommand } from './edits'
 import { addAdjustmentLayer, addEffect, setEffectValues } from './effect-edits'
@@ -94,4 +96,53 @@ describe('stateful effects in the render plan', () => {
     history.undo()
     expect(key()).toBe(first)
   })
+
+  it('motion transfer: the source track’s clips go in just before the layer, as shot, even while hidden (M14)', () => {
+    const { history, run, clip, other } = setup()
+    const V3 = history.state.sequence.tracks.filter((t) => t.kind === 'video')[2]!.id
+    run(placeMedia({ mediaId: 'm-b', sourceIn: s(1), sourceOut: s(5), at: s(3), videoTrackId: V3, audioTrackId: null, mode: 'overwrite' }, ids))
+    const source = () => history.state.sequence.clips.find((c) => c.trackId === V3 && c.start === s(3))!
+    run(addEffect([clip().id], 'datamosh', null, ids))
+    const effect = () => clip().effects[0]!
+    run(setClipProperties([source().id], { opacity: 40 }))
+    const at = (t: number) => videoLayersAt(history.state.sequence, history.state.media, s(t))
+    // No source yet: just the clip and V3's own clip.
+    expect(at(4).map((l) => l.motionFor ?? null)).toEqual([null, null])
+    expect(at(4)[0]!.motion).toBeUndefined()
+    const before = stateKey(history.state.sequence, history.state.media, clip(), clip().start)
+    run(setEffectValues(clip().id, effect().id, { params: { motionSource: V3 } }))
+    const key = `${clip().id}:${effect().id}`
+    const layers = at(4)
+    expect(layers.map((l) => l.motionFor ?? null)).toEqual([key, null, null])
+    expect(layers[1]!.motion).toEqual({ [effect().id]: key })
+    // As shot: no effects or mask, full opacity, normal blend; at the source clip's own time.
+    expect(layers[0]!.clip).toMatchObject({ id: source().id, effects: [], mask: null, opacity: 100, blendMode: 'normal' })
+    expect(layers[0]!.sourceTime).toBe(s(2))
+    // Hiding V3 hides its own clip, not the motion source.
+    run(setTrackFlag(V3, 'visible', false))
+    expect(at(4).map((l) => l.motionFor ?? null)).toEqual([key, null])
+    // Where V3 is empty the effect still reads it (nothing there: no motion).
+    expect(at(8).map((l) => l.motionFor ?? null)).toEqual([null])
+    expect(at(8)[0]!.motion).toEqual({ [effect().id]: key })
+    // The state depends on the source track's clips…
+    const withSource = stateKey(history.state.sequence, history.state.media, clip(), clip().start)
+    expect(withSource).not.toBe(before)
+    run(setClipProperties([source().id], { opacity: 60 }))
+    expect(stateKey(history.state.sequence, history.state.media, clip(), clip().start)).not.toBe(withSource)
+    // … and so does the render cache key of every frame from the source onwards.
+    const keys = () => frameKeys(history.state.sequence, history.state.media, null).keys
+    const first = keys()
+    run(splitClips([source().id], s(5), ids))
+    history.undo()
+    expect(keys()).toEqual(first)
+    run(setClipProperties([source().id], { motion: { positionX: 100 } }))
+    const moved = keys()
+    expect(moved[Math.round(4 * 25)]).not.toBe(first[Math.round(4 * 25)])
+    expect(moved[Math.round(2.5 * 25)]).toBe(first[Math.round(2.5 * 25)])
+    // A track that isn't in the sequence counts as none.
+    run(setEffectValues(clip().id, effect().id, { params: { motionSource: 'gone' } }))
+    expect(at(4).every((l) => !l.motionFor && !l.motion)).toBe(true)
+    expect(other()).toBeDefined()
+  })
 })
+

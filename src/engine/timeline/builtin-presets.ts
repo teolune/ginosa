@@ -3,19 +3,22 @@ import { defaultParams, sanitiseValue } from '../effects/params'
 import type { EffectInstance, ParamValue } from '../effects/types'
 import type { AudioSignal, BandRef, ModSource, Modulator } from '../modulation/types'
 import { CommandError } from '../project/commands'
-import { defaultId, type BlendMode, type IdFactory } from '../project/model'
+import { defaultId, type BlendMode, type IdFactory, type Sequence } from '../project/model'
 import type { Ticks } from '../time'
 import { effectImageSize } from './effect-edits'
 import { timelineCommand, type TimelineCommand } from './edits'
 import { applyLink, describeSource, newModulator, sameSource, type LinkSettings } from './modulation-edits'
 import { assertUnlocked, findClip, findTrack } from './timeline'
+import { newShape } from '../masks/masks'
+import { nextMaskName } from './mask-edits'
 
 /**
  * Built-in presets: starters that come with ginosa. The audio-reactive ones (M10) bring
  * their links to audio, unlike your own presets: applying one adds its effects and links
  * them to the sequence's first audio analysis source (reusing a modulator that already
  * listens the same way). With no source yet, the effects arrive unlinked and a message says
- * so. The grain looks (M11) are just settings.
+ * so. The grain looks (M11) are just settings. The datamosh modes (M14) are starting points
+ * for the one Datamosh effect, not separate effects; Bass Edge Mosh also brings an edge mask.
  */
 
 type ModulatorSettings = Pick<Modulator, 'gain' | 'threshold' | 'knee' | 'attack' | 'release' | 'curve'>
@@ -24,7 +27,8 @@ export interface BuiltinPreset {
   id: string
   name: string
   description: string
-  effects: ReadonlyArray<{ effectId: string; params: Record<string, ParamValue>; blendMode?: BlendMode }>
+  /** `edgeMask`: a new Edge mask for the effect, its width and feather as fractions of the frame's shorter side. */
+  effects: ReadonlyArray<{ effectId: string; params: Record<string, ParamValue>; blendMode?: BlendMode; edgeMask?: { width: number; feather: number } }>
   /** `row`: with a Channel Rack row of this name (M12), the link follows that row's steps instead of the audio. */
   links: ReadonlyArray<{ effect: number; param: string; signal: AudioSignal; band: BandRef; row?: string; modulator: ModulatorSettings; link: LinkSettings }>
 }
@@ -88,6 +92,56 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
     description: 'Strong grey noise laid over the picture in Overlay, everywhere from shadows to highlights.',
     effects: [{ effectId: 'grain', params: { amount: 60, size: 1.4, softness: 30, composite: 'layer', grainType: 'mono', shadows: 100, midtones: 100, highlights: 100 }, blendMode: 'overlay' }],
     links: []
+  },
+  {
+    id: 'builtin:mosh-freeze-drift',
+    name: 'Freeze & Drift',
+    description: 'Datamosh: the picture freezes at the start (and at each cut beneath an adjustment layer), then the footage’s own motion slowly pushes and melts its blocks.',
+    effects: [{ effectId: 'datamosh', params: { speed: 40, momentum: 85, leak: 0, rounding: 'half' } }],
+    links: []
+  },
+  {
+    id: 'builtin:mosh-codec',
+    name: 'Codec Mosh',
+    description: 'Closest to a real codec mosh (an MPEG-4 file with a keyframe removed): the footage’s motion and its frame-to-frame corrections land on the old picture, blocks the motion can’t explain break through, and it heals over a second or two. On an adjustment layer over a cut, Reset on Cuts is off.',
+    effects: [{ effectId: 'datamosh', params: { residual: 100, intra: 20, rounding: 'half', onCuts: false } }],
+    links: []
+  },
+  {
+    id: 'builtin:mosh-transition-melt',
+    name: 'Transition Melt',
+    description: 'Datamosh on an adjustment layer over your cuts: the next shot’s motion smears the last shot’s picture, which melts into the new shot over 50 frames.',
+    effects: [{ effectId: 'datamosh', params: { onCuts: false, melt: 50 } }],
+    links: []
+  },
+  {
+    id: 'builtin:mosh-kick-bloom',
+    name: 'Kick Bloom',
+    description: 'Datamosh whose motion repeats for 8 frames on each kick, so pixels smear outward in bursts; a 12% leak brings the picture back between kicks.',
+    effects: [{ effectId: 'datamosh', params: { bloomFrames: 8, leak: 12 } }],
+    // Above 50% for 75 ms after a hit, so a frame always sees it rise (even at 24 fps), and back under before the next kick.
+    links: [{ effect: 0, param: 'bloomTrigger', signal: 'hits', band: 'bass', row: 'Kick', modulator: { gain: 0, threshold: 0, knee: 0, attack: 0, release: 150, curve: 'linear' }, link: { mode: 'add', min: [0], max: [100] } }]
+  },
+  {
+    id: 'builtin:mosh-fluid',
+    name: 'Fluid',
+    description: 'Datamosh with high momentum and smoothed, unrounded motion: the picture swirls like liquid.',
+    effects: [{ effectId: 'datamosh', params: { momentum: 80, smoothing: 75, rounding: 'off' } }],
+    links: []
+  },
+  {
+    id: 'builtin:mosh-glide',
+    name: 'Glide',
+    description: 'Datamosh with a push: pixels slide right, 8 px a frame at 1080p, on top of the footage’s own motion.',
+    effects: [{ effectId: 'datamosh', params: { pushX: 8 } }],
+    links: []
+  },
+  {
+    id: 'builtin:mosh-bass-edges',
+    name: 'Bass Edge Mosh',
+    description: 'Datamosh at the edges of the frame (a new Edge mask), pushed harder by the bass: Strength from 0 up to 250% at the loudest. A 15% leak lets the edges recover when it’s quiet.',
+    effects: [{ effectId: 'datamosh', params: { strength: 0, leak: 15 }, edgeMask: { width: 0.2, feather: 0.1 } }],
+    links: [{ effect: 0, param: 'strength', signal: 'level', band: 'bass', modulator: { gain: 0, threshold: 0.2, knee: 0.1, attack: 5, release: 150, curve: 'linear' }, link: { mode: 'add', min: [0], max: [250] } }]
   }
 ]
 
@@ -117,9 +171,11 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
       sequence.modulators.push(made)
       return made.id
     })
+    // Edge masks (frame-space, so one serves every clip it's applied to).
+    const masks = preset.effects.map((e) => (e.edgeMask ? edgeMask(sequence as Sequence, e.edgeMask, newId) : null))
     for (const clip of clips) {
       const size = effectImageSize(clip, draft.media, sequence)
-      const added: EffectInstance[] = preset.effects.map((e) => {
+      const added: EffectInstance[] = preset.effects.map((e, index) => {
         const manifest = effectById(e.effectId)
         if (!manifest) throw new CommandError(`ginosa doesn't have an effect called "${e.effectId}"`)
         const params = defaultParams(manifest, size)
@@ -127,7 +183,8 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
           const spec = manifest.params.find((p) => p.id === id)
           if (spec) params[id] = sanitiseValue(spec, value, size)
         }
-        return { id: newId(), effectId: e.effectId, version: manifest.version, enabled: true, mix: 100, blendMode: e.blendMode ?? 'normal', params, keyframes: {}, modulation: {}, mask: null }
+        const mask = masks[index]
+        return { id: newId(), effectId: e.effectId, version: manifest.version, enabled: true, mix: 100, blendMode: e.blendMode ?? 'normal', params, keyframes: {}, modulation: {}, mask: mask ? { id: mask, invert: false } : null }
       })
       clip.effects.push(...added)
       preset.links.forEach((l, i) => {
@@ -141,3 +198,13 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
       : `${preset.name}: there’s no audio to follow yet, so the effect was added without its link. Add a source in Audio Analysis (or a ${preset.links[0]!.row ?? ''} row in the Channel Rack), then apply the preset again.`
   })
 }
+
+/** A new Edge mask in the sequence, its width and feather fractions of the frame's shorter side; returns its id. */
+function edgeMask(sequence: Sequence, settings: { width: number; feather: number }, newId: IdFactory): string {
+  const id = newId()
+  const side = Math.min(sequence.settings.width, sequence.settings.height)
+  const shape = newShape(newId(), 'edge', sequence.settings)
+  sequence.masks.push({ id, name: nextMaskName(sequence), shapes: [{ ...shape, width: Math.round(side * settings.width), feather: Math.round(side * settings.feather) }] })
+  return id
+}
+

@@ -1,5 +1,23 @@
 # Changelog
 
+## M14 · Datamosh A (7 Nov 2026)
+
+- **Datamosh** (Effects › Time): a live GPU datamosh on any clip or adjustment layer. A mosh buffer is pushed around by the footage's own motion, found by codec-style block matching, coarse to fine, about 5–8 ms a 1080p frame.
+  - **Motion**: Strength, Speed, Block Size (4–32 px), Momentum, Smoothing, Push X/Y, Swirl, and **Motion Source**: another video track whose clips' motion moves this picture (motion transfer), read as shot, even while the track is hidden.
+  - **Hold**: Freeze, Leak (even or in blocks), Melt.
+  - **Resets**: at the start, on cuts beneath an adjustment layer (or off, for a melt: the cut's frame holds, as with a removed keyframe), every n beats or bars, and the Reset Trigger (link it to a kick).
+  - **Bloom**: Repeat Motion, and a Bloom Trigger that repeats one frame's motion for Bloom Frames.
+  - **Codec Character**: Vector Rounding, Wrong Matches, Colour Drift, and, after the side-by-side tests, **Residual** (the footage's frame-to-frame change added, as a P-frame adds it) and **Intra Blocks** (blocks the motion can't explain refreshed, as an encoder does).
+  - **Show: Motion** draws each block's motion.
+- **Built-in presets** for the modes: Freeze & Drift, Transition Melt, Codec Mosh, Kick Bloom, Fluid, Glide, Bass Edge Mosh (with its own Edge mask). Built-in presets can now bring a mask.
+- **Side by side on your footage**: `npm run mosh-reference` moshes your two Apple Log clips with Datamosh and with a real MPEG-4 bitstream edit (`scripts/codec-mosh.py`: an I-frame removed, a P-frame repeated), into contact sheets and videos.
+- **Effect framework**: passes can keep images with the effect's state (read on the next frame, kept in checkpoints), later passes can read the first pass, effects can read another track's picture (a track parameter), and stateful effects know the frames since the latest cut.
+- The title bar says M14.
+- **Tests:**
+  - Datamosh on the GPU, 30 checks: motion found exactly, every control, resets, Residual, Intra Blocks, motion transfer (clip, adjustment layer, empty track, half size), a jump equal to playing in order, and its speed
+  - through the app: two exports identical, playback and jumps against the export, and motion transfer from a hidden track
+  - 3 new unit tests (371 in all)
+
 ## Transport (7 Nov 2026)
 
 - **Go to start** and **Go to end** buttons either side of the frame-step buttons under the Program monitor (Home and End, as before).

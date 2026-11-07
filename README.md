@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M13 · Gradient Map.** Photoshop's Gradient Map, with Photoshop gradient libraries (.grd) in and out, a Gradient Editor and a gradient library. Built on M12's Posterize Time and Channel Rack, M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Then Look LUTs (a .cube look with Strength on any clip or adjustment layer). Next: M14 (Datamosh A).
+**M14 · Datamosh A.** A live GPU datamosh with all its modes as built-in presets, reset triggers, bloom, codec character and motion transfer from another track, tested side by side with a real codec mosh of your footage. Built on Look LUTs, M13's Gradient Map, M12's Posterize Time and Channel Rack, M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Next: M15 (Datamosh B, the codec-level bake).
 
 ## Setup (once)
 
@@ -32,6 +32,8 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run snapshot -- --scenario effectsgpu` | Runs every effect setting and blend mode on the GPU and compares with the CPU maths; writes `renders/ui/effectsgpu.json` (also `masksgpu`, `feedbackgpu`, `colourlightgpu` and `graingpu`) |
 | `npm run snapshot -- --scenario exportcolourlight` | M10's effects and Kick Flash through playback and export, against the CPU maths; writes `renders/ui/exportcolourlight.json` (also `exportgrain`) |
 | `npm run snapshot -- --scenario posterize` | M12's done-when test: Posterize Time's holds in every exported frame against the beat grid, and a Channel Rack row driving Kick Flash; writes `renders/ui/posterize.json` |
+| `npm run snapshot -- --scenario exportmosh` | M14: Datamosh exported twice, played, scrubbed and with motion transfer from a hidden track, each checked; writes `renders/ui/exportmosh.json` (also `datamoshgpu`, on the GPU alone) |
+| `npm run mosh-reference` | M14's side by side: your Apple Log clips moshed by Datamosh and by a real MPEG-4 bitstream edit (`scripts/codec-mosh.py`), as contact sheets and videos in `renders/m14/footage` |
 | `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |
 | `npm run snapshot -- --scenario workspace` | Saves a screenshot of the app in a scripted state to `renders/ui/` (scenarios: start, workspace, windows, settings, docked, recovery, recovered, media, source, waveform, cache, icons, timeline, drag, composite, playback, sync) |

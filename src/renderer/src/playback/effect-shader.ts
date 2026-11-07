@@ -110,6 +110,10 @@ export function maskAa(toFrame: Affine): number {
 export interface PassTemporal {
   hasPrevious: boolean
   frames: number
+  /** Frames since the latest cut beneath (M14). */
+  sinceCut?: number
+  /** Motion transfer (M14): the motion source picture is bound. */
+  motionSource?: boolean
 }
 
 /**
@@ -125,7 +129,7 @@ export function packFrame(width: number, height: number, mix: number, blend: Ble
     pixelScale, mask ? mask.parts : 0, mask ? maskAa(m) : 1, mask?.invert ? 1 : 0,
     m.a, m.b, m.c, m.d,
     m.e, m.f, mask?.frame.width ?? width, mask?.frame.height ?? height,
-    temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, 0, 0,
+    temporal?.hasPrevious ? 1 : 0, temporal?.frames ?? 0, temporal?.sinceCut ?? temporal?.frames ?? 0, temporal?.motionSource ? 1 : 0,
     sizes?.output.width ?? width, sizes?.output.height ?? height, sizes?.prepass?.width ?? 1, sizes?.prepass?.height ?? 1,
     clock?.frame ?? 0, clock?.beat ?? 0, clock?.beatsPerFrame ?? 0, clock?.beatsPerBar ?? 4
   ])
@@ -152,7 +156,7 @@ struct EffectFrame {
   maskInvert: f32,
   toFrame0: vec4f, // a, b, c, d: processed pixel -> frame pixel
   toFrame1: vec4f, // e, f, frame width, frame height
-  temporal: vec4f, // has a previous frame (stateful effects), frames since the reset
+  temporal: vec4f, // has a previous frame (stateful effects), frames since the reset, frames since the latest cut beneath, a motion source is bound
   passes: vec4f, // the size of the image this pass writes, then of the earlier pass it reads
   clock: vec4f, // sequence frame number, beat on the grid, beats per frame, beats per bar
 };
@@ -173,6 +177,13 @@ ${params}
 @group(0) @binding(7) var prepassTex: texture_2d<f32>;
 // An effect's LUT (decision 77): a 3D texture over 0-1 (a 1 x 1 x 1 stand-in when there's none).
 @group(0) @binding(8) var effectLut: texture_3d<f32>;
+// Stateful effects (M14): the images their passes kept with the frame before (slots 0 and 1),
+// and this frame's first pass, for every later pass to read.
+@group(0) @binding(9) var keptTex0: texture_2d<f32>;
+@group(0) @binding(10) var keptTex1: texture_2d<f32>;
+@group(0) @binding(11) var firstPassTex: texture_2d<f32>;
+// Motion transfer (M14): another track's picture, as shot, in this effect's pixels (a track parameter).
+@group(0) @binding(12) var motionTex: texture_2d<f32>;
 ${curves}
 
 const EFFECT_SPACE: u32 = ${SPACES[manifest.colourSpace]}u;
@@ -276,6 +287,29 @@ fn beatsPerBar() -> f32 { return frame.clock.w; }
 
 fn hasPrevious() -> bool { return frame.temporal.x > 0.5; }
 fn framesSinceReset() -> f32 { return frame.temporal.y; }
+fn framesSinceCut() -> f32 { return frame.temporal.z; }
+
+// What the frame before's passes kept (zero on the first frame), its size, and this frame's first pass.
+fn keptSize(slot: u32) -> vec2i {
+  if (slot == 0u) { return vec2i(textureDimensions(keptTex0)); }
+  return vec2i(textureDimensions(keptTex1));
+}
+fn keptLoad(slot: u32, p: vec2i) -> vec4f {
+  if (!hasPrevious()) { return vec4f(0.0); }
+  let q = clamp(p, vec2i(0), keptSize(slot) - 1);
+  if (slot == 0u) { return textureLoad(keptTex0, q, 0); }
+  return textureLoad(keptTex1, q, 0);
+}
+fn firstPassSize() -> vec2i { return vec2i(textureDimensions(firstPassTex)); }
+fn firstPassLoad(p: vec2i) -> vec4f { return textureLoad(firstPassTex, clamp(p, vec2i(0), firstPassSize() - 1), 0); }
+
+// The motion source's picture (M14), in the effect's colour space; the input when there's none.
+fn hasMotionSource() -> bool { return frame.temporal.w > 0.5; }
+fn motionSourceLoad(p: vec2i) -> vec4f {
+  if (!hasMotionSource()) { return inputLoad(p); }
+  let c = textureLoad(motionTex, clamp(p, vec2i(0), vec2i(textureDimensions(motionTex)) - 1), 0);
+  return vec4f(toSpace(c.rgb), c.a);
+}
 
 // The effect's output on the frame before, in its colour space; transparent outside the
 // image, and everywhere on the first frame.

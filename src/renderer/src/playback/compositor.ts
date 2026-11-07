@@ -38,8 +38,12 @@ export interface GpuEffect {
   state?: EffectState | null
   /** The effect's LUT (decision 77), a cube over 0–1, when it has one and it's loaded. */
   lut?: GpuLut | null
+  /** Stateful effects: frames since the latest cut beneath an adjustment layer (or since the reset on a clip). */
+  sinceCut?: number
   /** The frame and beat being rendered (M11), for effects that read the clock. */
   clock?: EffectClock
+  /** Motion transfer (M14): the key of the motion source steps this effect reads (none: its own picture's motion). */
+  motionKey?: string
 }
 
 /** A stateful effect's state, as one pass sees it (temporal.ts keeps it between frames). */
@@ -50,8 +54,10 @@ export interface EffectState {
   kept(width: number, height: number): GPUTexture | null
   /** The effect's output on the frame before, for a pass this size; null on the first frame (or if none is kept). */
   previous(width: number, height: number): GPUTexture | null
-  /** Keeps this frame's output (copied within the same command encoder). */
-  commit(encoder: GPUCommandEncoder, output: GPUTexture): void
+  /** An image a pass kept with the frame before's state (M14), by slot; null on the first frame. Call after `previous`. */
+  previousKept(slot: 0 | 1): GPUTexture | null
+  /** Keeps this frame's output, and the images its passes keep (copied within the same command encoder). */
+  commit(encoder: GPUCommandEncoder, output: GPUTexture, extras?: Array<GPUTexture | null>): void
 }
 
 /** One layer to composite: a decoded frame or a still, how it's placed, and how it blends. */
@@ -83,10 +89,25 @@ export interface AdjustmentStep {
   mask: GpuMask | null
 }
 
-export type CompositeStep = CompositeLayer | AdjustmentStep
+/**
+ * Motion transfer (M14): a clip on an effect's motion source track. It isn't composited:
+ * the effect whose key it carries reads it (with any others of the same key, drawn in order
+ * over black), placed in that effect's own pixels.
+ */
+export interface MotionStep {
+  kind: 'motion'
+  key: string
+  layer: CompositeLayer
+}
+
+export type CompositeStep = CompositeLayer | AdjustmentStep | MotionStep
 
 function isAdjustment(step: CompositeStep): step is AdjustmentStep {
   return (step as AdjustmentStep).kind === 'adjustment'
+}
+
+function isMotion(step: CompositeStep): step is MotionStep {
+  return (step as MotionStep).kind === 'motion'
 }
 
 /** How a layer's pixels become working (Rec.709 code) values. */
@@ -138,6 +159,8 @@ export class Compositor {
   private storageUsed = 0
   private readonly noMask: GPUBuffer
   private readonly noPrevious: GPUTexture
+  /** This render's motion source pictures (M14), by the key of the effect that reads them. */
+  private motionLayers = new Map<string, CompositeLayer[]>()
   private readonly noLut: GPUTexture
   width = 0
   height = 0
@@ -199,7 +222,11 @@ export class Compositor {
               { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
               { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
               { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '3d' } }
+              { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '3d' } },
+              { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 12, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
             ]
           })
         ]
@@ -383,7 +410,13 @@ export class Compositor {
       }
       const mask = effect.mask ? { parts: effect.mask.parts, invert: effect.mask.invert, toFrame: effect.mask.onClip ? scaledAffine(effect.mask.onClip, pixelScale) : toFrame, frame: effect.mask.frame } : null
       const previous = effect.state?.previous(input.width, input.height) ?? null
-      const temporal = effect.state ? { hasPrevious: previous !== null, frames: effect.state.frames } : null
+      // Motion transfer (M14): the source track's picture, in this input's pixels.
+      const motion = effect.motionKey !== undefined ? this.motionPicture(encoder, effect.motionKey, input.width, input.height, toFrame) : null
+      const temporal = effect.state || motion ? { hasPrevious: previous !== null, frames: effect.state?.frames ?? 0, sinceCut: effect.sinceCut ?? effect.state?.frames ?? 0, motionSource: motion !== null } : null
+      // What the frame before's passes kept (M14), and what this frame's keep.
+      const keptBefore = [0, 1].map((slot) => effect.state?.previousKept(slot as 0 | 1) ?? this.noPrevious)
+      const keeping: Array<GPUTexture | null> = []
+      let first: GPUTexture | null = null
       const output = this.take(input.width, input.height)
       const pipeline = this.effectPipeline(effect.manifest)
       // Earlier passes (M10) each render their own image (e.g. Mosaic's cells), reading the
@@ -406,10 +439,14 @@ export class Compositor {
             { binding: 2, resource: { buffer: this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, null, temporal, sizes, effect.clock)) } },
             { binding: 3, resource: { buffer: paramsUniform } },
             { binding: 4, resource: { buffer: this.noMask } },
-            { binding: 5, resource: this.noPrevious.createView() },
+            { binding: 5, resource: (previous ?? this.noPrevious).createView() },
             { binding: 6, resource: { buffer: data } },
             { binding: 7, resource: (prepass ?? this.noPrevious).createView() },
-            { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) }
+            { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) },
+            { binding: 9, resource: keptBefore[0]!.createView() },
+            { binding: 10, resource: keptBefore[1]!.createView() },
+            { binding: 11, resource: (first ?? this.noPrevious).createView() },
+            { binding: 12, resource: (motion ?? this.noPrevious).createView() }
           ]
         })
         const run = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -417,7 +454,10 @@ export class Compositor {
         run.setBindGroup(0, passGroup)
         run.draw(3)
         run.end()
-        if (prepass) this.release(prepass)
+        // The first pass's image stays readable by every later pass; kept images stay until the commit.
+        if (prepass && prepass !== first && !keeping.includes(prepass)) this.release(prepass)
+        if (index === 0) first = target
+        if (pass.keep !== undefined) keeping[pass.keep] = target
         prepass = target
       }
       const frameUniform = this.uniform(packFrame(input.width, input.height, effect.mix, effect.blend, pixelScale, mask, temporal, { output: inputSize, prepass: prepass ? { width: prepass.width, height: prepass.height } : null }, effect.clock))
@@ -432,7 +472,11 @@ export class Compositor {
           { binding: 5, resource: (previous ?? this.noPrevious).createView() },
           { binding: 6, resource: { buffer: data } },
           { binding: 7, resource: (prepass ?? this.noPrevious).createView() },
-          { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) }
+          { binding: 8, resource: (effect.lut?.texture ?? this.noLut).createView({ dimension: '3d' }) },
+          { binding: 9, resource: keptBefore[0]!.createView() },
+          { binding: 10, resource: keptBefore[1]!.createView() },
+          { binding: 11, resource: (first ?? this.noPrevious).createView() },
+          { binding: 12, resource: (motion ?? this.noPrevious).createView() }
         ]
       })
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: output.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] })
@@ -440,12 +484,35 @@ export class Compositor {
       pass.setBindGroup(0, bindGroup)
       pass.draw(3)
       pass.end()
-      effect.state?.commit(encoder, output)
-      if (prepass) this.release(prepass)
+      effect.state?.commit(encoder, output, [keeping[0] ?? null, keeping[1] ?? null])
+      for (const t of new Set([prepass, first, ...keeping, motion])) if (t) this.release(t)
       if (current !== input) this.release(current)
       current = output
     }
     return current
+  }
+
+  /**
+   * A motion source's picture (M14): its layers drawn in order over black, as shot, into an
+   * image `width` × `height` whose pixels `toFrame` maps onto the frame (the reading effect's
+   * own input), so the motion is measured where the source shows on screen.
+   */
+  private motionPicture(encoder: GPUCommandEncoder, key: string, width: number, height: number, toFrame: Affine): GPUTexture {
+    let read = this.take(width, height)
+    let write = this.take(width, height)
+    encoder.beginRenderPass({ colorAttachments: [{ view: read.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }).end()
+    const lutView = (colour: LayerColour) => (colour.conversion.kind === 'lut' ? colour.conversion.lut.texture : this.noLut).createView({ dimension: '3d' })
+    for (const layer of this.motionLayers.get(key) ?? []) {
+      // Input pixel → frame pixel → the source's pixel, at scale 1.
+      const placed: CompositeLayer = { ...layer, inverse: compose(layer.inverse, toFrame), mask: null }
+      const resources: Partial<Record<number, GPUBindingResource>> = { 1: this.sampler, 2: { buffer: this.uniform(this.layerUniform(placed, 1)) }, 3: read.createView(), 7: lutView(layer.colour), 8: { buffer: this.maskBuffer(null) } }
+      if (layer.source.kind === 'video') resources[0] = this.device.importExternalTexture({ source: layer.source.frame })
+      else resources[4] = layer.source.texture.createView()
+      this.draw(encoder, layer.source.kind === 'video' ? 'fsVideo' : 'fsImage', write, resources)
+      ;[read, write] = [write, read]
+    }
+    this.release(write)
+    return read
   }
 
   /**
@@ -457,6 +524,7 @@ export class Compositor {
     if (!this.targets) throw new Error('Compositor has no size yet')
     this.uniformUsed = 0
     this.storageUsed = 0
+    this.motionLayers = new Map()
     const encoder = this.device.createCommandEncoder({ label: 'composite' })
     let [read, write] = this.targets
     // Start from black.
@@ -464,6 +532,10 @@ export class Compositor {
     const lutView = (colour: LayerColour) => (colour.conversion.kind === 'lut' ? colour.conversion.lut.texture : this.noLut).createView({ dimension: '3d' })
     const limit = this.device.limits.maxTextureDimension2D
     for (const step of steps) {
+      if (isMotion(step)) {
+        this.motionLayers.set(step.key, [...(this.motionLayers.get(step.key) ?? []), step.layer])
+        continue
+      }
       if (isAdjustment(step)) {
         if (step.effects.length === 0) continue
         // The composite is the frame times `scale`.

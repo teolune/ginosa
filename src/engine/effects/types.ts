@@ -112,7 +112,19 @@ export interface LutParam extends ParamBase {
   default: ''
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam | LutParam
+/**
+ * A video track (M14): its id, or '' for none. Shown as a menu of the sequence's video tracks;
+ * holds between keyframes. Datamosh takes its motion from it (motion transfer): the effect's
+ * passes read that track's picture, as shot (its clips' own effects aren't applied, and the
+ * track is read even while it's hidden), with `hasMotionSource()` and `motionSourceLoad(p)`,
+ * in this effect's pixels. A track that isn't in the sequence counts as none. One per effect.
+ */
+export interface TrackParam extends ParamBase {
+  type: 'track'
+  default: ''
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam | LutParam | TrackParam
 
 export interface EffectManifest {
   id: string
@@ -179,6 +191,11 @@ export interface EffectPass {
   shader: string
   /** The image this pass writes, for an effect input of `input` pixels. */
   size(input: ImageSize, params: Record<string, ParamValue>): ImageSize
+  /**
+   * Stateful effects (M14): keep this pass's image with the frame's state, in slot 0 or 1,
+   * so the next frame can read it (`keptLoad(slot, texel)`), as it reads its own output.
+   */
+  keep?: 0 | 1
 }
 
 /** An effect on a clip or adjustment layer. */

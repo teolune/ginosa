@@ -34,6 +34,8 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
       return typeof value === 'string' && parseGradient(value) ? value : fallback
     case 'lut':
       return typeof value === 'string' && isLutPath(value) ? value : fallback
+    case 'track':
+      return typeof value === 'string' ? value : fallback
     case 'steps':
       return typeof value === 'number' && Number.isFinite(value) ? Math.min(spec.steps.length - 1, Math.max(0, Math.round(value))) : fallback
   }
@@ -41,7 +43,7 @@ export function sanitiseValue(spec: ParamSpec, value: unknown, size: ImageSize):
 
 /** Parameters that hold between keyframes rather than move smoothly. */
 export function isStepped(spec: ParamSpec): boolean {
-  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps' || spec.type === 'gradient' || spec.type === 'lut'
+  return spec.type === 'choice' || spec.type === 'toggle' || spec.type === 'curve' || spec.type === 'steps' || spec.type === 'gradient' || spec.type === 'lut' || spec.type === 'track'
 }
 
 export function sanitiseParams(manifest: EffectManifest, raw: Record<string, unknown>, size: ImageSize): Record<string, ParamValue> {

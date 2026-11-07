@@ -17,9 +17,13 @@ export const STATE_BUDGET_BYTES = 2 * 1024 * 1024 * 1024
 
 interface Kept {
   texture: GPUTexture
+  /** Images the effect's passes keep with the state (M14: e.g. Datamosh's last frame and motion), by slot. */
+  extras: Array<GPUTexture | null>
   /** Rendered from the exact state before it (not a playback approximation). */
   exact: boolean
 }
+
+const bytesOf = (k: Kept) => [k.texture, ...k.extras].reduce((sum, t) => sum + (t ? t.width * t.height * 8 : 0), 0)
 
 interface Slot {
   key: string
@@ -54,36 +58,46 @@ export class TemporalStore {
   state(slotId: string, key: string, frame: number): EffectState {
     const fullKey = this.slotKey(key)
     let exactInput = frame === 0
+    // The state the frame before left (exact, or in live playback the newest one before it).
+    let chosen: Kept | null = null
+    let looked = false
+    const before = (width: number, height: number): Kept | null => {
+      if (looked) return chosen
+      looked = true
+      const slot = this.slot(slotId, fullKey, width, height)
+      if (frame === 0) return null
+      const kept = slot.kept.get(frame - 1)
+      if (kept?.exact) {
+        exactInput = true
+        return (chosen = kept)
+      }
+      if (this.mode === 'exact') this.stats.missed++
+      else this.stats.approximate++
+      if (this.mode === 'exact' && !kept) return null
+      // Live: the newest state before this frame (a dropped frame, or one rendered approximately).
+      let best: number | null = null
+      for (const f of slot.kept.keys()) if (f < frame && (best === null || f > best)) best = f
+      return (chosen = best === null ? null : slot.kept.get(best)!)
+    }
     return {
       frames: frame,
       kept: (width, height) => {
         const kept = this.slot(slotId, fullKey, width, height).kept.get(frame)
         return kept?.exact ? kept.texture : null
       },
-      previous: (width, height) => {
-        const slot = this.slot(slotId, fullKey, width, height)
-        if (frame === 0) return null
-        const before = slot.kept.get(frame - 1)
-        if (before?.exact) {
-          exactInput = true
-          return before.texture
-        }
-        if (this.mode === 'exact') this.stats.missed++
-        else this.stats.approximate++
-        if (this.mode === 'exact' && !before) return null
-        // Live: the newest state before this frame (a dropped frame, or one rendered approximately).
-        let best: number | null = null
-        for (const f of slot.kept.keys()) if (f < frame && (best === null || f > best)) best = f
-        return best === null ? null : slot.kept.get(best)!.texture
-      },
-      commit: (encoder, output) => {
+      previous: (width, height) => before(width, height)?.texture ?? null,
+      previousKept: (slot) => (frame === 0 ? null : (chosen?.extras[slot] ?? null)),
+      commit: (encoder, output, extras = []) => {
         const slot = this.slots.get(slotId)
         if (!slot || slot.key !== fullKey) return
-        const texture = this.take(output.width, output.height)
-        encoder.copyTextureToTexture({ texture: output }, { texture }, [output.width, output.height])
+        const copy = (source: GPUTexture) => {
+          const texture = this.take(source.width, source.height)
+          encoder.copyTextureToTexture({ texture: source }, { texture }, [source.width, source.height])
+          return texture
+        }
         const old = slot.kept.get(frame)
-        if (old) this.give(old.texture)
-        slot.kept.set(frame, { texture, exact: exactInput })
+        if (old) this.giveKept(old)
+        slot.kept.set(frame, { texture: copy(output), extras: extras.map((t) => (t ? copy(t) : null)), exact: exactInput })
         this.prune(slot, frame)
       }
     }
@@ -123,7 +137,7 @@ export class TemporalStore {
 
   /** Every state and checkpoint, freed. */
   clear(): void {
-    for (const slot of this.slots.values()) for (const k of slot.kept.values()) k.texture.destroy()
+    for (const slot of this.slots.values()) for (const k of slot.kept.values()) [k.texture, ...k.extras].forEach((t) => t?.destroy())
     this.slots.clear()
     for (const list of this.free.values()) list.forEach((t) => t.destroy())
     this.free.clear()
@@ -132,7 +146,7 @@ export class TemporalStore {
   /** Bytes held in states and checkpoints. */
   bytes(): number {
     let total = 0
-    for (const slot of this.slots.values()) total += slot.kept.size * slot.width * slot.height * 8
+    for (const slot of this.slots.values()) for (const k of slot.kept.values()) total += bytesOf(k)
     return total
   }
 
@@ -147,7 +161,7 @@ export class TemporalStore {
     let slot = this.slots.get(slotId)
     if (!slot || slot.key !== key || slot.width !== width || slot.height !== height) {
       if (slot) {
-        for (const k of slot.kept.values()) this.give(k.texture)
+        for (const k of slot.kept.values()) this.giveKept(k)
         this.stats.resets++
       }
       slot = { key, width, height, kept: new Map(), usedAt: 0 }
@@ -163,7 +177,7 @@ export class TemporalStore {
       if (f === frame || f === frame - 1) continue
       if (k.exact && f > 0 && f % this.checkpointEvery === 0) continue
       slot.kept.delete(f)
-      this.give(k.texture)
+      this.giveKept(k)
     }
     let over = this.bytes() - this.budget
     if (over <= 0) return
@@ -174,9 +188,10 @@ export class TemporalStore {
       const candidates = [...s.kept.keys()].filter((f) => f !== latest && f !== latest - 1).sort((a, b) => Math.abs(b - latest) - Math.abs(a - latest))
       for (const f of candidates) {
         if (over <= 0) return
-        this.give(s.kept.get(f)!.texture)
+        const k = s.kept.get(f)!
+        over -= bytesOf(k)
+        this.giveKept(k)
         s.kept.delete(f)
-        over -= s.width * s.height * 8
       }
     }
   }
@@ -185,6 +200,11 @@ export class TemporalStore {
     const texture = this.free.get(`${width}x${height}`)?.pop()
     if (texture) return texture
     return this.device.createTexture({ size: [width, height], format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC })
+  }
+
+  private giveKept(k: Kept): void {
+    this.give(k.texture)
+    for (const t of k.extras) if (t) this.give(t)
   }
 
   private give(texture: GPUTexture): void {

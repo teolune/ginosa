@@ -20,6 +20,9 @@ import { runMaskGpuTest } from '../playback/mask-gpu-test'
 import { runColourLightGpuTest } from '../playback/colour-light-gpu-test'
 import { runGradientMapGpuTest } from '../playback/gradient-map-gpu-test'
 import { runLookLutGpuTest } from '../playback/look-lut-gpu-test'
+import { runDatamoshGpuTest } from '../playback/datamosh-gpu-test'
+import { datamoshExportTest } from '../playback/datamosh-export-test'
+import { datamoshFootage } from '../playback/datamosh-footage'
 import { lookLutExportTest } from '../playback/look-lut-export-test'
 import { buildGradientUi } from '../gradients/gradient-demo'
 import { runGradientFidelity } from '../gradients/fidelity-test'
@@ -425,6 +428,29 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
       timelineController.zoomToFit()
       await wait(1200)
+      break
+    }
+    case 'exportmosh': {
+      // M14: Datamosh through the app: export twice, playback, jumps, and motion transfer.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(testsrc_1080p24_h264\.mp4|square_1080\.png)$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await datamoshExportTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      workspaceController.open('effect-controls')
+      timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
+      timelineController.zoomToFit()
+      await wait(1200)
+      break
+    }
+    case 'moshfootage': {
+      // M14 side by side: your Apple Log clips moshed several ways, exported for scripts/codec-mosh.py.
+      await window.ginosa.snapshot.report(await datamoshFootage().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      timelineController.zoomToFit()
+      await wait(1000)
+      break
+    }
+    case 'datamoshgpu': {
+      // M14: Datamosh on the GPU, frame after frame, on pictures whose motion is known.
+      await window.ginosa.snapshot.report(await runDatamoshGpuTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'lookgpu': {

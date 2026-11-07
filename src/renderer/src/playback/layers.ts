@@ -10,7 +10,7 @@ import type { MaskRef } from '@engine/masks/types'
 import { projectController } from '../state/project-controller'
 import { effectById } from '../../../effects/registry'
 import type { EffectInstance } from '@engine/effects/types'
-import type { AdjustmentStep, Compositor, CompositeLayer, GpuEffect, GpuLut, GpuMask, LayerColour } from './compositor'
+import type { AdjustmentStep, Compositor, CompositeLayer, CompositeStep, GpuEffect, GpuLut, GpuMask, LayerColour } from './compositor'
 import type { TemporalStore } from './temporal'
 
 /**
@@ -45,7 +45,7 @@ export class LayerBuilder {
       const lutSpec = manifest.params.find((p) => p.type === 'lut')
       const lutFile = lutSpec ? String(effect.params[lutSpec.id] ?? '') : ''
       const lut = lutFile ? this.lookLut(lutFile) : null
-      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.held && index < layer.held.effects ? layer.held.clock : layer.clock, lut }]
+      return [{ manifest, params: effect.params, mix: effect.mix / 100, blend: effect.blendMode, mask: this.mask(effect.mask, layer.masks, layer), state, clock: layer.held && index < layer.held.effects ? layer.held.clock : layer.clock, lut, sinceCut: t?.sinceCut ?? 0, motionKey: layer.motion?.[effect.id] }]
     })
   }
 
@@ -72,11 +72,16 @@ export class LayerBuilder {
     }
   }
 
-  build(layer: VideoLayer, source: CompositeLayer['source'], sequence: Sequence): CompositeLayer | null {
+  /** A clip's layer; or, for a motion source (M14), the picture another layer's effect reads. */
+  build(layer: VideoLayer, source: CompositeLayer['source'], sequence: Sequence): CompositeStep | null {
     const inverse = inverseMotion(layer.clip.motion)
     if (!inverse || !layer.item) return null
     const size = sourceSize(layer.item, sequence.settings)
     const rotation = Math.round(((layer.item.info.video?.rotation ?? 0) % 360) / 90)
+    if (layer.motionFor) {
+      const picture: CompositeLayer = { source, inverse, width: size.width, height: size.height, rotation: (rotation + 4) % 4, opacity: layer.weight, blend: 'normal', colour: this.colour(layer.item, source) }
+      return { kind: 'motion', key: layer.motionFor, layer: picture }
+    }
     return {
       source,
       inverse,

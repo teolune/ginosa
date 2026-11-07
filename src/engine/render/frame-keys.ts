@@ -62,7 +62,10 @@ export function layerContent(layer: VideoLayer): string {
     at: item?.kind === 'image' ? 0 : layer.sourceTime,
     masks: maskIds.map((id) => (layer.masks.byId.get(id) ?? []).map(shapeContent)),
     // Effects that change with the frame or the beat (grain) differ on every frame, even on a still.
-    clock: clockKey(layer)
+    clock: clockKey(layer),
+    // Motion transfer (M14): a source layer is read by one effect, not drawn.
+    motionFor: layer.motionFor ?? null,
+    motionSources: layer.motion ?? null
   })
 }
 
@@ -116,20 +119,27 @@ export class FrameKeyJob {
     const layers = videoLayersAt(this.sequence, this.media, j * this.frame, this.modulation)
     let prefix = this.base
     let effects = 0
+    // The motion source layers (M14) just before a layer, which its effects read.
+    let sources = ''
     for (const layer of layers) {
       const part = layerContent(layer)
       prefix = hashText(prefix + part)
+      if (layer.motionFor) {
+        sources += part
+        continue
+      }
       if (layer.clip.effects.some((e) => e.enabled)) effects = 1
       const t = layer.temporal
       if (t) {
         // A clip's stateful effects see only the clip; an adjustment layer's see everything below it.
-        const input = layer.clip.adjustment ? prefix : hashText(part)
+        const input = layer.clip.adjustment ? prefix : hashText(part + sources)
         const before = this.chains.get(layer.clip.id)
         const continues = before && before.frame === t.frame - 1 && before.key === t.key
         const chain = hashText(`${t.frame === 0 || !continues ? `reset:${t.frame}` : before.chain}|${input}`)
         this.chains.set(layer.clip.id, { frame: t.frame, key: t.key, chain })
         prefix = hashText(prefix + chain)
       }
+      sources = ''
     }
     this.keys[j] = prefix
     this.effects[j] = effects

@@ -29,6 +29,7 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | Tool | Use | Licence |
 | --- | --- | --- |
 | FFmpeg / ffprobe | Conform, optimised copies, ProRes, export muxing, test media | LGPL-2.1+ / GPL-2+ (Homebrew build includes GPL parts) |
+| Python 3 (macOS command line tools) | `scripts/codec-mosh.py`: the real codec mosh for M14's side-by-side tests (standard library only, with FFmpeg) | PSF License |
 | ffglitch | Codec-level datamosh (M15) | FFmpeg-derived; checked when added |
 | GitHub CLI (gh) | Pushing to the private repo | MIT |
 

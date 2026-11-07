@@ -5,7 +5,7 @@ import { evaluate } from '../keyframes/keyframes'
 import { resolveClip } from '../keyframes/properties'
 import type { ModulationContext } from '../modulation/types'
 import { resolveMasks, type FrameSize, type ResolvedShape } from '../masks/masks'
-import { hasStatefulEffect, stateFrame, stateKey } from './temporal'
+import { hasStatefulEffect, motionTrackOf, stateFrame, stateKey } from './temporal'
 import { beatAt } from '../audio/beat-grid'
 import { DEFAULT_GRID } from '../modulation/curve'
 import type { EffectClock } from '../effects/types'
@@ -40,6 +40,15 @@ export interface VideoLayer {
    * Time) were worked out at the held moment, so they read that moment's clock.
    */
   held?: { effects: number; clock: EffectClock } | null
+  /**
+   * Motion transfer (M14): this layer isn't drawn; it's a clip on another effect's motion
+   * source track (the key says whose: `<clip id>:<effect id>`), as shot: its Motion and
+   * transition weight, without its effects, mask, opacity or blend mode. It comes just before
+   * the layer whose effect reads it.
+   */
+  motionFor?: string
+  /** This layer's effects that take motion from another track: effect id → their source layers' key. */
+  motion?: Readonly<Record<string, string>>
 }
 
 /** The clock at a sequence time: its frame number, and its place on the beat grid (120 BPM from 0 without one). */
@@ -56,6 +65,8 @@ export interface LayerTemporal {
   resetAt: Ticks
   /** Changes whenever anything the state depends on changes. */
   key: string
+  /** Frames since the latest cut beneath an adjustment layer, or since the reset on a clip (M14). */
+  sinceCut: number
 }
 
 /** Masks at one moment, by id, with the frame size they're drawn on. */
@@ -205,18 +216,37 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
       let temporal: LayerTemporal | null = null
       if (hasStatefulEffect(stored)) {
         const resetAt = visibleFrom(sequence, stored)
-        temporal = { frame: stateFrame(time, resetAt, frame), resetAt, key: `${stateKey(sequence, media, stored, resetAt)}:${modulation?.id ?? 'none'}` }
+        const since = stateFrame(time, resetAt, frame)
+        const f = Math.round(time / frame)
+        const cut = clip.adjustment ? latestCut(sequence, tracks.slice(0, index).map((t) => t.id), Math.round(resetAt / frame), f, frame) : null
+        temporal = { frame: since, resetAt, key: `${stateKey(sequence, media, stored, resetAt)}:${modulation?.id ?? 'none'}`, sinceCut: cut === null ? since : f - cut }
       }
       // An invisible layer is skipped, unless its effects keep state (that state must still run).
       if ((clip.opacity <= 0 || weight <= 0) && !temporal) continue
+      // Motion transfer (M14): the clips on each motion source track, read even while the track
+      // is hidden, go in just before this layer (only its effect sees them).
+      const sources: VideoLayer[] = []
+      let motion: Record<string, string> | undefined
+      for (const effect of clip.effects) {
+        const source = motionTrackOf(sequence, effect)
+        if (!source) continue
+        const key = `${clip.id}:${effect.id}`
+        ;(motion ??= {})[effect.id] = key
+        for (const { clip: other, weight: w } of trackLayers(sequence, source, time)) {
+          const otherItem = other.adjustment ? undefined : media.find((m) => m.id === other.mediaId)
+          if (!otherItem || w <= 0) continue
+          const shot = resolveClip(other, time, modulation)
+          sources.push({ clip: { ...shot, effects: [], mask: null, opacity: 100, blendMode: 'normal' }, item: otherItem, sourceTime: sourceTimeAt(shot, time, frame, mediaLength(otherItem)), weight: Math.min(1, w), masks, temporal: null, clock, motionFor: key })
+        }
+      }
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.
-        if (clip.effects.some((e) => e.enabled)) layers.push({ clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal, clock, held })
+        if (clip.effects.some((e) => e.enabled)) layers.push(...sources, { clip, item: null, sourceTime: 0, weight: Math.min(1, weight), masks, temporal, clock, held, motion })
         continue
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push({ clip, item, sourceTime: sourceTimeAt(clip, shown, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock, held })
+      layers.push(...sources, { clip, item, sourceTime: sourceTimeAt(clip, shown, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock, held, motion })
     }
   }
   if (sequence.masks.length > 0) {
