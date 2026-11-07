@@ -22,7 +22,7 @@ npm start
   - `playhead` (a frame at a time, as when stepping): about **104** monitor renders of 120 (was 21), p95 about **17 ms** (was 100).
   - `playback` at **25 fps** with nothing dropped, with and without Datamosh.
 - [ ] `waveformzoom.png`: the song at the closest zoom (2400 px a second). You can see the cycles of each kick. `waveformzoom2` shows it at 120 px a second.
-- [ ] **`npm start`** instead of `npm run dev` from now on. `npm run dev` is for working on ginosa: it adds React's development checks and live reload, which make every redraw slower (I haven't measured by how much on your Mac). `npm start` builds first (about 10 s), then opens the same app with your projects.
+- [ ] **`npm start`** instead of `npm run dev` from now on. `npm run dev` is for working on ginosa: it adds React's development checks and live reload, which make every redraw slower (I haven't measured by how much on your Mac). `npm start` builds first (a few seconds), then opens the same app with your projects.
 
 ## In the app
 
