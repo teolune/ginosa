@@ -1,20 +1,21 @@
 import { useId } from 'react'
 
 /**
- * The ginosa mark (decision 104): your GinosaG sketch, redrawn with honest curves: nodes at
- * the extremes with level or plumb handles, a straight stem at 8.1° and both cuts parallel to
- * it, leaving two equal 14.9-unit channels. The source is assets/logo/ginosa-logo.svg.
+ * The ginosa mark (decision 104): your GinosaG sketch, redrawn with natural curves: nodes at
+ * the extremes with level or plumb handles, curvature flowing on across every node and changing
+ * evenly along each curve; a straight stem at 8.1° with both cuts parallel to it, leaving two
+ * equal 14.9-unit channels. The source is assets/logo/ginosa-logo.svg.
  * Light purple on the dark interface.
  */
 const SWIRL =
-  'M254.85 439.14C246.61 440.51 239.85 440.55 231.57 440.55C116.24 440.55 19.24 344.31 19.24 229.93C19.24 142.62 103.7 0.45 200.67 0.45C242.36 0.45 294.77 27.88 310.59 67.75C296.31 60.89 289.38 57.31 272.96 57.31C183.62 57.31 77.7 186.37 77.7 272.79C77.7 334.09 136.53 383.44 192.03 397.31C214.05 402.82 227.88 401.26 249.59 402.29Z'
+  'M255.74 439.54C249.09 440.48 239.13 441.56 227.52 441.56C111.95 441.56 19.34 333.14 19.34 232.27C19.34 137.15 109.45 0.44 200.89 0.44C241.99 0.44 294.34 27.63 311.48 68.15C300.8 62.15 287.55 57.98 272.21 57.98C187.71 57.98 78.64 183.97 78.64 271.93C78.64 351.58 169.18 409.69 250.48 402.69Z'
 const RING =
-  'M270.09 440.49L240.57 233.49C215.79 242.26 198.82 266.58 198.82 292.85C198.82 325.11 227.17 342.83 227.17 354.26C227.17 363.75 218.54 364.16 211.07 364.16C164.95 364.16 131.54 300.81 131.54 258.45C131.54 182.06 201.2 126.59 274.91 126.59C361.72 126.59 421.76 193.4 421.76 278.28C421.76 340.06 385.24 401.19 326.07 422.86L318.4 369.11C331.04 346.87 339.89 321.05 339.89 295.19C339.89 261.07 317.03 234.23 283.35 228.86L311.89 428.99Z'
+  'M270.98 440.9L241.46 233.89C217.48 243.19 198.77 263.99 198.77 286.63C198.77 313.58 225.31 327.62 225.31 347.86C225.31 359.57 216.25 368.37 204.86 368.37C174.32 368.37 131.99 306.01 131.99 255.89C131.99 194.75 193.88 125.59 277.26 125.59C363.55 125.59 422.66 198.5 422.66 278.95C422.66 342.98 385.19 400.63 326.95 423.27L319.29 369.51C332 347.41 340.88 320.73 340.88 297.6C340.88 258.63 315.39 234 284.23 229.27L312.78 429.39Z'
 
 export function Logo({ size = 24, className }: { size?: number; className?: string }) {
   const id = useId().replace(/:/g, '')
   return (
-    <svg className={`logo ${className ?? ''}`} width={size} height={size} viewBox="0 0 441 441" aria-hidden="true">
+    <svg className={`logo ${className ?? ''}`} width={size} height={size} viewBox="0 0 442 442" aria-hidden="true">
       <defs>
         <linearGradient id={`${id}-fill`} x1="0.15" y1="0" x2="0.8" y2="1">
           <stop offset="0" stopColor="#ecdfff" />
