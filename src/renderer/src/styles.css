@@ -135,6 +135,7 @@ select.input { padding-right: 4px; }
 .recent-empty { flex: 1; }
 .recent-foot { display: flex; justify-content: flex-end; padding-top: 12px; }
 .titlebar .logo { flex: none; }
+.logo-clef { fill: #ada4ff; fill: color(display-p3 0.671 0.642 1); }
 .wordmark-group { display: inline-flex; align-items: center; gap: 7px; }
 
 /* ---- Control Panel ---- */

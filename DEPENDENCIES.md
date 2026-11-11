@@ -39,6 +39,13 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | --- | --- | --- |
 | SF Symbols | Interface icons, drawn by macOS at runtime through Electron's `nativeImage.createFromNamedImage`; nothing is bundled or copied into the repo | Apple's SF Symbols terms: only in apps for Apple platforms, and never in app icons, logos or other trademark use. Fine for a personal Mac-only app; the app icon must be our own |
 
+## The ginosa mark (decision 113)
+
+| What | Use | Licence |
+| --- | --- | --- |
+| Your 8-bit treble clef (`Reference Materials/8bitG (high res).png`), redrawn pixel for pixel in `assets/logo` | The logo: title bar, title screen, Dock icon, `Ginosa.icon` | Yours to use: you confirmed on 11 Nov 2026 that you drew it or hold rights that cover a logo. Its low-res copy (`8bitG.png`) carries Adobe Stock preview watermarks, and Adobe Stock's licences don't allow its images in logos |
+| Your `Ginosa.icon` (Icon Composer) | Its settings (gradient, lavender glass layer, scale, shadow, translucency) for the Dock icon and the project's own `assets/logo/Ginosa.icon` | Yours |
+
 ## Test data and references (M13)
 
 | What | Use | Licence |

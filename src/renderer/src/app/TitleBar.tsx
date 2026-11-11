@@ -25,7 +25,7 @@ export function TitleBar() {
   return (
     <header className="titlebar">
       <span className="wordmark-group">
-        <Logo size={17} />
+        <Logo height={30} />
         <span className="wordmark">ginosa</span>
       </span>
       {project && (

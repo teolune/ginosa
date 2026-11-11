@@ -1,5 +1,12 @@
 # Changelog
 
+## The 8-bit clef mark (11 Nov 2026)
+
+- **ginosa's mark is your 8-bit treble clef** (decision 113), in place of the G: in the title bar, on the title screen and in the Dock. It's your high-res file's pixel grid, kept pixel for pixel (`assets/logo/ginosa-clef.txt`), so every pixel lands on whole screen pixels and stays sharp. It's in your Icon Composer lavender, in Display P3 like your file.
+- **The Dock icon** follows your Icon Composer file: its purple gradient, the clef at its size and place, a light upper edge and a soft shadow standing in for Apple's glass.
+- **`assets/logo/Ginosa.icon`**: an Icon Composer file with your settings and the clef as a vector layer. Open it in Icon Composer to see Apple's own Liquid Glass rendering; it's also what a packaged ginosa would use.
+- `scripts/make-logo.py` remakes the vector, the Dock icon and the Icon Composer file from the pixel grid.
+
 ## Channel Rack (11 Nov 2026)
 
 From your illustration (decisions 105–112; `docs/Channel-Rack-try-this.md`):

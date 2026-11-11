@@ -81,7 +81,7 @@ export function StartScreen() {
     <div className="start-screen">
       <div className="start-card">
         <div className="start-brand">
-          <Logo size={58} />
+          <Logo height={120} />
           <span className="wordmark large">ginosa</span>
         </div>
         <div className="start-panels">

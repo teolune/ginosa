@@ -1,0 +1,53 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "display-p3:0.17911,0.12834,0.43576,1.00000",
+      "display-p3:0.25388,0.05574,0.47668,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 0.7
+      }
+    }
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "display-p3:0.67103,0.64242,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "ginosa-clef.svg",
+          "name": "ginosa-clef",
+          "position": {
+            "scale": 0.32,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}
