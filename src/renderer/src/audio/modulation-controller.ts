@@ -1,6 +1,7 @@
 import { frameTicks } from '@engine/timeline/timeline'
 import { hashText } from '@engine/audio/sources'
-import { CURVE_RATE, curveValue, modulatorCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
+import { CURVE_RATE, curveValue, modulatorCurve, patternLinkCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
+import { allLinksTo } from '@engine/timeline/rack'
 import type { Modulator, ModulationContext } from '@engine/modulation/types'
 import type { Project } from '@engine/project/model'
 import { secondsToTicks, ticksToSeconds } from '@engine/time'
@@ -23,6 +24,8 @@ interface Entry {
   raw: Float32Array
   /** False while its audio source is still being analysed. */
   ready: boolean
+  /** A Channel Rack channel's curve for each value linked to it (each follows its cubes' amounts), by link id. */
+  links?: Map<string, { key: string; curve: Float32Array }>
 }
 
 /** Curves cover the sequence plus this much, so a trim past the end still has values. */
@@ -32,9 +35,11 @@ function inputsFor(project: Project, m: Modulator): { inputs: CurveInputs; ready
   const grid = project.sequence.beatGrid
   if (m.source.kind === 'pattern') {
     const id = m.source.rowId
-    const row = project.sequence.rack.rows.find((r) => r.id === id) ?? null
+    const rack = project.sequence.rack
+    const row = rack.rows.find((r) => r.id === id) ?? null
     const frameSeconds = ticksToSeconds(frameTicks(project.sequence))
-    return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid, pattern: { row, frameSeconds } }, ready: true, key: JSON.stringify([row, frameSeconds]) }
+    const cubes = rack.sections.map((s) => [s.bars, s.cubes[id] ?? []])
+    return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid, pattern: { row, rack, frameSeconds } }, ready: true, key: JSON.stringify([row, cubes, frameSeconds]) }
   }
   if (m.source.kind !== 'audio') return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid }, ready: true, key: '' }
   const source = m.source
@@ -57,11 +62,18 @@ export function computeCurves(project: Project, previous: Map<string, Entry> = n
     const { inputs, ready, key: inputKey } = inputsFor(project, m)
     const key = JSON.stringify([m, project.sequence.beatGrid, inputKey, frames])
     const old = previous.get(m.id)
-    if (old && old.key === key) {
-      out.set(m.id, old)
-      continue
+    const entry = old && old.key === key ? { ...old } : { key, curve: modulatorCurve(m, inputs, frames), raw: sourceSignal(m.source, inputs, frames), ready }
+    if (m.source.kind === 'pattern') {
+      // Each linked value follows its own amounts (the cubes' sliders); unchanged ones are kept.
+      const links = new Map<string, { key: string; curve: Float32Array }>()
+      for (const link of allLinksTo(project.sequence, m.id)) {
+        const k = `${key}|${link.id}`
+        const before = old?.links?.get(link.id)
+        links.set(link.id, before && before.key === k ? before : { key: k, curve: patternLinkCurve(m, inputs, frames, link.id) })
+      }
+      entry.links = links
     }
-    out.set(m.id, { key, curve: modulatorCurve(m, inputs, frames), raw: sourceSignal(m.source, inputs, frames), ready })
+    out.set(m.id, entry)
   }
   return out
 }
@@ -73,7 +85,11 @@ export function contextOf(curves: Map<string, Entry>): ModulationContext {
       const entry = curves.get(id)
       return entry && entry.ready ? curveValue(entry.curve, time) : null
     },
-    id: hashText(JSON.stringify([...curves].map(([id, e]) => [id, e.key, e.ready])))
+    linkValue: (link, time) => {
+      const curve = curves.get(link.modulatorId)?.links?.get(link.id)?.curve
+      return curve ? curveValue(curve, time) : null
+    },
+    id: hashText(JSON.stringify([...curves].map(([id, e]) => [id, e.key, e.ready, e.links ? [...e.links.keys()] : null])))
   }
 }
 

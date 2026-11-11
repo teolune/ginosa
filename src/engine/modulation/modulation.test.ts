@@ -313,7 +313,7 @@ describe('built-in presets and the Channel Rack (M12)', () => {
     const rows = addRackRows(STARTER_ROWS, ids)
     run(rows)
     const command = run(applyBuiltinPreset([video().id], 'builtin:kick-flash', s(2), ids))
-    expect(command.notice).toMatch(/Kick row in the Channel Rack/)
+    expect(command.notice).toMatch(/Kick channel in the Channel Rack/)
     const link = video().effects[0]!.modulation['exposure']![0]!
     const mod = history.state.sequence.modulators.find((m) => m.id === link.modulatorId)!
     expect(mod.source).toEqual({ kind: 'pattern', rowId: rows.rowIds[0] })

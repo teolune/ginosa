@@ -2,7 +2,8 @@ import { ANALYSIS_RATE, type AudioAnalysis, type BandAnalysis } from '../audio/a
 import { beatAt, beatLength, beatTime } from '../audio/beat-grid'
 import { sampleAt } from '../audio/dsp'
 import { evaluate } from '../keyframes/keyframes'
-import { STEPS_PER_BEAT, type BeatGrid, type RackRow } from '../project/model'
+import type { BeatGrid, Rack, RackRow } from '../project/model'
+import { channelHits, cubeAmount, hitBeat } from '../timeline/rack'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '../time'
 import { MODULATOR_PARAMS, NOTE_VALUES, type ModSource, type Modulator, type ModulatorParam, type NoteValue, type ResponseCurve } from './types'
 
@@ -20,8 +21,8 @@ export interface CurveInputs {
   analysisStart: Ticks
   customBand: BandAnalysis | null
   grid: BeatGrid | null
-  /** A Channel Rack row (M12), and how long a frame is (each step fires for one frame, so the first frame at or after it gets the whole hit). */
-  pattern?: { row: RackRow | null; frameSeconds: number }
+  /** A Channel Rack channel and its rack (sections of cubes), and how long a frame is (each hit fires for one frame, so the first frame at or after it gets the whole hit). */
+  pattern?: { row: RackRow | null; rack: Rack | null; frameSeconds: number }
 }
 
 /** Without a beat grid, tempo signals and LFOs run at 120 BPM from the sequence start, 4/4. */
@@ -123,14 +124,12 @@ export function sourceSignal(source: ModSource, inputs: CurveInputs, frames: num
       return out
     }
     case 'pattern': {
-      // A pulse one frame long from each step (the odd 16ths later by the row's swing).
+      // A pulse one frame long from each hit (swing and nudge move it, decision 106).
       const p = inputs.pattern
-      if (!p?.row || !p.row.enabled) return out
-      const sixteenth = 1 / STEPS_PER_BEAT
+      if (!p?.row || !p.row.enabled || !p.rack) return out
       const width = Math.max(1, Math.round(p.frameSeconds * CURVE_RATE))
-      for (const step of p.row.steps) {
-        const beat = step * sixteenth + (Math.abs(step % 2) === 1 ? (p.row.swing / 100) * sixteenth : 0)
-        const start = Math.ceil(ticksToSeconds(beatTime(grid, beat)) * CURVE_RATE - 1e-6)
+      for (const hit of channelHits(p.rack, p.row.id, grid)) {
+        const start = Math.ceil(ticksToSeconds(beatTime(grid, hitBeat(hit.step, p.row))) * CURVE_RATE - 1e-6)
         for (let i = Math.max(0, start); i < Math.min(frames, start + width); i++) out[i] = 1
       }
       return out
@@ -195,22 +194,70 @@ export function modulatorCurve(m: Modulator, inputs: CurveInputs, frames: number
       raw[i] = lfo(m.source.shape, cycles - step, step, m.source.seed)
     }
   } else raw = sourceSignal(m.source, inputs, frames)
+  const out = shapeSignal(m, raw, frames, false)
+  // A channel's strength (0–150%, decision 106) scales what it moves.
+  const strength = m.source.kind === 'pattern' ? (inputs.pattern?.row?.strength ?? 100) / 100 : 1
+  if (strength !== 1) for (let i = 0; i < frames; i++) out[i] = out[i]! * strength
+  return out
+}
+
+/**
+ * The modulator's chain over a raw signal: input gain, threshold with its knee, attack and
+ * release, then the response curve. `signed` (a Channel Rack link, decision 109) keeps the
+ * signal's sign: the chain works on its size, and a hit of the other sign takes over at its
+ * attack, so each hit reaches its own amount whatever came before it.
+ */
+function shapeSignal(m: Modulator, raw: Float32Array, frames: number, signed: boolean): Float32Array {
   const out = new Float32Array(frames)
   const animated = (p: ModulatorParam) => (m.keyframes[p]?.length ?? 0) > 0
+  const anyAnimated = animated('gain') || animated('threshold') || animated('knee') || animated('attack') || animated('release')
   const dt = 1000 / CURVE_RATE
   let env = 0
   for (let i = 0; i < frames; i++) {
-    const time = animated('gain') || animated('threshold') || animated('knee') || animated('attack') || animated('release') ? secondsToTicks(i / CURVE_RATE) : 0
+    const time = anyAnimated ? secondsToTicks(i / CURVE_RATE) : 0
     const gain = animated('gain') ? settingAt(m, 'gain', time) : m.gain
     const threshold = animated('threshold') ? settingAt(m, 'threshold', time) : m.threshold
     const knee = animated('knee') ? settingAt(m, 'knee', time) : m.knee
     const attack = animated('attack') ? settingAt(m, 'attack', time) : m.attack
     const release = animated('release') ? settingAt(m, 'release', time) : m.release
-    const x = thresholdKnee(Math.min(1, raw[i]! * Math.pow(10, gain / 20)), threshold, knee)
-    const time0 = x > env ? attack : release
+    if (!signed) {
+      const x = thresholdKnee(Math.min(1, raw[i]! * Math.pow(10, gain / 20)), threshold, knee)
+      const time0 = x > env ? attack : release
+      env = time0 <= 0 ? x : env + (x - env) * (1 - Math.exp(-dt / time0))
+      out[i] = responseCurve(env, m.curve, m.points)
+      continue
+    }
+    const r = raw[i]!
+    const x = Math.sign(r) * thresholdKnee(Math.min(1, Math.abs(r) * Math.pow(10, gain / 20)), threshold, knee)
+    const rising = x !== 0 && (Math.sign(x) !== Math.sign(env) || Math.abs(x) > Math.abs(env))
+    const time0 = rising ? attack : release
     env = time0 <= 0 ? x : env + (x - env) * (1 - Math.exp(-dt / time0))
-    out[i] = responseCurve(env, m.curve, m.points)
+    out[i] = Math.sign(env) * (responseCurve(Math.abs(env), m.curve, m.points) - responseCurve(0, m.curve, m.points))
   }
+  return out
+}
+
+/**
+ * A channel's curve for one linked value (decision 109): each hit at its cube's amount for
+ * this link (−100 to 100%), shaped by the channel's modulator (rise and fall), times the
+ * channel's strength. A hit up and a hit down each reach their own amount.
+ */
+export function patternLinkCurve(m: Modulator, inputs: CurveInputs, frames: number, linkId: string): Float32Array {
+  const raw = new Float32Array(frames)
+  const p = inputs.pattern
+  const grid = inputs.grid ?? DEFAULT_GRID
+  if (p?.row && p.row.enabled && p.rack) {
+    const width = Math.max(1, Math.round(p.frameSeconds * CURVE_RATE))
+    for (const hit of channelHits(p.rack, p.row.id, grid)) {
+      const amount = cubeAmount(hit.cube, linkId)
+      if (amount === 0) continue
+      const start = Math.ceil(ticksToSeconds(beatTime(grid, hitBeat(hit.step, p.row))) * CURVE_RATE - 1e-6)
+      for (let i = Math.max(0, start); i < Math.min(frames, start + width); i++) raw[i] = amount
+    }
+  }
+  const out = shapeSignal(m, raw, frames, true)
+  const strength = (p?.row?.strength ?? 100) / 100
+  if (strength !== 1) for (let i = 0; i < frames; i++) out[i] = out[i]! * strength
   return out
 }
 

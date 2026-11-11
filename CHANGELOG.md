@@ -1,5 +1,19 @@
 # Changelog
 
+## Channel Rack (11 Nov 2026)
+
+From your illustration (decisions 105–112; `docs/Channel-Rack-try-this.md`):
+
+- **Sections**: A, B, C… along the song from bar 1, each 1–16 bars (8 by default) with its own cubes and amounts. Click one to show it, double-click to change its bars; **+** adds an empty 8-bar section after it; **Follow** shows the section under the playhead.
+- **Cubes**: each a 16th; a channel's cubes are a 2-bar loop repeated through its section. Evenly spaced keys raised out of the console, each beat's four in alternating shades, as in your reference. Click to make or select one, drag to paint, Backspace deletes; Cmd+C/V copy and paste cubes; Cmd+Opt+C/V copy one cube's amounts to others (in the next section, say).
+- **Cube window** (double-click a cube): one slider per value linked to its channel, −100% to +100%: how far this hit moves it, up or down. Nothing else is set there.
+- **Channels**: the light (on/off), the left/right knob (nudge, up to half a 16th either way), the volume knob (strength, 0–150%). Rename, swing, its modulator, order and delete on right-click.
+- **Linking**: click a channel's name and press R, then click the sockets beside values in Effect Controls (R or Esc ends); or drag a channel's name onto a value; or right-click a value › Link to Channel. The link's settings (adds or multiplies, how far at 100%, the fall) are under the value in Effect Controls.
+- **Automatic Detection** (the rack's sparkles): fills Kick, Clap, Hi-hat and Bass from the song on A1 and splits the song into sections where the pattern changes. With stem separation set up (`npm run stems-setup`, once) it first separates the song into drums, bass, vocals and the rest, on this Mac (demucs-mlx); without it, it listens to bands of the whole song and says so. Each channel only counts hits that stand out in its band, so hi-hats no longer fill the Clap row. Undo brings back what was there.
+- **A1 is the song's track**: an empty A1 says *Drop the song here*.
+- **Hits land where they start**: hi-hats and other high hits could be pulled up to 35 ms early by a kick's or bass's tail; cached analyses are redone once.
+- **Tests:** `rackui` (link mode, dragging a channel, clicking and deleting cubes, cube amounts in playback), `rackdetect` (detection end to end, by stems or bands); new unit tests (400 in all).
+
 ## The new ginosa mark (11 Nov 2026)
 
 - **Your GinosaG sketch as a vector** (`assets/logo/ginosa-logo.svg`, decision 104): traced, then redrawn with natural curves: 16 curves with nodes only at the extremes (level or plumb handles), curvature flowing on across every node and changing evenly along each curve, so the sketch's bumps and flat spots are gone and the hook ends in a round ball. A straight stem at 8.1° with both cuts parallel to it and two equal channels. It's in the title bar and on the title screen, in light purple.

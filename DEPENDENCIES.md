@@ -49,5 +49,15 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | Ilia Malanin, "Photoshop Algorithms Arcana" ([pastila.org](https://pastila.org/essays/classic-gradient-interpolation/)) | How Classic gradients are drawn, reimplemented from the description | Essay |
 | photocraft's published measurements (GitHub, storytold/photocraft) | Gradient Map's brightness weights and where a midpoint is stored | Facts only |
 
+## Stem separation (W3, decision 112; installed by `npm run stems-setup` into `.stems/`, not bundled)
+
+| Package or file | Use | Licence |
+| --- | --- | --- |
+| [demucs-mlx](https://pypi.org/project/demucs-mlx/) 1.6.1 | Splits the song on A1 into drums, bass, vocals and other for Automatic Detection, on this Mac | MIT (a port of Meta's Demucs, MIT) |
+| MLX, mlx-metal | Apple's machine-learning framework that demucs-mlx runs on | MIT |
+| mlx-audio-io, mlx-spectro | Audio reading/writing and the STFT for demucs-mlx | MIT; mlx-audio-io includes libsoxr (LGPL-2.1), its notice shipped inside the package |
+| htdemucs weights (`ssmall256/demucs-mlx` on Hugging Face, converted from Meta's checkpoints; downloaded on the first run and checked against digests in demucs-mlx) | The separation model | MIT, as the weights' page states (the same licence as Demucs; trained by Alexandre Défossez and others at Meta AI Research). Some read Meta's original checkpoint release as research-only: fine for a personal app that never passes the weights on; check again before ever shipping ginosa to others |
+| Python 3.10 or newer (3.12 preferred: `brew install python@3.12`) | Runs demucs-mlx | PSF License |
+
 No new npm packages.
 

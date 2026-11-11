@@ -12,7 +12,7 @@ import type { Mask, MaskRef } from '../masks/types'
  */
 
 /** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. */
-export const PROJECT_SCHEMA_VERSION = 12
+export const PROJECT_SCHEMA_VERSION = 13
 
 export type TrackKind = 'video' | 'audio'
 
@@ -176,28 +176,59 @@ export interface Sequence {
 }
 
 /**
- * One row of the Channel Rack (M12), e.g. Kick. Its steps are 16th notes counted from the beat
- * grid's downbeat (both ways), so they cover the whole song and follow tempo changes. Each row
- * drives a modulator of its own (source `pattern`), which links to any values.
+ * One channel of the Channel Rack (M12's row; W3 adds strength and nudge), e.g. Kick. Its cubes
+ * live in the sections. Each channel drives a modulator of its own (source `pattern`), which
+ * links to any values.
  */
 export interface RackRow {
   id: string
   name: string
-  /** The light: a row that's off fires nothing (its steps are kept). */
+  /** The light: a channel that's off fires nothing (its cubes are kept). */
   enabled: boolean
   /** 0–75%: every second 16th fires later by this share of a 16th. */
   swing: number
-  /** The 16ths that fire, sorted, no repeats. */
-  steps: number[]
-  /** Where Auto-fill takes hits from. */
+  /** Where a row's band-based auto-fill takes hits from (M12). */
   band: BandId
-  /** The modulator made with the row (renamed and removed with it). Others can listen to the row too. */
+  /** The modulator made with the channel (renamed and removed with it). Others can listen to it too. */
   modulatorId: string | null
+  /** 0–150%: how far everything it moves goes (the volume knob). */
+  strength: number
+  /** −50 to 50% of a 16th: its hits fire earlier or later (the left/right knob). */
+  nudge: number
+  /** What Automatic Detection fills it with, if anything. */
+  detect: RackDetect | null
+}
+
+export type RackDetect = 'kick' | 'clap' | 'hihat' | 'bass'
+
+/** One cube: a 16th in its section's loop, and how far it pushes each linked value (link id → −100 to 100%; a link not listed: 100%). */
+export interface RackCube {
+  step: number
+  amounts: Record<string, number>
+}
+
+/**
+ * A stretch of the song in whole bars (W3, decision 107). Sections run on from bar 1, one after
+ * another; each holds a loop of cubes per channel (two bars of 16ths, decision 105) that
+ * repeats through it.
+ */
+export interface RackSection {
+  id: string
+  /** 1–16. */
+  bars: number
+  /** Cubes by channel id, sorted by step. */
+  cubes: Record<string, RackCube[]>
 }
 
 export interface Rack {
   rows: RackRow[]
+  sections: RackSection[]
 }
+
+export const MAX_SECTION_BARS = 16
+export const DEFAULT_SECTION_BARS = 8
+/** A channel's cubes are a loop this many bars long (or the section, if shorter). */
+export const LOOP_BARS = 2
 
 /** 16th notes to a beat. */
 export const STEPS_PER_BEAT = 4
@@ -301,7 +332,7 @@ export function createProject({ name, settings, createId = defaultId, now = () =
       modulators: [],
       masks: [],
       marks: { in: null, out: null },
-      rack: { rows: [] }
+      rack: { rows: [], sections: [] }
     },
     media: [],
     bins: []

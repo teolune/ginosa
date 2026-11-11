@@ -31,6 +31,7 @@ import { runGrainGpuTest } from '../playback/grain-gpu-test'
 import { grainExportTest } from '../playback/grain-export-test'
 import { posterizeTest } from '../playback/posterize-test'
 import { buildRackUi } from '../rack/rack-demo'
+import { rackDetectTest } from '../rack/detect-test'
 import { colourLightExportTest } from '../playback/colour-light-export-test'
 import { buildColourLightUi } from '../effects/colour-light-demo'
 import { buildGrainUi } from '../effects/grain-demo'
@@ -409,6 +410,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(2500)
       await window.ginosa.snapshot.report(await buildRackUi().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       await wait(2500)
+      break
+    }
+    case 'rackdetect': {
+      // W3: Automatic Detection on the test drums on A1 (separated into stems when that's set up).
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /beat_128bpm\.wav$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await rackDetectTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'posterize': {

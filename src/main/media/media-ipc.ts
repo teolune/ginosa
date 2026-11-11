@@ -10,6 +10,7 @@ import { DEFAULT_PREVIEW_LIMIT, PreviewStore } from '../cache/preview-store'
 import { ensureThumbnail, ensureWaveform } from './generate'
 import { checkFile, classifyImportPaths, fingerprintFile, listFolder, probeFiles, probeFile, searchForMoved } from './media-files'
 import { OptimiseQueue, type OptimiseJob } from './optimise'
+import { separateStems, stemPcm, stemsStatus } from './stems'
 
 /** IPC for media import, generated files, optimised copies and the cache. */
 
@@ -95,6 +96,15 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     await writeFile(`${file}.partial`, Buffer.from(data))
     await rename(`${file}.partial`, file)
   })
+
+  // Stems for the Channel Rack's detection (W3): separated once per song file, kept with the analysis.
+  ipcMain.handle('stems:status', () => stemsStatus(app.getAppPath()))
+  ipcMain.handle('stems:separate', async (event, projectId: string, input: string, key: string) => {
+    if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad stems key')
+    const dir = join(await cache.categoryDir(projectId, 'analysis'), 'stems', key)
+    return separateStems(app.getAppPath(), input, dir, (line) => event.sender.send('stems:progress', line))
+  })
+  ipcMain.handle('stems:pcm', (_event, path: string, rate: number) => stemPcm(path, rate))
 
   // Preview renders (M9): one JPEG per frame, named by its frame key.
   ipcMain.handle('renders:list', (_event, projectId: string) => previews.list(projectId))

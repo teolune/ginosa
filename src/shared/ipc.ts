@@ -275,6 +275,13 @@ export interface GinosaBridge {
     read(projectId: string, key: string): Promise<ArrayBuffer | null>
     write(projectId: string, key: string, data: ArrayBuffer): Promise<void>
   }
+  /** Stem separation (W3): whether it's set up, a song's stems (paths), and a stem as mono samples. */
+  stems: {
+    status(): Promise<{ ready: boolean; detail: string | null }>
+    separate(projectId: string, input: string, key: string): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
+    pcm(path: string, rate: number): Promise<ArrayBuffer>
+    onProgress(listener: (line: string) => void): () => void
+  }
   export: {
     chooseFile(suggestedName: string, extension: string): Promise<string | null>
     begin(request: ExportBegin): Promise<string>

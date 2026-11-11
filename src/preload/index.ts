@@ -99,6 +99,12 @@ const bridge: GinosaBridge = {
     read: (projectId, key) => ipcRenderer.invoke('analysis:read', projectId, key),
     write: (projectId, key, data) => ipcRenderer.invoke('analysis:write', projectId, key, data)
   },
+  stems: {
+    status: () => ipcRenderer.invoke('stems:status'),
+    separate: (projectId, input, key) => ipcRenderer.invoke('stems:separate', projectId, input, key),
+    pcm: (path, rate) => ipcRenderer.invoke('stems:pcm', path, rate),
+    onProgress: (listener: (line: string) => void) => listen('stems:progress', listener)
+  },
   export: {
     chooseFile: (suggestedName, extension) => ipcRenderer.invoke('export:chooseFile', suggestedName, extension),
     begin: (request) => ipcRenderer.invoke('export:begin', request),

@@ -6,7 +6,7 @@ import { applyBuiltinPreset } from '@engine/timeline/builtin-presets'
 import { placeMedia, trimClips } from '@engine/timeline/edits'
 import { addEffect, removeEffects, setEffectValues } from '@engine/timeline/effect-edits'
 import { POSTERIZE_RATES } from '@engine/timeline/posterize'
-import { addRackRows, setRackRow, setRackSteps } from '@engine/timeline/rack-edits'
+import { addRackRows, setCubeAmount, setRackCubes, setRackRow } from '@engine/timeline/rack-edits'
 import { modulationController } from '../audio/modulation-controller'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
@@ -135,9 +135,9 @@ export async function posterizeTest() {
   projectController.dispatch(setBeatGrid({ bpm: 128, downbeat: s(0.4), beatsPerBar: 4 }))
   const rows = addRackRows([{ name: 'Kick', band: 'bass' }])
   projectController.dispatch(rows)
-  // Steps 0, 3, 8 and 11 (two odd ones, swung 50%), and one before the clip starts.
-  const steps = [0, 3, 8, 11, -16]
-  projectController.dispatch(setRackSteps(rows.rowIds[0]!, steps, true))
+  // Cubes on 16ths 0, 3, 8 and 11 of section A (two odd ones, swung 50%); its loop is two bars, longer than the clip.
+  const steps = [0, 3, 8, 11]
+  projectController.dispatch(setRackCubes(projectController.project!.sequence.rack.sections[0]!.id, rows.rowIds[0]!, steps, true))
   projectController.dispatch(setRackRow(rows.rowIds[0]!, { swing: 50 }))
   const patchesId = projectController.project!.sequence.clips.find((c) => c.mediaId === patches.id)!.id
   if (!projectController.dispatch(applyBuiltinPreset([patchesId], 'builtin:kick-flash', 0))) throw new Error(`Kick Flash failed: ${projectController.lastError}`)
@@ -160,5 +160,26 @@ export async function posterizeTest() {
   if (followed?.kind !== 'pattern') reasons.push('Kick Flash didn’t follow the Kick row')
   if (JSON.stringify(flashFrames) !== JSON.stringify(expectedFlashes)) reasons.push(`Kick Flash flashed fully on frames ${flashFrames.join(', ')}; the steps are on ${expectedFlashes.join(', ')}`)
   if (JSON.stringify(jumps) !== JSON.stringify(expectedFlashes)) reasons.push(`the file's dark patch jumps brighter on frames ${jumps.join(', ')}; expected ${expectedFlashes.join(', ')}`)
+
+  // 5. W3 (decision 109): a cube at −100% pushes Kick Flash's exposure down instead, in the file too.
+  const rack = projectController.project!.sequence.rack
+  const section = rack.sections[0]!
+  const kickLink = Object.values(clip.effects[0]!.modulation).flat()[0]!
+  projectController.dispatch(setCubeAmount([{ sectionId: section.id, rowId: rows.rowIds[0]!, step: 8 }], kickLink.id, -100))
+  modulationController.refresh()
+  const path2 = (await window.ginosa.snapshot.exportPath('rack-flash-down.mp4'))!
+  if (!(await exporter.run(projectController.project!, settings, path2))) throw new Error('rack export (down) failed')
+  const modulation2 = exporter.lastModulation!
+  const clip2 = projectController.project!.sequence.clips.find((c) => c.id === patchesId)!
+  const exposures2 = Array.from({ length: 50 }, (_, j) => Number(resolveClip(clip2, j * FRAME, modulation2).effects[0]!.params['exposure']))
+  const downFrame = Math.ceil(stepSeconds(8) * FPS - 1e-9)
+  const upFrames = exposures2.flatMap((v, j) => (v > 1.99 ? [j] : []))
+  const downFrames = exposures2.flatMap((v, j) => (v < -1.99 ? [j] : []))
+  const analysed2 = (await window.ginosa.snapshot.analyseExport(path2, [192]))!.rows.slice(0, 50)
+  const drops = analysed2.flatMap((row, j) => (j > 0 && analysed2[j - 1]![0]![1]! - row[0]![1]! > 0.02 ? [j] : []))
+  results['Channel Rack cube at −100%'] = { downFrame, upFrames, downFrames, dropsInFile: drops, patchBefore: analysed2[downFrame - 1]?.[0]?.[1], patchAt: analysed2[downFrame]?.[0]?.[1] }
+  if (JSON.stringify(downFrames) !== JSON.stringify([downFrame])) reasons.push(`a −100% cube pushed exposure down on frames ${downFrames.join(', ')}; expected ${downFrame}`)
+  if (JSON.stringify(upFrames) !== JSON.stringify(expectedFlashes.filter((f) => f !== downFrame))) reasons.push(`with one cube at −100%, the others flashed on ${upFrames.join(', ')}`)
+  if (!drops.includes(downFrame)) reasons.push(`the file's dark patch doesn't drop on frame ${downFrame} (drops on ${drops.join(', ') || 'none'})`)
   return { verdict: reasons.length ? 'fail' : 'pass', reasons, results }
 }

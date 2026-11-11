@@ -53,6 +53,27 @@ else
 fi
 
 echo
+echo "Stem separation (Channel Rack detection)"
+found_py=""
+for candidate in python3.13 python3.12 python3.11 python3.10 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.10 python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    version="$("$candidate" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null)"
+    minor="$("$candidate" -c 'import sys; print(sys.version_info[1] if sys.version_info[0] == 3 else 0)' 2>/dev/null)"
+    info "$candidate: Python $version ($(command -v "$candidate"))"
+    if [[ -z "$found_py" && -n "$minor" ]] && (( minor >= 10 )); then found_py="$candidate"; fi
+  fi
+done
+if command -v uv >/dev/null 2>&1; then info "uv $(uv --version 2>/dev/null | awk '{print $2}')"; fi
+if command -v brew >/dev/null 2>&1; then info "Homebrew $(brew --version 2>/dev/null | head -1 | awk '{print $2}') at $(command -v brew)"; else info "Homebrew not found"; fi
+if [[ -n "$found_py" ]]; then ok "Python 3.10 or newer: $found_py"; else bad "No Python 3.10 or newer (stem separation needs it): brew install python@3.12"; fi
+stems_root="$(cd "$(dirname "$0")/.." && pwd)/.stems"
+if [[ -x "$stems_root/venv/bin/python" ]] && "$stems_root/venv/bin/python" -c 'import demucs_mlx' >/dev/null 2>&1; then
+  ok "demucs-mlx installed ($("$stems_root/venv/bin/python" -c 'import importlib.metadata as m; print(m.version("demucs-mlx"))' 2>/dev/null))"
+else
+  info "demucs-mlx not set up yet: npm run stems-setup"
+fi
+
+echo
 echo "Project"
 cd "$(dirname "$0")/.." || exit 1
 if [[ -d node_modules ]]; then ok "dependencies installed"; else bad "dependencies not installed: run  bash scripts/setup.sh"; fi

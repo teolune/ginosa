@@ -8,7 +8,7 @@ The full plan, with stages, milestones and every design decision, lives in the S
 
 ## Status
 
-**M14 · Datamosh A.** A live GPU datamosh with all its modes as built-in presets, reset triggers, bloom, codec character and motion transfer from another track, tested side by side with a real codec mosh of your footage. Built on Look LUTs, M13's Gradient Map, M12's Posterize Time and Channel Rack, M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Since then, your wireframes' phase 1: the purple look, title screen, Control Panel, frames (landscape and portrait) and a folder browser (`docs/Control-Panel-try-this.md`). Next: automation clips, then the Channel Rack additions; M15 (Datamosh B, the codec-level bake) later.
+**M14 · Datamosh A.** A live GPU datamosh with all its modes as built-in presets, reset triggers, bloom, codec character and motion transfer from another track, tested side by side with a real codec mosh of your footage. Built on Look LUTs, M13's Gradient Map, M12's Posterize Time and Channel Rack, M11's grain, M10's Colour & Light, Mosaic and built-in presets, M9's masks, stateful effects and render cache, M8's audio and modulation, M7's keyframes, M6's effects, M5's export, M4's playback, M3's timeline, M2's media and M1's projects. Since then, your wireframes' phase 1: the purple look, title screen, Control Panel, frames (landscape and portrait) and a folder browser (`docs/Control-Panel-try-this.md`); and the Channel Rack from your illustration: sections, cubes, linking values to channels, and Automatic Detection from the song on A1, separated into stems on this Mac (`docs/Channel-Rack-try-this.md`). Next: automation clips; M15 (Datamosh B, the codec-level bake) later.
 
 ## Setup (once)
 
@@ -27,6 +27,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run test-media` | Generates synthetic test clips in `media/test/` |
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
+| `npm run stems-setup` | Once: sets up stem separation for the Channel Rack's detection (demucs-mlx in `.stems/`; delete that folder to remove it) |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |
 | `npm run sync-test` | Plays a flash-and-beep clip and measures picture/sound sync; writes `renders/sync/sync.json` |
 | `npm run speed-test` | Plays speed, reverse, hold and dissolve clips and checks every frame; writes `renders/speed/speed.json` |
@@ -37,6 +38,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run snapshot -- --scenario timelineperf4k` | The timeline's speed with your Apple Log clips: pinch, scroll and frame steps timed by the screen's frames, and 4 s of playback; writes `renders/ui/timelineperf4k.json` (`timelineperf` uses the test clips) |
 | `npm run snapshot -- --scenario effectsperf` | What a stack of 10 effects costs: adding each one, selecting, dragging a value, stepping, catching up, each effect's GPU time and playback; writes `renders/ui/effectsperf.json` |
 | `npm run snapshot -- --scenario controlpanel` | The Control Panel and frames: tempo detection, the tempo knob's range, ×2/÷2, the metronome's clicks against the beat grid (plays sound), Play/Pause/Stop, a new adjustment layer, frames, the media column and the folder browser; writes `renders/ui/controlpanel.json` and a picture of the portrait frame |
+| `npm run snapshot -- --scenario rackdetect` | The Channel Rack's Automatic Detection on the test drums on A1 (by stems when set up, else by bands): kicks on the beats, claps on 2 and 4, hi-hats on the 8ths; writes `renders/ui/rackdetect.json` (`rackui`: linking and cubes through the interface) |
 | `npm run mosh-reference` | M14's side by side: your Apple Log clips moshed by Datamosh and by a real MPEG-4 bitstream edit (`scripts/codec-mosh.py`), as contact sheets and videos in `renders/m14/footage` |
 | `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |

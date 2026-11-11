@@ -95,6 +95,8 @@ export type ModulationMap = Record<string, ModLink[]>
 /** What modulation needs at render time: each modulator's 0–1 output at a sequence time (null while it isn't ready). */
 export interface ModulationContext {
   value(modulatorId: string, time: number): number | null
+  /** A link's own value, when it has one: a Channel Rack link follows its cubes' amounts (decision 109). Null: use the modulator's. */
+  linkValue?(link: ModLink, time: number): number | null
   /** Identifies the curves: two contexts with the same id give the same values (stateful effects and the render cache key on it). */
   readonly id?: string
 }

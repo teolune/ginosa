@@ -241,7 +241,7 @@ class AnalysisController extends Observable {
   }
 }
 
-function runWorker(request: AnalysisWorkerRequest, progress: (done: number) => void): Promise<{ data: ArrayBuffer | null; bands: ArrayBuffer[] }> {
+export function runWorker(request: AnalysisWorkerRequest, progress: (done: number) => void): Promise<{ data: ArrayBuffer | null; bands: ArrayBuffer[] }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./analysis.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent<AnalysisWorkerMessage>) => {

@@ -8,7 +8,8 @@ import type { ModLink, ModulationContext, ModulationMap } from './types'
 export function applyLinks(value: number[], links: readonly ModLink[], ctx: ModulationContext, time: number): number[] {
   let out = value
   for (const link of links) {
-    let m = ctx.value(link.modulatorId, time)
+    let m = ctx.linkValue ? ctx.linkValue(link, time) : null
+    if (m === null) m = ctx.value(link.modulatorId, time)
     if (m === null) continue
     if (link.invert) m = 1 - m
     const amount = Math.min(1, Math.max(0, link.amount / 100))

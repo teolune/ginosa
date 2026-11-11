@@ -15,7 +15,10 @@ import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { EFFECT_DRAG_TYPE, PRESET_DRAG_TYPE, STACK_DRAG_TYPE, effectsController } from '../effects/effects-controller'
 import { MAX_VOLUME_DB, MIN_VOLUME_DB, resetMotion, setClipProperties, type ClipPropertyChanges } from '@engine/timeline/edits'
 import { MAX_SPEED_PERCENT, clampValue, keyframesOf, linksOf, modulatable, modulatedValueAt, propertySpec, speedKeyframeProblem, valueAt, type PropertyRef } from '@engine/keyframes/properties'
-import { addLink, removeLinks } from '@engine/timeline/modulation-edits'
+import { addLink, removeLinks, updateLink, updateModulator } from '@engine/timeline/modulation-edits'
+import type { ModLink, Modulator } from '@engine/modulation/types'
+import type { RackRow } from '@engine/project/model'
+import { CHANNEL_DRAG_TYPE, rackUi } from '../rack/rack-ui'
 import { modulationUi } from '../audio/modulation-ui'
 import { modulationController } from '../audio/modulation-controller'
 import { defaultValueOf } from '../audio/default-values'
@@ -193,10 +196,34 @@ function PropertyRow({
 }) {
   useObservable(keyframeController)
   useObservable(modulationController)
+  useObservable(rackUi)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [dropping, setDropping] = useState(false)
   const ref: PropertyRef = { clipId: clip.id, effectId, param }
   const links = linksOf(clip, effectId, param)
   const canModulate = modulatable(clip, effectId, param)
+  // The Channel Rack (decision 109): which links are to channels, and the channel being linked (R).
+  const sequence = projectController.project?.sequence
+  const channelOf = (modulatorId: string): { row: RackRow; modulator: Modulator } | null => {
+    const modulator = sequence?.modulators.find((m) => m.id === modulatorId)
+    const source = modulator?.source
+    const row = source?.kind === 'pattern' ? sequence?.rack.rows.find((r) => r.id === source.rowId) : undefined
+    return modulator && row ? { row, modulator } : null
+  }
+  const channelLinks = links.flatMap((link) => {
+    const c = channelOf(link.modulatorId)
+    return c ? [{ link, ...c }] : []
+  })
+  const armed = rackUi.linking ? (sequence?.rack.rows.find((r) => r.id === rackUi.linking) ?? null) : null
+  const linkTo = (rowId: string) => links.find((l) => channelOf(l.modulatorId)?.row.id === rowId)
+  const armedLink = armed ? linkTo(armed.id) : undefined
+  const linkChannel = (rowId: string) => {
+    const row = sequence?.rack.rows.find((r) => r.id === rowId)
+    if (!row?.modulatorId) return
+    const existing = linkTo(rowId)
+    if (existing) projectController.dispatch(removeLinks(ref, existing.id))
+    else projectController.dispatch(addLink(ref, row.modulatorId, timelineController.playhead))
+  }
   const track = keyframesOf(clip, effectId, param)
   const animated = track.length > 0
   const { t, inside } = clipTime(clip)
@@ -247,10 +274,13 @@ function PropertyRow({
     { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' },
     'separator',
     { label: 'Link to Audio…', onSelect: () => modulationUi.openLinkToAudio(ref), disabled: locked || !canModulate },
-    // The Channel Rack's rows (M12): this value fires on that row's steps.
+    // The Channel Rack's channels (decision 109): this value moves on that channel's cubes.
     ...(projectController.project?.sequence.rack.rows ?? [])
       .filter((r) => r.modulatorId)
-      .map((r): MenuEntry => ({ label: `Link to Pattern: ${r.name}`, onSelect: () => dispatch(addLink(ref, r.modulatorId!, playhead)), disabled: locked || !canModulate || links.some((l) => l.modulatorId === r.modulatorId) })),
+      .map((r): MenuEntry => {
+        const linked = Boolean(linkTo(r.id))
+        return { label: linked ? `Unlink from Channel: ${r.name}` : `Link to Channel: ${r.name}`, onSelect: () => linkChannel(r.id), disabled: locked || !canModulate }
+      }),
     { label: 'Modulate Parameter…', onSelect: openModulation, disabled: locked || !canModulate, shortcut: '⌥⇧2' },
     { label: links.length > 1 ? `Remove Modulation (${links.length})` : 'Remove Modulation', onSelect: () => dispatch(removeLinks(ref)), disabled: locked || links.length === 0, danger: true },
     'separator',
@@ -262,14 +292,46 @@ function PropertyRow({
   const change = (v: ParamValue) => dispatch(setValue(ref, v, playhead))
   const row = (
     <div
-      className={`fx-row kf-row ${keyframeController.isFocused(ref) ? 'focused' : ''}`}
+      className={`fx-row kf-row ${keyframeController.isFocused(ref) ? 'focused' : ''} ${dropping ? 'channel-drop' : ''}`}
       title={help}
       onContextMenu={(event) => {
         event.preventDefault()
         setMenu({ x: event.clientX, y: event.clientY })
       }}
+      onDragOver={(event) => {
+        if (locked || !canModulate || !event.dataTransfer.types.includes(CHANNEL_DRAG_TYPE)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'link'
+        if (!dropping) setDropping(true)
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(event) => {
+        const rowId = event.dataTransfer.getData(CHANNEL_DRAG_TYPE)
+        setDropping(false)
+        if (!rowId || locked || !canModulate) return
+        event.preventDefault()
+        const row = sequence?.rack.rows.find((r) => r.id === rowId)
+        if (row?.modulatorId && !linkTo(rowId)) linkChannel(rowId)
+      }}
     >
       <span className="fx-label">
+        {(armed || channelLinks.length > 0) && (
+          <button
+            className={`link-socket ${armedLink ? 'on' : channelLinks.length > 0 ? 'linked' : ''} ${armed ? 'armed' : ''}`}
+            title={
+              armed
+                ? armedLink
+                  ? `Unlink from ${armed.name}`
+                  : canModulate
+                    ? `Link to ${armed.name}`
+                    : `${label} can't be linked`
+                : `Linked to ${channelLinks.map((c) => c.row.name).join(', ')}`
+            }
+            aria-label={armed ? `Link ${label} to ${armed.name}` : `${label} is linked to a channel`}
+            disabled={!armed || locked || !canModulate}
+            onClick={() => armed && linkChannel(armed.id)}
+          />
+        )}
         <button
           className={`kf-stopwatch ${animated ? 'on' : ''}`}
           aria-pressed={animated}
@@ -308,11 +370,61 @@ function PropertyRow({
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   )
-  if (!below) return row
+  const channelRows =
+    channelLinks.length > 0 ? (
+      <div className="fx-channel-links">
+        {channelLinks.map(({ link, row: channel, modulator }) => (
+          <ChannelLinkRow key={link.id} propertyRef={ref} link={link} channel={channel} modulator={modulator} locked={locked} />
+        ))}
+      </div>
+    ) : null
+  if (!below && !channelRows) return row
   return (
     <div className="fx-row-block">
       {row}
-      <div className="fx-below">{below(value, change)}</div>
+      {channelRows}
+      {below && <div className="fx-below">{below(value, change)}</div>}
+    </div>
+  )
+}
+
+/**
+ * A value's link to a Channel Rack channel (decision 109): how far it moves when a cube is at
+ * 100% (each cube scales this, −100 to +100%), whether it adds or multiplies, and how fast a
+ * hit falls back (the channel's, shared by everything it moves).
+ */
+function ChannelLinkRow({ propertyRef, link, channel, modulator, locked }: { propertyRef: PropertyRef; link: ModLink; channel: RackRow; modulator: Modulator; locked: boolean }) {
+  const dispatch = (command: Parameters<typeof projectController.dispatch>[0]) => projectController.dispatch(command)
+  const modes: Array<[ModLink['mode'], string]> = [
+    ['add', 'adds'],
+    ['multiply', 'multiplies by'],
+    ...(link.mode === 'replace' ? ([['replace', 'becomes']] as Array<[ModLink['mode'], string]>) : [])
+  ]
+  return (
+    <div className="fx-channel-link">
+      <span className="fx-channel-name" title={`Moves on ${channel.name}'s cubes in the Channel Rack`}>
+        <span className="link-socket linked small" aria-hidden="true" />
+        {channel.name}
+      </span>
+      <select className="input compact" value={link.mode} disabled={locked} aria-label="How it moves the value" onChange={(e) => dispatch(updateLink(propertyRef, link.id, { mode: e.target.value as ModLink['mode'] }))}>
+        {modes.map(([mode, label]) => (
+          <option key={mode} value={mode}>
+            {label}
+          </option>
+        ))}
+      </select>
+      {link.max.map((v, i) => (
+        <span key={i} title="How far a cube at 100% moves it (each cube scales this, −100% to +100%)">
+          <ScrubNumber label={`${channel.name} at 100%`} value={v} step={0.5} decimals={1} onChange={(next) => dispatch(updateLink(propertyRef, link.id, { max: link.max.map((x, j) => (j === i ? next : x)) }))} disabled={locked} />
+        </span>
+      ))}
+      <span className="muted small nowrap">at 100% · fall</span>
+      <span title={`How fast each hit falls back: ${channel.name}'s, shared by everything it moves`}>
+        <ScrubNumber label={`${channel.name} fall`} value={modulator.release} min={0} max={5000} step={5} decimals={0} unit=" ms" onChange={(next) => dispatch(updateModulator(modulator.id, { release: next }))} disabled={locked} />
+      </span>
+      <button className="window-button close" title={`Unlink from ${channel.name}`} disabled={locked} onClick={() => dispatch(removeLinks(propertyRef, link.id))}>
+        ×
+      </button>
     </div>
   )
 }
@@ -803,6 +915,7 @@ function OpacitySection({ clip, locked }: { clip: Clip; locked: boolean }) {
 /** Premiere's Effect Controls for the selected clip: Motion, Opacity and blend mode, Time Remapping, Volume, effects. */
 export function EffectControlsWindow() {
   useObservable(projectController)
+  useObservable(rackUi)
   // Values at the playhead: during playback, refreshed 10 times a second rather than every frame.
   useObservable(timelineController, STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE)
   const project = projectController.project
@@ -843,6 +956,11 @@ export function EffectControlsWindow() {
         event.stopPropagation()
       }}
     >
+      {rackUi.linking && (
+        <button className="fx-linking" onClick={() => rackUi.toggleLinking()} title="R or Esc to stop">
+          Linking to {project.sequence.rack.rows.find((r) => r.id === rackUi.linking)?.name ?? 'a channel'}: click the socket beside a value to link or unlink it. R or Esc to stop.
+        </button>
+      )}
       <div className="fx-clip">
         <span className="fx-clip-name">{video?.name ?? audio?.name}</span>
         {selected.length > 2 && <span className="muted small">and {selected.length - 1} more selected; showing one</span>}

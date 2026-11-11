@@ -164,7 +164,7 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
       const rackRow = l.row ? sequence.rack.rows.find((r) => r.name.trim().toLowerCase() === l.row!.toLowerCase()) : undefined
       if (!audio && !rackRow) return null
       const source: ModSource = rackRow ? { kind: 'pattern', rowId: rackRow.id } : { kind: 'audio', sourceId: audio!.id, signal: l.signal, band: l.band }
-      followed.push(rackRow ? `the ${rackRow.name} row in the Channel Rack` : `“${audio!.name}” (the first source in Audio Analysis)`)
+      followed.push(rackRow ? `the ${rackRow.name} channel in the Channel Rack` : `“${audio!.name}” (the first source in Audio Analysis)`)
       const same = sequence.modulators.find((m) => sameSource(m.source, source) && Object.keys(m.keyframes).length === 0 && (Object.keys(l.modulator) as Array<keyof ModulatorSettings>).every((k) => m[k] === l.modulator[k]))
       if (same) return same.id
       const made: Modulator = { ...newModulator(newId(), `${preset.name}: ${describeSource(source, (id) => sequence.audioSources.find((a) => a.id === id)?.name ?? rackRow?.name ?? id)}`, source), ...l.modulator }
@@ -195,7 +195,7 @@ export function applyBuiltinPreset(clipIds: string[], presetId: string, at: Tick
     if (preset.links.length === 0) return
     command.notice = followed.length
       ? `${preset.name} follows ${followed[0]}. Change it in the Modulation window.`
-      : `${preset.name}: there’s no audio to follow yet, so the effect was added without its link. Add a source in Audio Analysis (or a ${preset.links[0]!.row ?? ''} row in the Channel Rack), then apply the preset again.`
+      : `${preset.name}: there’s no audio to follow yet, so the effect was added without its link. Add a source in Audio Analysis (or a ${preset.links[0]!.row ?? ''} channel in the Channel Rack), then apply the preset again.`
   })
 }
 

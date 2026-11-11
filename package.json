@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "check": "npm run typecheck && npm run test",
     "doctor": "bash scripts/doctor.sh",
+    "stems-setup": "bash scripts/stems-setup.sh",
     "test-media": "bash scripts/make-test-media.sh",
     "mosh-reference": "bash scripts/mosh-reference.sh",
     "agent": "node scripts/agent-runner.mjs",

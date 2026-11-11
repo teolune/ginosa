@@ -11,7 +11,7 @@ import { estimateTempo, type TempoEstimate } from './tempo'
  * values: what reacts in playback is exactly what exports.
  */
 
-export const ANALYSIS_VERSION = 1
+export const ANALYSIS_VERSION = 2
 /** Sources are rendered at this rate for analysis. */
 export const ANALYSIS_SAMPLE_RATE = 48_000
 /** Frames per second of every analysis signal. */
@@ -136,14 +136,22 @@ function wideOnset(pcm: Float32Array): Float32Array {
   return riseDb(centredRms(power, BLOCK, frames, 1), 1, 40)
 }
 
+/**
+ * Bands from here up align their hits to their own 5 ms level: up there it's smooth and
+ * sharp. Lower down a 5 ms level ripples with the wave, so hits align to the whole sound's,
+ * whose ripple a kick's or bass's tail can make look like a hi-hat 35 ms early (W3).
+ */
+const OWN_ONSET_HZ = 1000
+
 /** One frequency range of a sound: level, transients and hits. */
-export function analyseBand(pcm: Float32Array, low: number, high: number, windowMs: number, wideRise: Float32Array | null = wideOnset(pcm)): BandAnalysis {
+export function analyseBand(pcm: Float32Array, low: number, high: number, windowMs: number, wideRise: Float32Array | null = null): BandAnalysis {
   const frames = Math.ceil(pcm.length / HOP)
   const filtered = filtfilt(pcm, bandFilters(low, high))
   const { power } = blockStats(filtered, BLOCK)
   const level = centredRms(power, BLOCK, frames, halfBlocks(windowMs))
   const transient = riseDb(level, 2)
-  return { level, transient, hits: alignHits(pickHits(transient), wideRise), max: maxOf(level), transientMax: maxOf(transient) }
+  const align = low >= OWN_ONSET_HZ ? riseDb(centredRms(power, BLOCK, frames, 1), 1, 40) : (wideRise ?? wideOnset(pcm))
+  return { level, transient, hits: alignHits(pickHits(transient), align), max: maxOf(level), transientMax: maxOf(transient) }
 }
 
 /** Analyses a mono sound at ANALYSIS_SAMPLE_RATE. `progress` is called with 0–1 as bands finish. */
@@ -289,4 +297,29 @@ export function unpackBand(buffer: ArrayBuffer): BandAnalysis | null {
 /** Custom bands use the window of the built-in band their low edge falls in. */
 export function customBandWindow(low: number): number {
   return (BANDS.find((b) => low >= b.low && low < b.high) ?? BANDS[BANDS.length - 1]!).window
+}
+
+/**
+ * The hits that stand out in their band (Automatic Detection, decision 108). A sound leaks
+ * into other bands more quietly than it fills its own: hi-hats show up in the clap band, a
+ * snare in the hi-hat band. So a hit is kept when its band's level just after it (the
+ * loudest within 40 ms) reaches `ratio` of the loud hits around it (the 90th percentile of
+ * the hits within ±`reach` frames, 4 s by default), so a quiet intro still keeps its hits.
+ */
+export function strongHits(band: Pick<BandAnalysis, 'hits' | 'level'>, ratio: number, reach = 4 * ANALYSIS_RATE): number[] {
+  const { hits, level } = band
+  if (ratio <= 0 || hits.length === 0) return hits.slice()
+  const peaks = hits.map((h) => {
+    let peak = 0
+    const from = Math.max(0, Math.floor(h))
+    for (let i = from; i < Math.min(level.length, from + 8); i++) peak = Math.max(peak, level[i]!)
+    return peak
+  })
+  return hits.filter((h, i) => {
+    const around: number[] = []
+    for (let j = 0; j < hits.length; j++) if (Math.abs(hits[j]! - h) <= reach) around.push(peaks[j]!)
+    around.sort((a, b) => a - b)
+    const loud = around[Math.min(around.length - 1, Math.floor(around.length * 0.9))]!
+    return peaks[i]! >= ratio * loud
+  })
 }

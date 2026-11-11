@@ -9,3 +9,4 @@ media/test/*
 .vscode/*
 !.vscode/extensions.json
 .agent/
+.stems/

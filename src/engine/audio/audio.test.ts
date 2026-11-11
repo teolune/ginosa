@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ANALYSIS_RATE, ANALYSIS_SAMPLE_RATE, analyseAudio, analyseBand, packAnalysis, unpackAnalysis } from './analysis'
+import { ANALYSIS_RATE, ANALYSIS_SAMPLE_RATE, analyseAudio, analyseBand, customBandWindow, packAnalysis, strongHits, unpackAnalysis } from './analysis'
+import { DETECT_LISTEN } from '../timeline/rack'
 
 const SR = ANALYSIS_SAMPLE_RATE
 
@@ -128,5 +129,52 @@ describe('tempo detection', () => {
 
   it('says nothing about sound shorter than 4 seconds', () => {
     expect(analyseAudio(drums(120, 3, 0, 'four').pcm).tempo).toBeNull()
+  })
+})
+
+describe('strong hits (Automatic Detection)', () => {
+  it('keeps the loud hits and drops quieter sounds that leak into the band', () => {
+    const level = new Float32Array(2000)
+    const hits = [100, 200, 300, 400, 500, 600, 700, 800]
+    hits.forEach((h, i) => (level[h + 2] = i % 2 ? 1 : 0.3))
+    expect(strongHits({ hits, level }, 0.45)).toEqual([200, 400, 600, 800])
+    expect(strongHits({ hits, level }, 0.25)).toEqual(hits)
+    expect(strongHits({ hits, level }, 0)).toEqual(hits)
+    expect(strongHits({ hits: [], level }, 0.45)).toEqual([])
+  })
+
+  it('compares a hit with the loud hits around it, so a quiet intro keeps its hits', () => {
+    const level = new Float32Array(6000)
+    const hits: number[] = []
+    for (let i = 0; i < 20; i++) {
+      hits.push(100 + i * 50)
+      level[101 + i * 50] = 0.1
+    }
+    for (let i = 0; i < 20; i++) {
+      hits.push(3000 + i * 50)
+      level[3001 + i * 50] = 1
+    }
+    expect(strongHits({ hits, level }, 0.45)).toEqual(hits)
+    // Against the whole song instead, the intro would drop out.
+    expect(strongHits({ hits, level }, 0.45, 6000)).toEqual(hits.slice(20))
+  })
+
+  it('finds the snare on 2 and 4 in the clap band, and the hi-hats on every 8th in theirs', () => {
+    const { pcm } = drums(120, 8, 0, 'four')
+    const beats = (hits: number[]) => hits.map((h) => (h / ANALYSIS_RATE) * 2)
+    // Within 15 ms (0.03 of a beat at 120 BPM) of where they were played.
+    const onGrid = (b: number, every: number) => Math.abs(b * every - Math.round(b * every)) < 0.03 * every
+    const clap = DETECT_LISTEN.clap
+    const claps = beats(strongHits(analyseBand(pcm, clap.low, clap.high, customBandWindow(clap.low)), clap.gate))
+    expect(claps.length).toBeGreaterThanOrEqual(7)
+    expect(claps.every((b) => onGrid(b, 1) && Math.round(b) % 2 === 1)).toBe(true)
+    const hat = DETECT_LISTEN.hihat
+    const hats = beats(strongHits(analyseBand(pcm, hat.low, hat.high, customBandWindow(hat.low)), hat.gate))
+    expect(hats.length).toBeGreaterThanOrEqual(28)
+    expect(hats.every((b) => onGrid(b, 2))).toBe(true)
+    const kick = DETECT_LISTEN.kick
+    const kicks = beats(strongHits(analyseBand(pcm, kick.low, kick.high, customBandWindow(kick.low)), kick.gate))
+    expect(kicks.length).toBeGreaterThanOrEqual(15)
+    expect(kicks.every((b) => onGrid(b, 1))).toBe(true)
   })
 })

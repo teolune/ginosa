@@ -73,7 +73,8 @@ const COLOURS = {
   renderCached: '#3fae5c',
   beat: 'rgba(232,176,74,0.55)',
   bar: '#e8b04a',
-  barGrid: 'rgba(232,176,74,0.07)'
+  barGrid: 'rgba(232,176,74,0.07)',
+  songHint: 'rgba(214,196,255,0.34)'
 }
 
 /** Premiere's speed badge: [200%], reversed as [-100%], or a frame hold. */
@@ -487,6 +488,16 @@ function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
       ctx.fillStyle = COLOURS.gap
       ctx.fillRect(x0, row.top + 2, x1 - x0, row.height - 4)
     }
+  }
+
+  // A1 is the song's track (the Channel Rack's detection reads it): say so while it's empty.
+  const songRow = rows.rows.find((r) => r.track.kind === 'audio')
+  if (songRow && !scene.sequence.clips.some((c) => c.trackId === songRow.track.id)) {
+    ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = COLOURS.songHint
+    ctx.fillText('♪  Drop the song here', 14, songRow.top + songRow.height / 2)
   }
 
   for (const row of rows.rows) {

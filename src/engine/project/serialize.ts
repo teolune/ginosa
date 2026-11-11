@@ -1,7 +1,9 @@
 import { BANDS, type BandId } from '../audio/analysis'
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackRow } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, defaultId } from './model'
+import { DEFAULT_GRID } from '../modulation/curve'
+import { maxLoopSteps, sectionsFromSteps } from '../timeline/rack'
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { syncLinkedRamps } from '../timeline/timeline'
 import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
@@ -149,6 +151,8 @@ function migrate(raw: Json): Json {
     const sequence = isObject(data['sequence']) ? data['sequence'] : {}
     data = { ...data, schemaVersion: 12, sequence: { ...sequence, rack: { rows: [] } } }
   }
+  // 13 (W3): Channel Rack sections. Rows' steps become sections in parseRack, which knows the grid.
+  if (version < 13) data = { ...data, schemaVersion: 13 }
   return data
 }
 
@@ -466,21 +470,59 @@ function parseBeatGrid(value: unknown): BeatGrid | null {
 }
 
 /** The timeline's In and Out; a mark that isn't a time is dropped, and an Out before the In too. */
-/** The Channel Rack (M12): rows with valid steps; a damaged row is an error, as for clips. */
-function parseRack(value: unknown): Rack {
+/**
+ * The Channel Rack: channels, then sections of cubes (W3). A damaged channel is an error, as
+ * for clips; a stray cube or amount is dropped. A rack from format 12 (steps along the whole
+ * song) becomes sections here, where the beat grid is known (`sectionsFromSteps`).
+ */
+function parseRack(value: unknown, grid: BeatGrid | null): Rack {
   const rows = isObject(value) && Array.isArray(value['rows']) ? value['rows'] : []
+  const oldSteps: Array<{ id: string; steps: number[] }> = []
   const out: RackRow[] = rows.map((row, i) => {
     const where = `sequence.rack.rows[${i}]`
     if (!isObject(row)) throw new ProjectFormatError(`${where} should be an object`)
-    const steps = Array.isArray(row['steps']) ? row['steps'] : []
-    if (!steps.every((s) => Number.isInteger(s))) throw new ProjectFormatError(`${where}.steps should be whole numbers`)
+    const id = expectString(row, 'id', where)
+    if (Array.isArray(row['steps'])) {
+      if (!row['steps'].every((s) => Number.isInteger(s))) throw new ProjectFormatError(`${where}.steps should be whole numbers`)
+      oldSteps.push({ id, steps: [...new Set(row['steps'] as number[])].sort((a, b) => a - b) })
+    }
     const band = BANDS.some((b) => b.id === row['band']) ? (row['band'] as BandId) : 'bass'
-    const swing = typeof row['swing'] === 'number' && Number.isFinite(row['swing']) ? Math.min(75, Math.max(0, row['swing'])) : 0
+    const num = (key: string, lo: number, hi: number, fallback: number) => (typeof row[key] === 'number' && Number.isFinite(row[key]) ? Math.min(hi, Math.max(lo, row[key] as number)) : fallback)
     const modulatorId = typeof row['modulatorId'] === 'string' ? row['modulatorId'] : null
-    return { id: expectString(row, 'id', where), name: expectString(row, 'name', where), enabled: row['enabled'] !== false, swing, steps: [...new Set(steps as number[])].sort((a, b) => a - b), band, modulatorId }
+    const detect = row['detect'] === 'kick' || row['detect'] === 'clap' || row['detect'] === 'hihat' || row['detect'] === 'bass' ? row['detect'] : null
+    return { id, name: expectString(row, 'name', where), enabled: row['enabled'] !== false, swing: num('swing', 0, 75, 0), band, modulatorId, strength: num('strength', 0, 150, 100), nudge: num('nudge', -50, 50, 0), detect }
   })
   if (new Set(out.map((r) => r.id)).size !== out.length) throw new ProjectFormatError('Two Channel Rack rows share the same id')
-  return { rows: out }
+  const g = grid ?? DEFAULT_GRID
+  if (!(isObject(value) && Array.isArray(value['sections']))) return { rows: out, sections: sectionsFromSteps(oldSteps, g, defaultId) }
+  const limit = maxLoopSteps(g)
+  const rowIds = new Set(out.map((r) => r.id))
+  const sections: RackSection[] = []
+  const seen = new Set<string>()
+  ;(value['sections'] as unknown[]).forEach((raw, i) => {
+    const where = `sequence.rack.sections[${i}]`
+    if (!isObject(raw)) throw new ProjectFormatError(`${where} should be an object`)
+    const id = expectString(raw, 'id', where)
+    if (seen.has(id)) throw new ProjectFormatError('Two Channel Rack sections share the same id')
+    seen.add(id)
+    const bars = raw['bars']
+    if (typeof bars !== 'number' || !Number.isInteger(bars) || bars < 1 || bars > MAX_SECTION_BARS) throw new ProjectFormatError(`${where}.bars should be 1 to ${MAX_SECTION_BARS}`)
+    const cubes: Record<string, RackCube[]> = {}
+    const rawCubes = isObject(raw['cubes']) ? raw['cubes'] : {}
+    for (const [rowId, list] of Object.entries(rawCubes)) {
+      if (!rowIds.has(rowId) || !Array.isArray(list)) continue
+      const byStep = new Map<number, RackCube>()
+      for (const c of list) {
+        if (!isObject(c) || typeof c['step'] !== 'number' || !Number.isInteger(c['step']) || c['step'] < 0 || c['step'] >= limit) continue
+        const amounts: Record<string, number> = {}
+        if (isObject(c['amounts'])) for (const [link, v] of Object.entries(c['amounts'])) if (typeof v === 'number' && Number.isFinite(v)) amounts[link] = Math.round(Math.min(100, Math.max(-100, v)))
+        byStep.set(c['step'], { step: c['step'], amounts })
+      }
+      if (byStep.size) cubes[rowId] = [...byStep.values()].sort((x, y) => x.step - y.step)
+    }
+    sections.push({ id, bars, cubes })
+  })
+  return { rows: out, sections }
 }
 
 function parseSequenceMarks(value: unknown): { in: number | null; out: number | null } {
@@ -600,7 +642,7 @@ export function parseProject(input: string | unknown): Project {
   })
   // Linked sound's copy of a speed ramp is rebuilt from its picture (decision 41).
   const marks = parseSequenceMarks(sequence['marks'])
-  const rack = parseRack(sequence['rack'])
+  const rack = parseRack(sequence['rack'], beatGrid)
   for (const r of rack.rows) if (r.modulatorId && !modulatorIds.has(r.modulatorId)) r.modulatorId = null
   syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks, rack })
 
