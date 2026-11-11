@@ -3,16 +3,16 @@ import { Icon } from '../app/Icon'
 import { MediaPanel } from '../media-panel/MediaPanel'
 import { ProgramMonitor } from '../panels/ProgramMonitor'
 import { TimelinePanel } from '../timeline/TimelinePanel'
-import { useObservable } from '../state/observable'
+import { useObservable, useSelect } from '../state/observable'
+import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { FloatingWindow } from './FloatingWindow'
-import type { Size } from './layout'
+import { resolveFrame, workspaceGrid, type GridArea, type PanelKey, type Size } from './layout'
 import { renderWindow } from './windows'
 
-type PanelKey = 'mediaWidth' | 'timelineHeight' | 'dockWidth'
 
 /** Drag handle between fixed panels; `sign` flips direction for panels measured from the far side. */
-function Splitter({ panel, axis, sign }: { panel: PanelKey; axis: 'x' | 'y'; sign: 1 | -1 }) {
+function Splitter({ panel, axis, sign, area }: { panel: PanelKey; axis: 'x' | 'y'; sign: 1 | -1; area: GridArea }) {
   const onPointerDown = (event: ReactPointerEvent) => {
     event.preventDefault()
     const start = axis === 'x' ? event.clientX : event.clientY
@@ -30,7 +30,7 @@ function Splitter({ panel, axis, sign }: { panel: PanelKey; axis: 'x' | 'y'; sig
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
-  return <div className={`splitter ${axis}`} onPointerDown={onPointerDown} />
+  return <div className={`splitter ${axis}`} style={{ gridArea: area }} onPointerDown={onPointerDown} />
 }
 
 /**
@@ -72,21 +72,33 @@ export function Workspace() {
     undefined
   )
 
-  const columns = `${layout.mediaWidth}px 4px 1fr${docked.length ? ` 4px ${layout.dockWidth}px` : ''}`
+  const shape = useSelect(projectController, () => {
+    const settings = projectController.project?.sequence.settings
+    return settings && settings.height > settings.width ? 'portrait' : 'landscape'
+  })
+  const frame = resolveFrame(layout.frame, shape)
+  const grid = workspaceGrid(layout, frame, docked.length > 0 && dockTab !== undefined)
+  const uses = grid.uses
 
   return (
     <div className="workspace">
-      <div className="workspace-grid" style={{ gridTemplateColumns: columns }}>
-        <MediaPanel />
-        <Splitter panel="mediaWidth" axis="x" sign={1} />
-        <div className="center-column" style={{ gridTemplateRows: `1fr 4px ${layout.timelineHeight}px` }}>
-          <ProgramMonitor />
-          <Splitter panel="timelineHeight" axis="y" sign={-1} />
+      <div className={`workspace-grid frame-${frame}`} style={{ gridTemplateColumns: grid.columns, gridTemplateRows: grid.rows, gridTemplateAreas: grid.areas }}>
+        {uses.has('media') && (
+          <div className="grid-cell" style={{ gridArea: 'media' }}>
+            <MediaPanel />
+          </div>
+        )}
+        {uses.has('split-media') && <Splitter panel="mediaWidth" axis="x" sign={1} area="split-media" />}
+        <div className="grid-cell" style={{ gridArea: 'preview' }}>
+          <ProgramMonitor frame={frame} />
+        </div>
+        <Splitter panel="timelineHeight" axis="y" sign={-1} area="split-timeline" />
+        <div className="grid-cell" style={{ gridArea: 'timeline' }}>
           <TimelinePanel />
         </div>
-        {docked.length > 0 && <Splitter panel="dockWidth" axis="x" sign={-1} />}
-        {docked.length > 0 && dockTab && (
-          <aside className="panel dock-column">
+        {uses.has('split-side') && <Splitter panel={frame === 'portrait' ? 'previewWidth' : 'dockWidth'} axis="x" sign={-1} area="split-side" />}
+        {uses.has('dock') && dockTab && (
+          <aside className="panel dock-column" style={{ gridArea: 'dock' }}>
             <header className="dock-tabs">
               {docked.map((spec) => (
                 <button
@@ -107,6 +119,22 @@ export function Workspace() {
             </header>
             <div className="dock-content">{renderWindow(dockTab.id)}</div>
           </aside>
+        )}
+        {uses.has('empty') && (
+          <section className="panel empty-dock" style={{ gridArea: 'empty' }}>
+            <div className="empty-state">
+              <p className="muted">Nothing is docked here.</p>
+              <button className="button compact" onClick={() => workspaceController.setDocked('effect-controls', true)}>
+                Effect Controls
+              </button>{' '}
+              <button className="button compact" onClick={() => workspaceController.setDocked('effects-library', true)}>
+                Add Effects
+              </button>{' '}
+              <button className="button compact" onClick={() => workspaceController.toggleMedia(true)}>
+                Media
+              </button>
+            </div>
+          </section>
         )}
       </div>
 

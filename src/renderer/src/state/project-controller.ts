@@ -1,6 +1,6 @@
 import { History, replayPatches, type Change, type Patch } from '@engine/history'
 import { CommandError, type Command } from '@engine/project/commands'
-import { createProject, type Project } from '@engine/project/model'
+import { createProject, type Project, type SequenceSettings } from '@engine/project/model'
 import { parseProject, ProjectFormatError, serializeProject } from '@engine/project/serialize'
 import type { RecentProject, RecoveryInfo } from '@shared/ipc'
 import { Observable } from './observable'
@@ -70,15 +70,16 @@ export class ProjectController extends Observable {
 
   // ---- Opening and creating ------------------------------------------------
 
-  async newProject(): Promise<void> {
+  /** New Project: asks where to save it, then makes it with these sequence settings (the title screen's choices). */
+  async newProject(settings?: Partial<SequenceSettings>): Promise<void> {
     if (!(await this.confirmLeave())) return
     const path = await this.bridge.chooseNewLocation()
     if (!path) return
-    await this.createAt(path)
+    await this.createAt(path, projectNameFromPath(path), settings)
   }
 
-  async createAt(path: string, name = projectNameFromPath(path)): Promise<void> {
-    const project = createProject({ name })
+  async createAt(path: string, name = projectNameFromPath(path), settings?: Partial<SequenceSettings>): Promise<void> {
+    const project = createProject({ name, settings })
     try {
       await this.closeQuietly()
       await this.bridge.create(path, serializeProject(project))

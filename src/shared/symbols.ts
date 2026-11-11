@@ -40,7 +40,23 @@ export const SYMBOLS = {
   stepForward: 'forward.frame.fill',
   goToStart: 'backward.end.fill',
   goToEnd: 'forward.end.fill',
-  gauge: 'gauge.with.dots.needle.50percent'
+  gauge: 'gauge.with.dots.needle.50percent',
+  pause: 'pause.fill',
+  sparkles: 'sparkles',
+  automate: 'waveform.path',
+  tempoUp: 'chevron.up',
+  automationClip: 'point.topleft.down.to.point.bottomright.curvepath',
+  adjustmentLayer: 'square.stack.3d.up',
+  channelRack: 'square.grid.3x3',
+  sidebarLeft: 'sidebar.left',
+  fullscreen: 'arrow.up.left.and.arrow.down.right',
+  metronome: 'metronome',
+  frames: 'rectangle.split.3x1',
+  landscape: 'rectangle',
+  portrait: 'rectangle.portrait',
+  gear: 'gearshape',
+  folderOpen: 'folder',
+  upFolder: 'arrow.turn.left.up'
 } as const
 
 export type SymbolName = keyof typeof SYMBOLS

@@ -6,6 +6,8 @@ import {
   resizeRect,
   snapMove,
   snapResize,
+  resolveFrame,
+  workspaceGrid,
   type WindowSpec
 } from './layout'
 
@@ -70,5 +72,64 @@ describe('workspace files', () => {
     const file = normaliseWorkspaceFile({ layouts: { Mine: { windows: { b: { open: true, docked: true } } } }, active: 'Mine' }, specs)
     expect(file.active).toBe('Mine')
     expect(file.layouts['Mine']?.windows['b']?.docked).toBe(false)
+  })
+})
+
+describe('frames and the Control Panel layout', () => {
+  const wire: WindowSpec[] = [
+    { id: 'controls', title: 'Effect Controls', shortcut: 'Alt+7', defaultRect: { x: 0, y: 0, w: 300, h: 300 }, minSize: min, dockable: true, defaultOpen: true, defaultDocked: true },
+    { id: 'history', title: 'History', shortcut: 'Alt+2', defaultRect: { x: 0, y: 0, w: 300, h: 300 }, minSize: min, dockable: true, defaultOpen: false, defaultDocked: true },
+    { id: 'float', title: 'Float', shortcut: 'Alt+3', defaultRect: { x: 0, y: 0, w: 300, h: 300 }, minSize: min, dockable: true, defaultOpen: false, defaultDocked: false }
+  ]
+
+  it('moves layouts saved before frames to the wireframe tabs, leaving floating windows alone', () => {
+    const old = { windows: { controls: { open: false, docked: false }, history: { open: true, docked: true }, float: { open: true, docked: false, rect: { x: 50, y: 60, w: 300, h: 300 } } }, mediaWidth: 300 }
+    const layout = normaliseWorkspaceFile({ layouts: { Edit: old } }, wire).layouts['Edit']!
+    expect(layout.windows['controls']).toMatchObject({ open: true, docked: true })
+    expect(layout.windows['history']).toMatchObject({ open: false, docked: true })
+    expect(layout.windows['float']).toMatchObject({ open: true, docked: false, rect: { x: 50, y: 60 } })
+    expect(layout.mediaWidth).toBe(300)
+    expect(layout.frame).toBe('auto')
+    expect(layout.mediaOpen).toBe(true)
+  })
+
+  it('keeps windows as saved once a layout has frames', () => {
+    const saved = { windows: { controls: { open: false, docked: false }, history: { open: true, docked: true } }, frame: 'portrait', mediaOpen: false, previewWidth: 9999 }
+    const layout = normaliseWorkspaceFile({ layouts: { Edit: saved } }, wire).layouts['Edit']!
+    expect(layout.windows['controls']).toMatchObject({ open: false, docked: false })
+    expect(layout.windows['history']).toMatchObject({ open: true, docked: true })
+    expect(layout.frame).toBe('portrait')
+    expect(layout.mediaOpen).toBe(false)
+    expect(layout.previewWidth).toBe(1000)
+  })
+
+  it('follows the sequence shape on Auto', () => {
+    expect(resolveFrame('auto', 'portrait')).toBe('portrait')
+    expect(resolveFrame('auto', 'landscape')).toBe('landscape')
+    expect(resolveFrame('landscape', 'portrait')).toBe('landscape')
+  })
+
+  it('lays out the landscape wireframe: media | preview, timeline under both, dock at full height', () => {
+    const grid = workspaceGrid({ ...defaultLayout(wire), mediaWidth: 400, dockWidth: 340, timelineHeight: 280 }, 'landscape', true)
+    expect(grid.columns).toBe('400px 6px 1fr 6px 340px')
+    expect(grid.rows).toBe('1fr 6px 280px')
+    expect(grid.areas).toBe(
+      '"media split-media preview split-side dock" "split-timeline split-timeline split-timeline split-side dock" "timeline timeline timeline split-side dock"'
+    )
+  })
+
+  it('lays out the portrait wireframe: media | dock, timeline under both, a tall preview on the right', () => {
+    const grid = workspaceGrid({ ...defaultLayout(wire), mediaWidth: 400, previewWidth: 420 }, 'portrait', true)
+    expect(grid.columns).toBe('400px 6px 1fr 6px 420px')
+    expect(grid.areas.split('" "')[0]).toBe('"media split-media dock split-side preview')
+    expect(grid.areas.endsWith('timeline timeline timeline split-side preview"')).toBe(true)
+  })
+
+  it('gives a closed media column (or an empty dock) to its neighbour', () => {
+    const closed = { ...defaultLayout(wire), mediaOpen: false }
+    expect(workspaceGrid(closed, 'landscape', true).areas.startsWith('"preview split-side dock"')).toBe(true)
+    expect(workspaceGrid(closed, 'landscape', false).columns).toBe('1fr')
+    expect(workspaceGrid(closed, 'portrait', false).uses.has('empty')).toBe(true)
+    expect(workspaceGrid(defaultLayout(wire), 'portrait', false).areas.startsWith('"media split-side preview"')).toBe(true)
   })
 })

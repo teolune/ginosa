@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { checkFile, classifyImportPaths, fingerprintFile, searchForMoved } from './media-files'
+import { checkFile, classifyImportPaths, fingerprintFile, listFolder, searchForMoved } from './media-files'
 
 let dir: string
 
@@ -62,5 +62,41 @@ describe('media files', () => {
     const result = await classifyImportPaths([join(dir, 'B-roll'), join(dir, 'loose.wav'), join(dir, 'readme.pdf')])
     expect(result.files).toEqual([join(dir, 'loose.wav')])
     expect(result.folders).toEqual([{ name: 'B-roll', files: [join(dir, 'B-roll', 'nested', 'two.mov'), join(dir, 'B-roll', 'one.mp4')] }])
+  })
+})
+
+describe('the folder browser', () => {
+  let root: string
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'ginosa-folder-'))
+    await mkdir(join(root, 'Shots'))
+    await writeFile(join(root, 'clip 10.mov'), 'x')
+    await writeFile(join(root, 'clip 2.MP4'), 'xx')
+    await writeFile(join(root, 'song.wav'), 'xxx')
+    await writeFile(join(root, 'cover.png'), 'xxxx')
+    await writeFile(join(root, 'notes.txt'), 'not media')
+    await writeFile(join(root, '.DS_Store'), '')
+  })
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('lists subfolders first, then media files by name, and only counts the rest', async () => {
+    const listing = await listFolder(root)
+    expect(listing.path).toBe(root)
+    expect(listing.parent).toBeTruthy()
+    expect(listing.entries.map((e) => [e.name, e.kind])).toEqual([
+      ['Shots', 'folder'],
+      ['clip 2.MP4', 'video'],
+      ['clip 10.mov', 'video'],
+      ['cover.png', 'image'],
+      ['song.wav', 'audio']
+    ])
+    expect(listing.entries.find((e) => e.name === 'song.wav')?.size).toBe(3)
+    expect(listing.other).toBe(1)
+  })
+
+  it('needs an absolute path', async () => {
+    await expect(listFolder('relative/folder')).rejects.toThrow(/absolute/)
   })
 })

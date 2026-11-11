@@ -92,6 +92,11 @@ export class Player extends Observable {
   message: string | null = null
 
   audio: AudioEngine | null = null
+  /** Where the last Play started: Stop goes back there, and a second Stop to the start (Control Panel). */
+  playOrigin: Ticks | null = null
+  private originPending = false
+  /** Metronome clicks on the beat grid while playing (Control Panel). */
+  metronome = false
   private compositor: Compositor | null = null
   private device: GPUDevice | null = null
   private canvas: HTMLCanvasElement | null = null
@@ -454,12 +459,19 @@ export class Player extends Observable {
 
   async play(rate = 1, from: Ticks = this.host.playhead): Promise<void> {
     const project = this.host.scene(false)
-    if (!project || !this.compositor) return
+    if (!project || !this.compositor) {
+      this.originPending = false
+      return
+    }
     for (const other of Player.all) if (other !== this) other.stop()
     this.stopStreams()
     this.audio?.stop()
     const end = sequenceEnd(project.sequence)
     if (rate > 0 && from >= end - ticksPerFrame(frameRateOf(project.sequence.settings))) from = 0
+    if (this.originPending) {
+      this.playOrigin = from
+      this.originPending = false
+    }
     this.playing = true
     this.rate = rate
     this.startTime = from
@@ -497,6 +509,7 @@ export class Player extends Observable {
     if (rate === 1) {
       this.audio ??= new AudioEngine()
       this.audio.modulation = this.host.modulation?.() ?? null
+      this.audio.metronome = this.metronome
       await this.audio.start(project.sequence, project.media, from, (item) => this.path(item))
     }
     this.notify()
@@ -517,9 +530,32 @@ export class Player extends Observable {
     this.requestStill()
   }
 
+  /** Play/Pause: pausing leaves the playhead where it is; playing again starts from there. */
   toggle(): void {
     if (this.playing) this.stop()
-    else void this.play(1)
+    else {
+      this.originPending = true
+      void this.play(1)
+    }
+  }
+
+  /**
+   * Stop (Control Panel): back to where Play started. Pressed again, or with nowhere to go
+   * back to, it goes to the start.
+   */
+  stopAndReturn(): void {
+    const origin = this.playOrigin
+    const wasPlaying = this.playing
+    this.stop()
+    if (origin !== null && (wasPlaying || this.host.playhead !== origin)) this.host.setPlayhead(origin)
+    else this.host.setPlayhead(0)
+    this.notify()
+  }
+
+  setMetronome(on: boolean): void {
+    this.metronome = on
+    if (this.audio) this.audio.metronome = on
+    this.notify()
   }
 
   /** L: play, then faster each press. J: reverse, faster each press. K: stop. */

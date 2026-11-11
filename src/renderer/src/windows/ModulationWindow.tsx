@@ -250,7 +250,7 @@ function CurveEditor({ m }: { m: Modulator }) {
     c.height = size * ratio
     const ctx = c.getContext('2d')!
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    ctx.fillStyle = '#16171a'
+    ctx.fillStyle = '#15121b'
     ctx.fillRect(0, 0, size, size)
     ctx.strokeStyle = '#2a2d33'
     ctx.strokeRect(0.5, 0.5, size - 1, size - 1)
@@ -349,7 +349,7 @@ function OutputPreview({ m, sequence }: { m: Modulator; sequence: Sequence }) {
     c.height = height * ratio
     const ctx = c.getContext('2d')!
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    ctx.fillStyle = '#16171a'
+    ctx.fillStyle = '#15121b'
     ctx.fillRect(0, 0, width, height)
     const span = secondsToTicks(6)
     const from = tl.playhead - span / 2

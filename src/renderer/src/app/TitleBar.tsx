@@ -1,5 +1,6 @@
 import { projectController, type SaveStatus } from '../state/project-controller'
 import { useObservable } from '../state/observable'
+import { Logo } from './Logo'
 
 function describe(status: SaveStatus, dirty: boolean): string {
   switch (status.kind) {
@@ -23,7 +24,10 @@ export function TitleBar() {
   const dirty = projectController.isDirty
   return (
     <header className="titlebar">
-      <span className="wordmark">ginosa</span>
+      <span className="wordmark-group">
+        <Logo size={17} />
+        <span className="wordmark">ginosa</span>
+      </span>
       {project && (
         <>
           <span className="titlebar-project">

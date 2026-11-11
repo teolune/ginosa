@@ -59,6 +59,8 @@ const bridge: GinosaBridge = {
   media: {
     chooseImport: () => ipcRenderer.invoke('media:chooseImport'),
     classify: (paths) => ipcRenderer.invoke('media:classify', paths),
+    chooseFolder: () => ipcRenderer.invoke('media:chooseFolder'),
+    listFolder: (folder) => ipcRenderer.invoke('media:listFolder', folder),
     probe: (paths) => ipcRenderer.invoke('media:probe', paths),
     probeOne: (path) => ipcRenderer.invoke('media:probeOne', path),
     thumbnail: (request) => ipcRenderer.invoke('media:thumbnail', request),

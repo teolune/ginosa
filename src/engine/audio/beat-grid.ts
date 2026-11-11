@@ -9,7 +9,7 @@ import { secondsToTicks, ticksToSeconds, type Ticks } from '../time'
  */
 
 export const MIN_BPM = 20
-export const MAX_BPM = 400
+export const MAX_BPM = 999.999
 
 export function beatLength(grid: BeatGrid): Ticks {
   return secondsToTicks(60 / grid.bpm)

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { JournalEntry, OpenedProject, RecentProject, RecoveryInfo } from '@shared/ipc'
 import { PROJECT_EXTENSION } from '@shared/ipc'
@@ -275,6 +275,23 @@ async function wasInterrupted(path: string): Promise<boolean> {
   }
 }
 
+/** A project's createdAt, read from the start of its project file (it sits near the top), or null. */
+export async function readCreatedAt(projectPath: string): Promise<string | null> {
+  try {
+    const handle = await open(join(projectPath, PROJECT_FILE), 'r')
+    try {
+      const buffer = Buffer.alloc(16_384)
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+      const match = /"createdAt"\s*:\s*"([^"]{10,40})"/.exec(buffer.subarray(0, bytesRead).toString('utf8'))
+      return match && !Number.isNaN(Date.parse(match[1]!)) ? match[1]! : null
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Recently opened projects, kept in the app's own settings folder. */
 export class RecentProjects {
   constructor(private readonly file: string) {}
@@ -285,7 +302,8 @@ export class RecentProjects {
       const present: RecentProject[] = []
       for (const item of items) {
         if (!(await exists(join(item.path, PROJECT_FILE)))) continue
-        present.push({ name: item.name, path: item.path, openedAt: item.openedAt, interrupted: await wasInterrupted(item.path) })
+        const createdAt = item.createdAt ?? (await readCreatedAt(item.path))
+        present.push({ name: item.name, path: item.path, openedAt: item.openedAt, ...(createdAt ? { createdAt } : {}), interrupted: await wasInterrupted(item.path) })
       }
       return present
     } catch {
@@ -295,7 +313,8 @@ export class RecentProjects {
 
   async add(path: string): Promise<RecentProject[]> {
     const items = (await this.list()).filter((item) => item.path !== path)
-    items.unshift({ name: projectNameFromPath(path), path, openedAt: new Date().toISOString(), interrupted: false })
+    const createdAt = await readCreatedAt(path)
+    items.unshift({ name: projectNameFromPath(path), path, openedAt: new Date().toISOString(), ...(createdAt ? { createdAt } : {}), interrupted: false })
     const trimmed = items.slice(0, 12)
     await mkdir(dirname(this.file), { recursive: true })
     await writeAtomic(this.file, JSON.stringify(trimmed, null, 2))

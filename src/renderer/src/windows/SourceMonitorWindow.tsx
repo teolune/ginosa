@@ -50,7 +50,7 @@ function WaveformView({ waveform, duration, position, onSeek }: { waveform: Wave
       ctx.fill()
     }
     if (duration > 0) {
-      ctx.fillStyle = '#5b8cff'
+      ctx.fillStyle = '#bb91fa'
       ctx.fillRect(Math.round((position / duration) * width), 0, 2 * devicePixelRatio, height)
     }
   }, [waveform, duration, position])

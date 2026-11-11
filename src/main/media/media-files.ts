@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { open, readdir, stat } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
-import { displayNameFromPath, IMPORT_EXTENSIONS, type MediaFingerprint } from '../../engine/project/media'
-import type { FileStatus, ProbeResult } from '../../shared/media-types'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
+import { AUDIO_EXTENSIONS, displayNameFromPath, IMAGE_EXTENSIONS, IMPORT_EXTENSIONS, type MediaFingerprint } from '../../engine/project/media'
+import type { FileStatus, FolderEntry, FolderListing, ProbeResult } from '../../shared/media-types'
 import { runTool } from './ffmpeg'
 import { parsePackets, parseProbe } from './probe-parse'
 
@@ -68,6 +68,50 @@ export async function probeFiles(paths: string[], concurrency = 4): Promise<Prob
 
 function isImportable(path: string): boolean {
   return (IMPORT_EXTENSIONS as readonly string[]).includes(extname(path).slice(1).toLowerCase())
+}
+
+function kindOf(name: string): FolderEntry['kind'] | null {
+  const extension = extname(name).slice(1).toLowerCase()
+  if ((AUDIO_EXTENSIONS as readonly string[]).includes(extension)) return 'audio'
+  if ((IMAGE_EXTENSIONS as readonly string[]).includes(extension)) return 'image'
+  return (IMPORT_EXTENSIONS as readonly string[]).includes(extension) ? 'video' : null
+}
+
+/**
+ * One folder's subfolders and media files, for the media panel's folder browser. Only reads:
+ * nothing is copied or changed. Hidden files are skipped; other files are counted, not listed.
+ */
+export async function listFolder(folder: string, limit = 2000): Promise<FolderListing> {
+  if (!isAbsolute(folder)) throw new Error('The folder path must be absolute')
+  const entries = await readdir(folder, { withFileTypes: true })
+  const listed: FolderEntry[] = []
+  let other = 0
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue
+    const path = join(folder, entry.name)
+    let isDirectory = entry.isDirectory()
+    let isFile = entry.isFile()
+    if (entry.isSymbolicLink()) {
+      const target = await stat(path).catch(() => null)
+      isDirectory = target?.isDirectory() ?? false
+      isFile = target?.isFile() ?? false
+    }
+    if (isDirectory) {
+      listed.push({ name: entry.name, path, kind: 'folder', size: 0, modified: 0 })
+      continue
+    }
+    const kind = isFile ? kindOf(entry.name) : null
+    if (!kind) {
+      other++
+      continue
+    }
+    if (listed.length >= limit) continue
+    const info = await stat(path).catch(() => null)
+    listed.push({ name: entry.name, path, kind, size: info?.size ?? 0, modified: info?.mtimeMs ?? 0 })
+  }
+  listed.sort((a, b) => (a.kind === 'folder') !== (b.kind === 'folder') ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name, undefined, { numeric: true }))
+  const parent = dirname(folder)
+  return { path: folder, parent: parent === folder ? null : parent, entries: listed.slice(0, limit), other }
 }
 
 /** Media files inside a folder (recursively, hidden files skipped), capped to keep imports sane. */

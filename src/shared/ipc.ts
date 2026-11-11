@@ -10,6 +10,7 @@ import type {
   CacheCategory,
   CacheProjectUsage,
   FileStatus,
+  FolderListing,
   GenerateRequest,
   OptimiseJob,
   OptimiseRequest,
@@ -106,6 +107,8 @@ export interface RecentProject {
   name: string
   path: string
   openedAt: string
+  /** When the project was made (from its project file), for the title screen's Date Created. */
+  createdAt?: string
   /** The last session with this project ended without closing it (crash or force quit). */
   interrupted?: boolean
 }
@@ -221,6 +224,9 @@ export interface GinosaBridge {
   media: {
     chooseImport(): Promise<string[]>
     classify(paths: string[]): Promise<{ files: string[]; folders: Array<{ name: string; files: string[] }> }>
+    /** The folder browser: pick a folder, and list a folder's subfolders and media files (read only). */
+    chooseFolder(): Promise<string | null>
+    listFolder(folder: string): Promise<FolderListing>
     probe(paths: string[]): Promise<ProbeResult[]>
     probeOne(path: string): Promise<ProbeResult>
     thumbnail(request: GenerateRequest): Promise<string>

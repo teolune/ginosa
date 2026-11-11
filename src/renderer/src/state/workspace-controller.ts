@@ -5,6 +5,8 @@ import {
   normaliseWorkspaceFile,
   PANEL_LIMITS,
   topZ,
+  type FrameChoice,
+  type PanelKey,
   type Rect,
   type Size,
   type WindowLayout,
@@ -154,9 +156,23 @@ export class WorkspaceController extends Observable {
     if (moved) this.changed()
   }
 
-  setPanelSize(key: 'mediaWidth' | 'timelineHeight' | 'dockWidth', value: number): void {
+  setPanelSize(key: PanelKey, value: number): void {
     const limits = PANEL_LIMITS[key]
     this.layout[key] = Math.round(Math.min(limits.max, Math.max(limits.min, value)))
+    this.changed()
+  }
+
+  /** Frames: a preset for where the panels sit (Control Panel). */
+  setFrame(frame: FrameChoice): void {
+    if (this.layout.frame === frame) return
+    this.layout.frame = frame
+    this.changed()
+  }
+
+  /** Control Panel: Open/Close Import Folder (the media and folders column). */
+  toggleMedia(open = !this.layout.mediaOpen): void {
+    if (this.layout.mediaOpen === open) return
+    this.layout.mediaOpen = open
     this.changed()
   }
 

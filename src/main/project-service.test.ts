@@ -6,7 +6,7 @@ import { History, replayPatches, type Patch } from '../engine/history'
 import { addTrack, renameProject, setSequenceSettings } from '../engine/project/commands'
 import { createProject } from '../engine/project/model'
 import { parseProject, serializeProject } from '../engine/project/serialize'
-import { normaliseProjectPath, ProjectService } from './project-service'
+import { normaliseProjectPath, ProjectService, readCreatedAt, RecentProjects } from './project-service'
 
 let dir: string
 let path: string
@@ -158,5 +158,19 @@ describe('normaliseProjectPath', () => {
   it('adds the .ginosa extension and accepts project.json inside a project', () => {
     expect(normaliseProjectPath('/a/My film')).toBe('/a/My film.ginosa')
     expect(normaliseProjectPath('/a/My film.ginosa/project.json')).toBe('/a/My film.ginosa')
+  })
+})
+
+describe('recent projects', () => {
+  it('remember when each project was made, for the title screen', async () => {
+    const service = new ProjectService()
+    await service.create(path, serializeProject(createProject({ name: 'Test', now: () => new Date('2026-03-04T05:06:07.000Z') })))
+    await service.close()
+    expect(await readCreatedAt(path)).toBe('2026-03-04T05:06:07.000Z')
+    expect(await readCreatedAt(join(dir, 'Missing.ginosa'))).toBeNull()
+    const recent = new RecentProjects(join(dir, 'recent.json'))
+    const [item] = await recent.add(path)
+    expect(item).toMatchObject({ name: 'Test', createdAt: '2026-03-04T05:06:07.000Z' })
+    expect((await recent.list())[0]?.createdAt).toBe('2026-03-04T05:06:07.000Z')
   })
 })

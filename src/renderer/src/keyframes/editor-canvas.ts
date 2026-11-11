@@ -211,23 +211,23 @@ function stepY(size: Size): number {
 // ---- Drawing ----------------------------------------------------------------------------
 
 const C = {
-  bg: '#16171a',
-  label: '#1b1d22',
-  labelFocused: '#22283a',
-  clipRow: '#202227',
-  grid: '#24262b',
-  gridText: '#6e717a',
-  text: '#e3e4e7',
-  muted: '#8f929a',
-  band: 'rgba(91,140,255,0.08)',
-  bandVideo: 'rgba(91,140,255,0.10)',
+  bg: '#15121b',
+  label: '#1b1722',
+  labelFocused: '#2a2140',
+  clipRow: '#211c29',
+  grid: '#262030',
+  gridText: '#756c85',
+  text: '#ebe6f3',
+  muted: '#968ea6',
+  band: 'rgba(187,145,250,0.08)',
+  bandVideo: 'rgba(187,145,250,0.10)',
   bandAudio: 'rgba(82,196,140,0.10)',
   key: '#d9dade',
-  keySelected: '#5b8cff',
+  keySelected: '#bb91fa',
   playhead: '#ff5d5d',
-  curve: ['#5b8cff', '#5fd08a'],
+  curve: ['#bb91fa', '#5fd08a'],
   handle: '#f2d16b',
-  marquee: 'rgba(91,140,255,0.18)'
+  marquee: 'rgba(187,145,250,0.18)'
 }
 
 export interface DrawState {
@@ -264,7 +264,7 @@ function shape(ctx: CanvasRenderingContext2D, k: Keyframe, x: number, y: number,
 
 function drawRuler(ctx: CanvasRenderingContext2D, s: DrawState): void {
   const { width } = s.size
-  ctx.fillStyle = '#1b1d22'
+  ctx.fillStyle = '#1b1722'
   ctx.fillRect(LABEL_W, 0, width - LABEL_W, RULER_H)
   const { major, minor } = rulerSteps(s.view.pps, s.fps)
   const start = s.view.scroll
@@ -490,7 +490,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, s: DrawState): void {
     // With modulation, the value as it really plays: faint, beside the keyframed curve.
     if (s.modulation && linksOf(clip, ref.effectId, ref.param).length > 0) {
       for (let c = 0; c < n; c++) {
-        ctx.strokeStyle = c === 0 ? 'rgba(91,140,255,0.35)' : 'rgba(95,208,138,0.35)'
+        ctx.strokeStyle = c === 0 ? 'rgba(187,145,250,0.35)' : 'rgba(95,208,138,0.35)'
         ctx.lineWidth = 1
         ctx.beginPath()
         for (let x = LABEL_W; x <= width; x += 2) {

@@ -1,5 +1,18 @@
 # Changelog
 
+## Wireframe phase 1: look, title screen, layout, Control Panel (11 Nov 2026)
+
+From your wireframes (decisions 94–103):
+
+- **The look**: near-black violet with purple accents (#0e0c12, #271170, #bb91fa) everywhere, including the timeline, Keyframe Editor and analysis views. Rounded panels with gaps that are also the resize handles. Adjustment layers are now rose, so they stand apart from the purple video clips.
+- **Title screen**: the ginosa mark; **New Project** with 1080p / 4K / Custom Resolution, a 16:9 ↔ 9:16 switch, Custom Ratio (4:5, 1:1, 2.39:1…) and a frame-rate menu, then **Create**; **Recent** with each project's Date Created.
+- **Layout**: the **Control Panel** across the top; media | preview with the timeline under both; **Effect Controls | Add Effects** at full height on the right. Tool windows still float. Your saved layout moved over once (History closed, floating windows unchanged).
+- **Frames**: Auto (follows the sequence's shape), Landscape or Portrait. Portrait is the mobile wireframe: media | effects, the timeline under both, a tall preview on the right with its tools above and the transport below.
+- **Control Panel**: a tempo knob (drag, scroll or type, up to 999.999 BPM), Automatic Detection, ×2 / ÷2, back to start, Play/Pause, Stop (back to where Play started; again for the start), skip to end, New Adjustment Layer at the playhead, Channel Rack, Import Folder (the media column), Full-screen Preview, Metronome (clicks on the beat grid while playing) and Frames, plus the timecode with bar.beat. Automate BPM and New Automation Clip are there but greyed out until automation clips.
+- **Folder browser**: Media | Folder tabs in the media column. Open a folder, go in and out, double-click or select and Import; Import Folder brings everything in as a bin. Read only: nothing in the folder is copied or changed.
+- **The preview keeps its picture's shape** in any column (a 16:9 picture in the tall portrait column used to be squeezed).
+- **Tests:** `controlpanel` (detection, the knob's range, ×2/÷2, every metronome click against the grid, Play/Pause/Stop, the adjustment layer, frames, the media column, the folder listing); 16 new unit tests (392 in all).
+
 ## Effect stacks: faster to add, edit and move around (11 Nov 2026)
 
 Measured with a stack of 10 effects on an adjustment layer (Feedback and Datamosh at the top of it) over clips with Basic Correction and Grain:

@@ -10,6 +10,18 @@ import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 import { formatCodec, formatDuration, formatFps, formatSize } from './format'
+import { FolderBrowser } from './FolderBrowser'
+
+type MediaView = 'project' | 'folder'
+const VIEW_KEY = 'ginosa.media-view'
+
+function recallView(): MediaView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'folder' ? 'folder' : 'project'
+  } catch {
+    return 'project'
+  }
+}
 
 const DRAG_TYPE = 'application/x-ginosa-items'
 const binKey = (id: string) => `bin:${id}`
@@ -114,6 +126,15 @@ export function MediaPanel() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [renaming, setRenaming] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [view, setViewState] = useState<MediaView>(recallView)
+  const setView = (next: MediaView) => {
+    setViewState(next)
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      // Not remembered.
+    }
+  }
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [width, setWidth] = useState(400)
@@ -289,13 +310,23 @@ export function MediaPanel() {
   return (
     <section className="panel media-panel" ref={panelRef}>
       <header className="panel-header">
-        <span>Media</span>
-        <span className="muted small">{project.media.length || ''}</span>
+        <span className="segmented" role="tablist">
+          <button role="tab" aria-selected={view === 'project'} className={view === 'project' ? 'on' : ''} onClick={() => setView('project')}>
+            Media <span className="muted small">{project.media.length || ''}</span>
+          </button>
+          <button role="tab" aria-selected={view === 'folder'} className={view === 'folder' ? 'on' : ''} title="Open Folder / Browse Folder" onClick={() => setView('folder')}>
+            Folder
+          </button>
+        </span>
         <span className="spacer" />
-        <input className="input compact search" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button className="button compact" title="New Bin (Cmd+B)" onClick={() => mediaController.newBin()}>
-          + Bin
-        </button>
+        {view === 'project' && (
+          <>
+            <input className="input compact search" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <button className="button compact" title="New Bin (Cmd+B)" onClick={() => mediaController.newBin()}>
+              + Bin
+            </button>
+          </>
+        )}
         <button className="button compact primary" title="Import (Cmd+I)" onClick={() => void mediaController.chooseAndImport(mediaController.targetBinId)}>
           Import…
         </button>
@@ -306,7 +337,9 @@ export function MediaPanel() {
           <span style={{ width: `${(importing.done / importing.total) * 100}%` }} />
         </div>
       )}
+      {view === 'folder' && <FolderBrowser />}
       <div
+        hidden={view === 'folder'}
         className={`media-list ${dropTarget === 'root' ? 'drop-root' : ''}`}
         tabIndex={0}
         {...dropProps(null)}

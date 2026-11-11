@@ -6,6 +6,7 @@ import { GAIN_CURVE_STEP_SECONDS, audibleTracks, audioSegments, gainAt, type Aud
 import { speedAt } from '@engine/keyframes/keyframes'
 import { clipEnd, sourceSpan, sourceTimeAt, speedRamp, timeForMedia } from '@engine/timeline/timeline'
 import type { WrappedAudioBuffer } from 'mediabunny'
+import { beatsBetween } from '@engine/audio/beat-grid'
 import { openMedia } from './sources'
 
 /** How far ahead audio is decoded and scheduled, in seconds. */
@@ -226,6 +227,29 @@ export class AudioEngine implements MixTarget {
   /** Recent schedules, for the sync test. */
   readonly log: ScheduledSound[] = []
   logging = false
+  /** Metronome clicks scheduled while logging: context time and the beat's timeline time. */
+  readonly clickLog: Array<{ at: number; time: Ticks; bar: boolean }> = []
+
+  /** Metronome (Control Panel): a click on every beat of the grid, a higher one on each bar. */
+  private metronomeOn = false
+  private clickSounds: { beat: AudioBuffer; bar: AudioBuffer } | null = null
+  private clicks = new Set<AudioBufferSourceNode>()
+  /** Timeline time clicks are scheduled up to. */
+  private clickedTo: Ticks = 0
+
+  get metronome(): boolean {
+    return this.metronomeOn
+  }
+
+  set metronome(on: boolean) {
+    if (on === this.metronomeOn) return
+    this.metronomeOn = on
+    if (!on) this.stopClicks()
+    else if (this.running) {
+      this.clickedTo = this.heardTime()
+      this.tick()
+    }
+  }
 
   constructor() {
     this.ctx = new AudioContext({ sampleRate: 48_000, latencyHint: 'interactive' })
@@ -287,6 +311,7 @@ export class AudioEngine implements MixTarget {
     this.startTime = from
     this.startCtx = this.ctx.currentTime + START_DELAY
     this.smooth = null
+    this.clickedTo = from
     this.running = true
     this.tick()
     this.timer = window.setInterval(() => this.tick(), 100)
@@ -317,6 +342,39 @@ export class AudioEngine implements MixTarget {
         this.feeders.delete(id)
       } else void feeder.pump(until)
     }
+    if (this.metronomeOn) this.scheduleClicks(until)
+  }
+
+  /** Schedules the clicks for beats up to context time `until` (the same lookahead as the sound). */
+  private scheduleClicks(until: number): void {
+    const grid = this.sequence?.beatGrid
+    if (!grid) return
+    const to = this.startTime + secondsToTicks(until - this.startCtx)
+    if (to < this.clickedTo) return
+    const sounds = (this.clickSounds ??= metronomeClicks(this.ctx))
+    for (const beat of beatsBetween(grid, Math.max(0, this.clickedTo), to)) {
+      const at = this.ctxTimeOf(beat.time)
+      if (at < this.ctx.currentTime) continue
+      const node = this.ctx.createBufferSource()
+      node.buffer = beat.bar ? sounds.bar : sounds.beat
+      node.connect(this.master)
+      node.onended = () => this.clicks.delete(node)
+      node.start(at)
+      this.clicks.add(node)
+      if (this.logging) this.clickLog.push({ at, time: beat.time, bar: beat.bar })
+    }
+    this.clickedTo = to + 1
+  }
+
+  private stopClicks(): void {
+    for (const node of this.clicks) {
+      try {
+        node.stop()
+      } catch {
+        // Already finished.
+      }
+    }
+    this.clicks.clear()
   }
 
   stop(): void {
@@ -325,5 +383,21 @@ export class AudioEngine implements MixTarget {
     this.timer = null
     for (const feeder of this.feeders.values()) feeder.stop()
     this.feeders.clear()
+    this.stopClicks()
   }
+}
+
+/** The metronome's two clicks: short decaying sine blips, 1 kHz on beats and 1.6 kHz on bars. */
+export function metronomeClicks(ctx: BaseAudioContext): { beat: AudioBuffer; bar: AudioBuffer } {
+  const make = (hz: number, gain: number): AudioBuffer => {
+    const length = Math.round(ctx.sampleRate * 0.04)
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < length; i++) {
+      const t = i / ctx.sampleRate
+      data[i] = Math.sin(2 * Math.PI * hz * t) * Math.exp(-t * 90) * gain
+    }
+    return buffer
+  }
+  return { beat: make(1000, 0.35), bar: make(1600, 0.5) }
 }

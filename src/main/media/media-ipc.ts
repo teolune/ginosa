@@ -8,7 +8,7 @@ import { CACHE_CATEGORIES, CacheService, type CacheCategory } from '../cache/cac
 import { JsonFile } from '../settings-store'
 import { DEFAULT_PREVIEW_LIMIT, PreviewStore } from '../cache/preview-store'
 import { ensureThumbnail, ensureWaveform } from './generate'
-import { checkFile, classifyImportPaths, fingerprintFile, probeFiles, probeFile, searchForMoved } from './media-files'
+import { checkFile, classifyImportPaths, fingerprintFile, listFolder, probeFiles, probeFile, searchForMoved } from './media-files'
 import { OptimiseQueue, type OptimiseJob } from './optimise'
 
 /** IPC for media import, generated files, optimised copies and the cache. */
@@ -54,6 +54,14 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
   })
 
   ipcMain.handle('media:classify', (_event, paths: string[]) => classifyImportPaths(paths))
+  // The media panel's folder browser (read only).
+  ipcMain.handle('media:chooseFolder', async (event) => {
+    const options: Electron.OpenDialogOptions = { title: 'Open Folder', buttonLabel: 'Open', properties: ['openDirectory'] }
+    const window = owner(event.sender)
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+  ipcMain.handle('media:listFolder', (_event, folder: string) => listFolder(folder))
   ipcMain.handle('media:probe', (_event, paths: string[]) => probeFiles(paths))
   ipcMain.handle('media:probeOne', (_event, path: string) => probeFile(path))
   ipcMain.handle('media:fingerprint', (_event, path: string) => fingerprintFile(path))

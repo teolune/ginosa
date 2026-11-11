@@ -85,7 +85,7 @@ function SignalView({ sourceId, sequence }: { sourceId: string | null; sequence:
     const ctx = c.getContext('2d')!
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     const { width, height } = size
-    ctx.fillStyle = '#16171a'
+    ctx.fillStyle = '#15121b'
     ctx.fillRect(0, 0, width, height)
     const plotW = width - LABEL_W
     const centre = tl.playhead

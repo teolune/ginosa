@@ -44,6 +44,16 @@ export interface ObserveOptions {
 /** For windows showing values at the playhead: during playback they refresh 10 times a second, not every frame. */
 export const PLAYHEAD_THROTTLE: ObserveOptions = { throttle: { playhead: 100 } }
 
+/**
+ * Re-renders only when `select()` gives something different (use it for a primitive picked
+ * out of a controller, so a busy controller doesn't re-render a big component).
+ */
+export function useSelect<T>(observable: Observable, select: () => T, topics: readonly Topic[] = ['state']): T {
+  const key = topics.join(',')
+  const subscribe = useCallback((listener: () => void) => observable.subscribe(listener, topics), [observable, key])
+  return useSyncExternalStore(subscribe, select)
+}
+
 /** Re-renders the component when the controller notifies about these topics. */
 export function useObservable(observable: Observable, topics: readonly Topic[] = STATE_AND_PLAYHEAD, options: ObserveOptions = {}): number {
   const key = `${topics.join(',')}|${JSON.stringify(options.throttle ?? {})}`

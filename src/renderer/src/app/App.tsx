@@ -56,6 +56,8 @@ import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 import { timelinePerf, waveformAt } from '../timeline/timeline-perf'
 import { Workspace } from '../workspace/Workspace'
+import { ControlPanel } from '../control-panel/ControlPanel'
+import { controlPanelTest } from '../control-panel/control-panel-test'
 import { ErrorToast, PromptDialog, RecoveryDialog, WarningDialog, type PromptRequest } from './Dialogs'
 import { confirmKeyframeRemoval, warnings } from './warnings'
 import { StartScreen } from './StartScreen'
@@ -448,6 +450,21 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
       await wait(2000)
       await window.ginosa.snapshot.report(await effectsPerf().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'controlpanel': {
+      // The Control Panel and frames (wireframe phase 1), on the snapshot timeline, ending in the portrait frame.
+      const all = await window.ginosa.snapshot.testMedia()
+      await mediaController.importPaths(all.filter((f) => /(testsrc_1080p24_h264\.mp4|still_4k\.png|song_120bpm\.wav|testsrc_1080p24_prores\.mov)$/.test(f)), null)
+      await wait(2500)
+      await buildSnapshotTimeline()
+      const folder = all[0]!.slice(0, all[0]!.lastIndexOf('/'))
+      try {
+        await window.ginosa.snapshot.report(await controlPanelTest(folder))
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message], stack: (error as Error).stack })
+      }
+      timelineController.zoomToFit()
       break
     }
     case 'timelineperf':
@@ -902,7 +919,14 @@ export function App() {
   return (
     <div className="app">
       <TitleBar />
-      {hasProject ? <Workspace /> : <StartScreen />}
+      {hasProject ? (
+        <>
+          <ControlPanel />
+          <Workspace />
+        </>
+      ) : (
+        <StartScreen />
+      )}
       <RecoveryDialog />
       <PromptDialog request={prompt} />
       <WarningDialog />

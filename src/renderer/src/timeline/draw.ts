@@ -39,36 +39,36 @@ export interface Scene {
 }
 
 const COLOURS = {
-  bg: '#121316',
-  lane: '#17181c',
-  laneAlt: '#15161a',
-  divider: '#0e0f11',
+  bg: '#110f16',
+  lane: '#17141d',
+  laneAlt: '#15121b',
+  divider: '#0e0c12',
   grid: 'rgba(255,255,255,0.035)',
-  ruler: '#1a1b1f',
-  rulerText: '#8f929a',
-  tick: '#3a3d44',
-  video: '#4a69b8',
-  videoSelected: '#7095f0',
+  ruler: '#18141f',
+  rulerText: '#968ea6',
+  tick: '#3a3148',
+  video: '#4f3aa8',
+  videoSelected: '#8a66f2',
   audio: '#2f8a62',
   audioSelected: '#4fc48d',
   offline: '#a33a2e',
   clipText: '#f1f2f4',
   waveform: 'rgba(255,255,255,0.55)',
-  playhead: '#5b8cff',
+  playhead: '#bb91fa',
   marker: '#3fb27f',
   snap: '#f0c040',
   razor: '#ff6b5b',
-  gap: 'rgba(91,140,255,0.18)',
+  gap: 'rgba(187,145,250,0.18)',
   locked: 'rgba(255,255,255,0.03)',
   transition: 'rgba(214,220,235,0.82)',
-  adjustment: '#6c5a9c',
-  adjustmentSelected: '#9a84d6',
-  fxBadge: '#a07cff',
+  adjustment: '#8e4a86',
+  adjustmentSelected: '#c879bb',
+  fxBadge: '#d3b6ff',
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22',
   keyframe: '#e8e8ea',
-  marked: 'rgba(91,140,255,0.16)',
-  markEdge: '#5b8cff',
+  marked: 'rgba(187,145,250,0.16)',
+  markEdge: '#bb91fa',
   renderLive: '#d9b23c',
   renderCached: '#3fae5c',
   beat: 'rgba(232,176,74,0.55)',
@@ -423,7 +423,7 @@ function drawTransition(ctx: CanvasRenderingContext2D, scene: Scene, span: Trans
     ctx.fillText('Cross Dissolve', (Math.max(x0, 0) + Math.min(x1, scene.width)) / 2, y + h / 2)
   }
   ctx.restore()
-  ctx.strokeStyle = selected ? '#5b8cff' : 'rgba(0,0,0,0.5)'
+  ctx.strokeStyle = selected ? '#bb91fa' : 'rgba(0,0,0,0.5)'
   ctx.lineWidth = selected ? 1.5 : 1
   roundRect(ctx, x0 + 0.5, y + 0.5, x1 - x0 - 1, h, 2)
   ctx.stroke()
@@ -513,8 +513,8 @@ function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
 
   if (scene.marquee) {
     const { x0, y0, x1, y1 } = scene.marquee
-    ctx.fillStyle = 'rgba(91,140,255,0.12)'
-    ctx.strokeStyle = 'rgba(91,140,255,0.8)'
+    ctx.fillStyle = 'rgba(187,145,250,0.12)'
+    ctx.strokeStyle = 'rgba(187,145,250,0.8)'
     ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0))
     ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0))
   }

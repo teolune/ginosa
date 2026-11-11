@@ -19,7 +19,7 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultRect: { x: 700, y: 40, w: 300, h: 420 },
     minSize: { w: 220, h: 160 },
     dockable: true,
-    defaultOpen: true,
+    defaultOpen: false,
     defaultDocked: true
   },
   {
@@ -64,7 +64,7 @@ export const WINDOW_SPECS: WindowSpec[] = [
   },
   {
     id: 'effects-library',
-    title: 'Effects',
+    title: 'Add Effects',
     shortcut: 'Alt+9',
     defaultRect: { x: 60, y: 80, w: 300, h: 460 },
     minSize: { w: 220, h: 220 },
