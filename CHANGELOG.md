@@ -1,5 +1,11 @@
 # Changelog
 
+## The new ginosa mark (11 Nov 2026)
+
+- **Your GinosaG sketch as a vector** (`assets/logo/ginosa-logo.svg`, decision 104): traced, then redrawn with honest curves: 17 cubic curves with their nodes at the extremes and level or plumb handles, a straight stem at 8.1° with both cuts parallel to it, and two equal channels. It's in the title bar and on the title screen, in light purple.
+- **Dock icon**: the mark on a dark rounded square (`assets/logo/ginosa-icon.png`) while ginosa runs, instead of Electron's.
+- **The media column's header** no longer squeezes its Media | Folder tabs in a narrow column: the tabs and buttons keep their size and the search box shrinks, then hides below about 340 px.
+
 ## Wireframe phase 1: look, title screen, layout, Control Panel (11 Nov 2026)
 
 From your wireframes (decisions 94–103):

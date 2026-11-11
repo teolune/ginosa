@@ -464,6 +464,9 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       } catch (error) {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message], stack: (error as Error).stack })
       }
+      // A narrow media column, to show its header still fits.
+      workspaceController.setPanelSize('mediaWidth', 300)
+      document.querySelectorAll<HTMLButtonElement>('.media-panel .segmented button')[0]?.click()
       timelineController.zoomToFit()
       break
     }

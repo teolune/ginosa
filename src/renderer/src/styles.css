@@ -362,7 +362,11 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 
 /* ---- M2: media panel ---- */
 .media-panel .panel-header { gap: 6px; }
-.media-panel .search { width: 120px; }
+.media-panel { container-type: inline-size; }
+.media-panel .search { flex: 0 1 120px; width: 120px; min-width: 48px; }
+/* A narrow column keeps its tabs and buttons whole; search comes back when it's wider. */
+@container (max-width: 340px) { .media-panel .search { display: none; } }
+.media-panel .panel-header > .button { flex: none; }
 .button.danger { border-color: var(--bad); background: rgba(229, 96, 77, 0.18); color: #f3c2b9; }
 .media-list { flex: 1; min-height: 0; overflow: auto; outline: none; }
 .media-list.drop-root { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -703,8 +707,9 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .transport.centred { grid-template-columns: 1fr; justify-items: center; }
 
 /* ---- Media column: Media | Folder ---- */
-.segmented { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: #0b0a0f; border: 1px solid var(--border); }
-.segmented button { height: 20px; padding: 0 9px; border: 0; border-radius: 5px; background: none; color: var(--text-muted); font-size: 11.5px; font-weight: 600; }
+.segmented { flex: none; display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: #0b0a0f; border: 1px solid var(--border); }
+.segmented button { height: 20px; padding: 0 9px; border: 0; border-radius: 5px; background: none; color: var(--text-muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.segmented button .small { font-weight: 500; }
 .segmented button:hover { color: var(--text); }
 .segmented button.on { color: var(--text); background: var(--accent-deep); }
 .media-list[hidden] { display: none !important; }

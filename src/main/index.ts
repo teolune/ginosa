@@ -396,6 +396,14 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(async () => {
+  // The ginosa mark in the Dock while the app runs (it isn't packaged, so there's no bundle icon).
+  if (process.platform === 'darwin') {
+    try {
+      app.dock?.setIcon(join(app.getAppPath(), 'assets', 'logo', 'ginosa-icon.png'))
+    } catch (error) {
+      console.warn(`Dock icon not set: ${(error as Error).message}`)
+    }
+  }
   handleMediaProtocol()
   registerIpc()
   // Snapshots use a throwaway cache, like their throwaway settings folder.

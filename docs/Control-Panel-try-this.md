@@ -20,7 +20,7 @@ npm start
   - `detectedBpm` **120** (Automatic Detection on the snapshot song),
   - `metronome`: `offGrid` 0, `wrongBars` 0, `lateClicks` 0, and `scheduledThroughHeard` equal to `heardBeats` (one click per beat that played),
   - `folder`: 18 entries (the test media folder).
-- [ ] `controlpanel.png`: the portrait frame (a 9:16 sequence) with the folder browser open.
+- [ ] `controlpanel.png`: the portrait frame (a 9:16 sequence), with the media column narrowed to 300 px: its Media | Folder tabs and buttons stay whole (search hides below about 340 px).
 
 ## Title screen
 
