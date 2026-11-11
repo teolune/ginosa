@@ -101,11 +101,12 @@ class RenderCacheController extends Observable {
         this.updateStatus()
       }, () => undefined)
     }
-    if (this.timer !== null) return
+    // Once edits pause (not during a drag: every frame's key is worked out again after each change).
+    if (this.timer !== null) window.clearTimeout(this.timer)
     this.timer = window.setTimeout(() => {
       this.timer = null
       this.start()
-    }, 120)
+    }, 300)
   }
 
   /** Starts working out keys for the project as it is now (sliced, so the interface stays quick). */
@@ -250,7 +251,7 @@ class RenderCacheController extends Observable {
           if (start !== null) {
             for (let t = start; t < j * frame - frame / 2; t += frame) {
               if (this.cancelRequested) break
-              await renderer.render(sequence, media, t, modulation, 1)
+              await renderer.render(sequence, media, t, modulation, 1, true)
               this.rendering.catchingUp++
             }
           }

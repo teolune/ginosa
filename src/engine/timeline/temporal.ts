@@ -3,6 +3,7 @@ import { hashText } from '../audio/sources'
 import type { EffectInstance } from '../effects/types'
 import type { MediaItem } from '../project/media'
 import type { Clip, Sequence } from '../project/model'
+import type { VideoLayer } from './render-plan'
 import type { Ticks } from '../time'
 import { frameTicks } from './timeline'
 
@@ -87,4 +88,36 @@ function trackKeyframes(effect: EffectInstance): EffectInstance[] {
   const spec = effectById(effect.effectId)?.params.find((p) => p.type === 'track')
   const track = spec ? effect.keyframes[spec.id] : undefined
   return (track ?? []).map((k) => ({ ...effect, params: { ...effect.params, [spec!.id]: k.value } }))
+}
+
+/**
+ * The layers a frame needs when it's rendered only for stateful effects' state: top down, a
+ * layer with a stateful effect keeps its effects up to its last stateful one; an adjustment
+ * layer's state depends on everything beneath it, so those are kept whole; anything else (layers
+ * above the stateful ones, effects after the last stateful one) changes no state and is skipped.
+ */
+export function stateLayers(plan: readonly VideoLayer[]): VideoLayer[] {
+  const out: VideoLayer[] = []
+  let beneathCounts = false
+  const consumers = new Set<string>()
+  for (let i = plan.length - 1; i >= 0; i--) {
+    const layer = plan[i]!
+    if (layer.motionFor) {
+      // A motion source: needed by its effect's state, or as part of an input that counts.
+      if (beneathCounts || consumers.has(layer.motionFor)) out.push(layer)
+      continue
+    }
+    if (beneathCounts) {
+      out.push(layer)
+      continue
+    }
+    let last = -1
+    if (layer.temporal) layer.clip.effects.forEach((e, k) => e.enabled && isStateful(e.effectId) && (last = k))
+    if (last < 0) continue
+    const effects = layer.clip.effects.slice(0, last + 1)
+    out.push(effects.length === layer.clip.effects.length ? layer : { ...layer, clip: { ...layer.clip, effects } })
+    for (const id of Object.values(layer.motion ?? {})) consumers.add(id)
+    if (layer.clip.adjustment) beneathCounts = true
+  }
+  return out.reverse()
 }

@@ -35,6 +35,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run snapshot -- --scenario posterize` | M12's done-when test: Posterize Time's holds in every exported frame against the beat grid, and a Channel Rack row driving Kick Flash; writes `renders/ui/posterize.json` |
 | `npm run snapshot -- --scenario exportmosh` | M14: Datamosh exported twice, played, scrubbed and with motion transfer from a hidden track, each checked; writes `renders/ui/exportmosh.json` (also `datamoshgpu`, on the GPU alone) |
 | `npm run snapshot -- --scenario timelineperf4k` | The timeline's speed with your Apple Log clips: pinch, scroll and frame steps timed by the screen's frames, and 4 s of playback; writes `renders/ui/timelineperf4k.json` (`timelineperf` uses the test clips) |
+| `npm run snapshot -- --scenario effectsperf` | What a stack of 10 effects costs: adding each one, selecting, dragging a value, stepping, catching up, each effect's GPU time and playback; writes `renders/ui/effectsperf.json` |
 | `npm run mosh-reference` | M14's side by side: your Apple Log clips moshed by Datamosh and by a real MPEG-4 bitstream edit (`scripts/codec-mosh.py`), as contact sheets and videos in `renders/m14/footage` |
 | `npm run snapshot -- --scenario feedback` | M9's done-when test: Feedback exported, played, scrubbed and cached, each checked; writes `renders/ui/feedback.json` |
 | `npm run export-test` | Exports test projects and reads the files back: A/V sync, colour and tags in four formats, every frame of speed/reverse/dissolve; writes `renders/export/*.json` |

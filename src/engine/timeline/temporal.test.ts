@@ -7,10 +7,10 @@ import { setTrackFlag } from '../project/commands'
 import { frameKeys } from '../render/frame-keys'
 import { secondsToTicks } from '../time'
 import { placeMedia, setClipProperties, splitClips, type TimelineCommand } from './edits'
-import { addAdjustmentLayer, addEffect, setEffectValues } from './effect-edits'
+import { addAdjustmentLayer, addEffect, removeEffects, setEffectValues } from './effect-edits'
 import { addMaskTo, setShapeValues } from './mask-edits'
 import { videoLayersAt } from './render-plan'
-import { checkpointEvery, hasStatefulEffect, stateKey } from './temporal'
+import { checkpointEvery, hasStatefulEffect, stateKey, stateLayers } from './temporal'
 
 const s = secondsToTicks
 let counter = 0
@@ -142,6 +142,34 @@ describe('stateful effects in the render plan', () => {
     // A track that isn't in the sequence counts as none.
     run(setEffectValues(clip().id, effect().id, { params: { motionSource: 'gone' } }))
     expect(at(4).every((l) => !l.motionFor && !l.motion)).toBe(true)
+    expect(other()).toBeDefined()
+  })
+
+  it('catching up renders only what feeds a state: layers beneath an adjustment layer whole, nothing above, no effects after the last stateful one', () => {
+    const { history, run, clip, other, V2 } = setup()
+    const V3 = history.state.sequence.tracks.filter((t) => t.kind === 'video')[2]!.id
+    run(placeMedia({ mediaId: 'm-b', sourceIn: 0, sourceOut: s(4), at: s(3), videoTrackId: V3, audioTrackId: null, mode: 'overwrite' }, ids))
+    const top = () => history.state.sequence.clips.find((c) => c.trackId === V3 && c.start === s(3))!
+    run(addEffect([clip().id], 'grain', null, ids))
+    run(addEffect([top().id], 'grain', null, ids))
+    run(addAdjustmentLayer({ trackId: V2, start: 0, duration: s(30) }, ids))
+    const layer = () => history.state.sequence.clips.find((c) => c.adjustment)!
+    for (const id of ['curves', 'feedback', 'invert']) run(addEffect([layer().id], id, null, ids))
+    const at = (t: number) => stateLayers(videoLayersAt(history.state.sequence, history.state.media, s(t)))
+    // V1 whole (with its Grain), the adjustment layer up to Feedback; V3 above is skipped.
+    const kept = at(4)
+    expect(kept.map((l) => l.clip.id)).toEqual([clip().id, layer().id])
+    expect(kept[0]!.clip.effects.map((e) => e.effectId)).toEqual(['grain'])
+    expect(kept[1]!.clip.effects.map((e) => e.effectId)).toEqual(['curves', 'feedback'])
+    // With Feedback on a clip instead, only that clip counts (its input is its own picture).
+    run(removeEffects(layer().id, layer().effects.map((e) => e.id)))
+    run(addEffect([top().id], 'feedback', null, ids))
+    run(addEffect([top().id], 'invert', null, ids))
+    const only = at(4)
+    expect(only.map((l) => l.clip.id)).toEqual([top().id])
+    expect(only[0]!.clip.effects.map((e) => e.effectId)).toEqual(['grain', 'feedback'])
+    // Nothing stateful: nothing to render.
+    expect(at(25)).toEqual([])
     expect(other()).toBeDefined()
   })
 })

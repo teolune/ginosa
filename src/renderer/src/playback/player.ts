@@ -13,7 +13,8 @@ import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { AudioEngine } from './audio-engine'
-import { Compositor, type CompositeLayer, type CompositeStep } from './compositor'
+import { Compositor, warmEffectPipelines, type CompositeLayer, type CompositeStep } from './compositor'
+import { EFFECTS } from '../../../effects/registry'
 import { LayerBuilder } from './layers'
 import { openMedia, openStill, type OpenedMedia } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
@@ -63,6 +64,13 @@ export interface PlayerHost {
   modulation?(): ModulationContext | null
 }
 
+/** Catching up more than this many frames shows a preview first (see renderStill). */
+const PREVIEW_AFTER_FRAMES = 3
+/** How long edits and scrubbing must pause before the exact frame is worked out (ms). */
+const EXACT_AFTER_MS = 250
+/** Catching up, the GPU is let finish every this many frames (about 30 ms of work with a heavy stack). */
+const CATCH_UP_BATCH = 3
+
 /**
  * Timeline playback: Web Audio is the master clock; every display refresh the
  * player asks which time is being heard and composites the frames for it. Paused,
@@ -71,6 +79,9 @@ export interface PlayerHost {
 export class Player extends Observable {
   /** Every player, so starting one stops the others (as Premiere's two monitors do). */
   private static all = new Set<Player>()
+  private static warming = false
+  /** The background compile of every effect's shaders, once done (the performance test reads it). */
+  static warmed: { pipelines: number; ms: number } | null = null
 
   playing = false
   /** 1 = normal; 2, 4, 8 fast forward; negative = reverse (J). Sound plays at 1× only. */
@@ -90,7 +101,8 @@ export class Player extends Observable {
   private layers: LayerBuilder | null = null
   /** Stateful effects' state between frames, and the renderer that catches it up after a jump. */
   temporal: TemporalStore | null = null
-  private catchUp: ExactRenderer | null = null
+  /** Renders the frames before a paused frame, exactly (public for the performance test's numbers). */
+  catchUp: ExactRenderer | null = null
   /**
    * Decoders for paused frames, one per clip (and file, speed and direction): stepping or
    * scrubbing forward decodes on from the frame before instead of seeking from the last
@@ -108,12 +120,20 @@ export class Player extends Observable {
   private statsWindowStart = 0
   private renderTotal = 0
   private stillRender: { busy: boolean; again: boolean } = { busy: false, again: false }
+  /** The paused frame after an edit or a jump is first a preview; the exact one follows when things pause. */
+  private exactTimer: ReturnType<typeof setTimeout> | null = null
+  private exactNext = false
+  /** Whether the paused frame showing is a preview (stateful effects not yet caught up exactly). */
+  approximate = false
+  /** What the paused frame was last asked for: a change that alters none of it (a selection, a tool) doesn't redraw it. */
+  private shownScene: { sequence: Sequence; media: unknown; playhead: Ticks; modulation: unknown } | null = null
   private sequenceAtStart: Sequence | null = null
   recording: PresentedFrame[] | null = null
   /** The last paused-frame composite (for tests that read pixels back). */
   lastStill: GPUTexture | null = null
-  /** Paused frames rendered so far (the timeline's performance test counts them). */
+  /** Paused frames rendered so far, and when the last was shown (the performance tests read them). */
   stillCount = 0
+  lastStillAt = 0
   /** Whether it came from the render cache. */
   lastStillCached = false
   /** Cached previews decoded ahead of playback, by frame number. */
@@ -147,6 +167,14 @@ export class Player extends Observable {
         this.temporal
       )
       this.catchUp = new ExactRenderer(this.compositor, this.layers, (item) => this.path(item))
+      // Every effect's shaders compiled in the background once the first frame is up, so adding one is instant.
+      if (!Player.warming) {
+        Player.warming = true
+        setTimeout(() => {
+          const started = performance.now()
+          void warmEffectPipelines(gpu.device, EFFECTS).then((count) => (Player.warmed = { pipelines: count, ms: Math.round(performance.now() - started) }))
+        }, 1000)
+      }
     }
     this.canvas = canvas
     this.context = canvas.getContext('webgpu')
@@ -244,8 +272,10 @@ export class Player extends Observable {
     try {
       for (let t = from; t < time - frame / 2; t += frame) {
         if (interruptible && this.stillRender.again) return false
-        await this.catchUp.render(sequence, media, t, modulation, scale)
+        await this.catchUp.render(sequence, media, t, modulation, scale, true)
         done++
+        // A few frames at a time on the GPU, so the interface's own frames get drawn in between.
+        if (interruptible && done % CATCH_UP_BATCH === 0) await this.device?.queue.onSubmittedWorkDone()
         if (total > 10 && performance.now() - lastNote > 250) {
           lastNote = performance.now()
           this.message = `Stateful effects: catching up ${done} of ${total} frames…`
@@ -267,10 +297,21 @@ export class Player extends Observable {
     return true
   }
 
-  /** Resolves once the paused frame has been rendered (and nothing more is waiting). */
+  /** Resolves once the paused frame has been rendered exactly (and nothing more is waiting). */
   async settled(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0))
-    while (this.stillRender.busy || this.stillRender.again) await new Promise((resolve) => setTimeout(resolve, 5))
+    while (this.stillRender.busy || this.stillRender.again || this.exactTimer !== null) await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+
+  /** The exact paused frame, once edits and scrubbing have paused for a moment. */
+  private scheduleExact(): void {
+    if (this.exactTimer !== null) clearTimeout(this.exactTimer)
+    this.exactTimer = setTimeout(() => {
+      this.exactTimer = null
+      if (this.playing) return
+      this.exactNext = true
+      this.requestStill()
+    }, EXACT_AFTER_MS)
   }
 
   private async renderStill(duringPlayback = false): Promise<void> {
@@ -296,7 +337,20 @@ export class Player extends Observable {
       }
     }
     this.lastStillCached = false
-    if (layers.some((l) => l.temporal) && !(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
+    // Stateful effects need the exact state from the frame before. When that means catching up
+    // more than a few frames (after an edit beneath them, or a jump), the frame is shown at once
+    // from the nearest state there is (a preview), and exactly once you pause for a moment.
+    let preview = false
+    const exact = this.exactNext || duringPlayback
+    this.exactNext = false
+    if (layers.some((l) => l.temporal) && this.temporal) {
+      const frame = ticksPerFrame(frameRateOf(sequence.settings))
+      const from = this.temporal.catchUpFrom(layers, frame)
+      if (!exact && from !== null && (time - from) / frame > PREVIEW_AFTER_FRAMES) {
+        preview = true
+        this.scheduleExact()
+      } else if (!(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
+    }
     const used = new Set<string>()
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
     let message: string | null = null
@@ -334,7 +388,8 @@ export class Player extends Observable {
       return
     }
     const scale = this.prepareTarget(sequence)
-    if (this.temporal) this.temporal.mode = 'exact'
+    if (this.temporal) this.temporal.mode = preview ? 'preview' : 'exact'
+    this.approximate = preview
     const composite = prepared.flatMap((p): CompositeStep[] => {
       if (!p.layer.item) return [this.layers!.adjustment(p.layer)]
       const layer = p.source ? this.layers!.build(p.layer, p.source, sequence) : null
@@ -343,6 +398,7 @@ export class Player extends Observable {
     const result = this.compositor.render(composite, scale)
     this.compositor.present(result, this.context, this.format)
     this.lastStill = result
+    this.lastStillAt = performance.now()
     for (const p of prepared) if (p.source?.kind === 'video') p.source.frame.close()
     // Decoders for clips no longer under the playhead are let go of.
     for (const [key, frames] of this.stillFrames) {
@@ -372,6 +428,12 @@ export class Player extends Observable {
       } else void this.play(this.rate, time)
       return
     }
+    // Nothing in the picture changed (a selection, the tool, a window): it isn't drawn again.
+    const preview = this.host.scene(true)
+    const scene = { sequence: preview?.sequence ?? project.sequence, media: project.media, playhead: this.host.playhead, modulation: this.host.modulation?.() ?? null }
+    const last = this.shownScene
+    if (last && last.sequence === scene.sequence && last.media === scene.media && last.playhead === scene.playhead && last.modulation === scene.modulation) return
+    this.shownScene = scene
     this.requestStill()
   }
 

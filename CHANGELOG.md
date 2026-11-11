@@ -1,5 +1,17 @@
 # Changelog
 
+## Effect stacks: faster to add, edit and move around (11 Nov 2026)
+
+Measured with a stack of 10 effects on an adjustment layer (Feedback and Datamosh at the top of it) over clips with Basic Correction and Grain:
+
+- **Adding an effect shows at once.** Every effect's shaders are compiled in the background when the app opens (19 shaders in about 65 ms, on several cores), and shared by the monitor, export and the render cache. Adding Datamosh used to freeze the monitor for 2.5 s; now it shows in 8 ms.
+- **Previews while you edit beneath Feedback or Datamosh.** Those effects need every frame before the one you see. After an edit beneath them, the monitor used to work all those frames out first, freezing for up to 1.3 s on every step of a slider. Now it shows a preview at once from the state there is, and works out the exact frame a quarter of a second after you stop, in the background, a few frames at a time so the app keeps drawing. Dragging a value: 196 ms a frame on average → 35.
+- **Catching up skips what doesn't change the state**: effects after the last stateful one, and layers above.
+- **Selecting clips no longer redraws the monitor** (60 redraws in 60 clicks → none).
+- **Effect Controls** redraws only the effect that changed, not the whole stack.
+- **The render cache** re-checks its frames once edits pause, not during a drag.
+- **Tests:** `effectsperf` (adding each effect, selecting, dragging a value, stepping, catching up, each effect's GPU time, playback); 1 new unit test (376 in all).
+
 ## Timeline speed and zoomable waveforms (7 Nov 2026)
 
 - **Zooming and scrolling the timeline no longer re-render the Program monitor** (and the other windows). Before, every step of a pinch redrew the paused frame: with your 4K Apple Log clips, 36 renders during one pinch and a 150 ms stall. Now none.

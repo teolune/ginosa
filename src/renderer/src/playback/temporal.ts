@@ -31,14 +31,25 @@ interface Slot {
   height: number
   kept: Map<number, Kept>
   usedAt: number
+  /** The frame committed last (where the playhead was). */
+  lastFrame: number
 }
 
 export class TemporalStore {
   private slots = new Map<string, Slot>()
   private free = new Map<string, GPUTexture[]>()
   private clock = 0
-  /** Exact (stills, export, catch-up) or live (playback: an older state will do when a frame was dropped). */
-  mode: 'exact' | 'live' = 'exact'
+  /**
+   * Exact (stills, export, catch-up), live (playback: an older state will do when a frame was
+   * dropped) or preview (a paused frame while you edit or scrub: the nearest state there is,
+   * even from before the edit, so it shows at once; the exact one follows when you pause).
+   */
+  mode: 'exact' | 'live' | 'preview' = 'exact'
+  /**
+   * Each slot's last exact states from before its latest edit (only those near where it was
+   * used, so it stays small), for previews until the new state has caught up.
+   */
+  private stale = new Map<string, Slot>()
   /** Playback resolution: part of every key (a state at one size is no use at another). */
   scale = 1
   stats = { approximate: 0, missed: 0, resets: 0 }
@@ -77,6 +88,12 @@ export class TemporalStore {
       // Live: the newest state before this frame (a dropped frame, or one rendered approximately).
       let best: number | null = null
       for (const f of slot.kept.keys()) if (f < frame && (best === null || f > best)) best = f
+      if (best === null && this.mode === 'preview') {
+        // Nothing yet since the edit: the newest exact state from before it.
+        const old = this.stale.get(slotId)
+        if (old && old.width === width && old.height === height) for (const [f, k] of old.kept) if (k.exact && f < frame && (best === null || f > best)) best = f
+        return (chosen = best === null ? null : old!.kept.get(best)!)
+      }
       return (chosen = best === null ? null : slot.kept.get(best)!)
     }
     return {
@@ -97,7 +114,13 @@ export class TemporalStore {
         }
         const old = slot.kept.get(frame)
         if (old) this.giveKept(old)
-        slot.kept.set(frame, { texture: copy(output), extras: extras.map((t) => (t ? copy(t) : null)), exact: exactInput })
+        // A preview's output is never exact (its state may come from before an edit).
+        const exact = exactInput && (this.mode !== 'preview' || frame === 0 || chosen?.exact === true)
+        slot.kept.set(frame, { texture: copy(output), extras: extras.map((t) => (t ? copy(t) : null)), exact })
+        slot.lastFrame = frame
+        // Once the new state has caught up past the old one, the old one has served its purpose.
+        const older = this.stale.get(slotId)
+        if (exact && older && Math.max(...older.kept.keys()) <= frame) this.dropStale(slotId)
         this.prune(slot, frame)
       }
     }
@@ -137,8 +160,9 @@ export class TemporalStore {
 
   /** Every state and checkpoint, freed. */
   clear(): void {
-    for (const slot of this.slots.values()) for (const k of slot.kept.values()) [k.texture, ...k.extras].forEach((t) => t?.destroy())
+    for (const slot of [...this.slots.values(), ...this.stale.values()]) for (const k of slot.kept.values()) [k.texture, ...k.extras].forEach((t) => t?.destroy())
     this.slots.clear()
+    this.stale.clear()
     for (const list of this.free.values()) list.forEach((t) => t.destroy())
     this.free.clear()
   }
@@ -146,8 +170,15 @@ export class TemporalStore {
   /** Bytes held in states and checkpoints. */
   bytes(): number {
     let total = 0
-    for (const slot of this.slots.values()) for (const k of slot.kept.values()) total += bytesOf(k)
+    for (const slot of [...this.slots.values(), ...this.stale.values()]) for (const k of slot.kept.values()) total += bytesOf(k)
     return total
+  }
+
+  private dropStale(slotId: string): void {
+    const old = this.stale.get(slotId)
+    if (!old) return
+    for (const k of old.kept.values()) this.giveKept(k)
+    this.stale.delete(slotId)
   }
 
   /** How many checkpoints are kept (for tests and the stats overlay). */
@@ -161,10 +192,16 @@ export class TemporalStore {
     let slot = this.slots.get(slotId)
     if (!slot || slot.key !== key || slot.width !== width || slot.height !== height) {
       if (slot) {
-        for (const k of slot.kept.values()) this.giveKept(k)
+        // The exact states near where it was last used stay, for previews, until the new key catches up.
+        const near = [...slot.kept].filter(([f, k]) => k.exact && Math.abs(f - slot!.lastFrame) <= 2 * this.checkpointEvery)
+        if (near.length) {
+          this.dropStale(slotId)
+          this.stale.set(slotId, { ...slot, kept: new Map(near) })
+        }
+        for (const [f, k] of slot.kept) if (!near.some(([g]) => g === f)) this.giveKept(k)
         this.stats.resets++
       }
-      slot = { key, width, height, kept: new Map(), usedAt: 0 }
+      slot = { key, width, height, kept: new Map(), usedAt: 0, lastFrame: 0 }
       this.slots.set(slotId, slot)
     }
     slot.usedAt = ++this.clock

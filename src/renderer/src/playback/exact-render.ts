@@ -3,6 +3,7 @@ import type { Clip, Sequence } from '@engine/project/model'
 import type { ModulationContext } from '@engine/modulation/types'
 import { ticksToSeconds, type Ticks } from '@engine/time'
 import { videoLayersAt } from '@engine/timeline/render-plan'
+import { stateLayers } from '@engine/timeline/temporal'
 import type { VideoSample } from 'mediabunny'
 import type { Compositor, CompositeStep } from './compositor'
 import type { LayerBuilder } from './layers'
@@ -82,6 +83,8 @@ export class ExactFrames {
  */
 export class ExactRenderer {
   private sources = new Map<string, ExactFrames>()
+  /** Where the time goes (the performance test reads it): planning, waiting for decoded frames, recording the GPU work. */
+  stats = { frames: 0, planMs: 0, decodeMs: 0, renderMs: 0 }
 
   constructor(
     private readonly compositor: Compositor,
@@ -89,9 +92,16 @@ export class ExactRenderer {
     private readonly resolvePath: (item: MediaItem) => string | null
   ) {}
 
-  /** The composite at `time` (output pixels per sequence pixel: `scale`). The texture is the compositor's: use it before the next render. */
-  async render(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null, scale: number): Promise<GPUTexture> {
-    const plan = videoLayersAt(sequence, media, time, modulation)
+  /**
+   * The composite at `time` (output pixels per sequence pixel: `scale`). The texture is the
+   * compositor's: use it before the next render. `stateOnly`: the frame is rendered only to move
+   * stateful effects on (catching up, unseen), so what doesn't feed their state is skipped.
+   */
+  async render(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null, scale: number, stateOnly = false): Promise<GPUTexture> {
+    const started = performance.now()
+    const whole = videoLayersAt(sequence, media, time, modulation)
+    const plan = stateOnly ? stateLayers(whole) : whole
+    this.stats.planMs += performance.now() - started
     const composite: CompositeStep[] = []
     const videoFrames: VideoFrame[] = []
     try {
@@ -113,7 +123,9 @@ export class ExactRenderer {
           source = new ExactFrames(await openMedia(file), layer.clip)
           this.sources.set(layer.clip.id, source)
         }
+        const waited = performance.now()
         const sample = await source.frameAt(ticksToSeconds(layer.sourceTime))
+        this.stats.decodeMs += performance.now() - waited
         if (!sample) throw new Error(`${layer.item.name}: no picture at ${ticksToSeconds(layer.sourceTime).toFixed(2)} s`)
         const videoFrame = sample.toVideoFrame()
         videoFrames.push(videoFrame)
@@ -121,14 +133,18 @@ export class ExactRenderer {
         if (built) composite.push(built)
       }
       // Clips no longer playing are let go of.
-      const present = new Set(plan.map((l) => l.clip.id))
+      const present = new Set(whole.map((l) => l.clip.id))
       for (const [clipId, source] of this.sources) {
         if (!present.has(clipId)) {
           source.close()
           this.sources.delete(clipId)
         }
       }
-      return this.compositor.render(composite, scale)
+      const recording = performance.now()
+      const result = this.compositor.render(composite, scale)
+      this.stats.renderMs += performance.now() - recording
+      this.stats.frames++
+      return result
     } finally {
       videoFrames.forEach((f) => f.close())
     }

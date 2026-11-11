@@ -23,6 +23,7 @@ import { runLookLutGpuTest } from '../playback/look-lut-gpu-test'
 import { runDatamoshGpuTest } from '../playback/datamosh-gpu-test'
 import { datamoshExportTest } from '../playback/datamosh-export-test'
 import { datamoshFootage } from '../playback/datamosh-footage'
+import { effectsPerf } from '../playback/effects-perf'
 import { lookLutExportTest } from '../playback/look-lut-export-test'
 import { buildGradientUi } from '../gradients/gradient-demo'
 import { runGradientFidelity } from '../gradients/fidelity-test'
@@ -440,6 +441,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
       timelineController.zoomToFit()
       await wait(1200)
+      break
+    }
+    case 'effectsperf': {
+      // What a stack of effects costs: adding them (shaders), moving around, re-keying, the GPU, playback.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$/.test(f)), null)
+      await wait(2000)
+      await window.ginosa.snapshot.report(await effectsPerf().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'timelineperf':

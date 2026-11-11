@@ -128,6 +128,93 @@ const LAYER_BYTES = 192
 const UNIFORM_BYTES = 256
 const NO_COLOUR: LayerColour = { undoMacDisplay: false, conversion: { kind: 'none' } }
 
+/**
+ * Compiled shaders and pipelines, shared by every compositor on a device (the monitor, export,
+ * the render cache), so each compiles once a session; effects can also be compiled ahead, in
+ * the background (warmEffectPipelines), so adding one doesn't wait for its shaders.
+ */
+interface Pipelines {
+  module: GPUShaderModule
+  composite: Map<string, GPURenderPipeline>
+  effects: Map<string, GPURenderPipeline>
+  layout: GPUPipelineLayout
+}
+
+const pipelinesByDevice = new WeakMap<GPUDevice, Pipelines>()
+
+function pipelinesFor(device: GPUDevice): Pipelines {
+  let shared = pipelinesByDevice.get(device)
+  if (!shared) {
+    shared = {
+      module: device.createShaderModule({ label: 'composite.wgsl', code: shaderSource }),
+      composite: new Map(),
+      effects: new Map(),
+      // One explicit layout for every effect, so bindings an effect doesn't use are still valid.
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [
+          device.createBindGroupLayout({
+            entries: [
+              { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+              { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+              { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+              { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+              { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+              { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '3d' } },
+              { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+              { binding: 12, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
+            ]
+          })
+        ]
+      })
+    }
+    pipelinesByDevice.set(device, shared)
+  }
+  return shared
+}
+
+function effectPipelineDescriptor(device: GPUDevice, manifest: EffectManifest, stage: 'effect' | number): GPURenderPipelineDescriptor {
+  const module = device.createShaderModule({ label: `effect ${manifest.id} ${stage}`, code: stage === 'effect' ? effectShaderSource(manifest) : prepassShaderSource(manifest, stage) })
+  return {
+    label: `effect ${manifest.id}`,
+    layout: pipelinesFor(device).layout,
+    vertex: { module, entryPoint: 'vs' },
+    fragment: { module, entryPoint: stage === 'effect' ? 'fsEffect' : 'fsPrepass', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list' }
+  }
+}
+
+/**
+ * Compiles every effect's pipelines in the background, all at once (the GPU process compiles
+ * them on several cores), so the first use of an effect doesn't wait. Returns how many it compiled.
+ */
+export async function warmEffectPipelines(device: GPUDevice, manifests: readonly EffectManifest[]): Promise<number> {
+  const shared = pipelinesFor(device)
+  const jobs: Array<Promise<void>> = []
+  for (const manifest of manifests) {
+    // Posterize Time is worked out by the render plan: it has no GPU pass.
+    if (manifest.holdsTime) continue
+    for (const stage of ['effect' as const, ...(manifest.passes ?? []).map((_, i) => i)]) {
+      const key = `${manifest.id}:${stage}`
+      if (shared.effects.has(key)) continue
+      jobs.push(
+        device.createRenderPipelineAsync(effectPipelineDescriptor(device, manifest, stage)).then(
+          (pipeline) => {
+            if (!shared.effects.has(key)) shared.effects.set(key, pipeline)
+          },
+          (error: Error) => console.warn(`Couldn't compile ${key} ahead: ${error.message}`)
+        )
+      )
+    }
+  }
+  await Promise.all(jobs)
+  return jobs.length
+}
+
 /** `m` after `n`. */
 function compose(m: Affine, n: Affine): Affine {
   return { a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b, c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d, e: m.a * n.e + m.c * n.f + m.e, f: m.b * n.e + m.d * n.f + m.f }
@@ -146,12 +233,9 @@ function scaledAffine(m: Affine, scale: number): Affine {
 export class Compositor {
   private readonly module: GPUShaderModule
   private readonly sampler: GPUSampler
-  private pipelines = new Map<string, GPURenderPipeline>()
-  private effectPipelines = new Map<string, GPURenderPipeline>()
-  private effectLayout: GPUPipelineLayout | null = null
+  private readonly pipelines: Map<string, GPURenderPipeline>
   private scratch = new Map<string, GPUTexture[]>()
   private uniformUsed = 0
-  private presentPipelines = new Map<string, GPURenderPipeline>()
   private preview: GPUTexture | null = null
   private targets: [GPUTexture, GPUTexture] | null = null
   private uniformPool: GPUBuffer[] = []
@@ -166,7 +250,10 @@ export class Compositor {
   height = 0
 
   constructor(private readonly device: GPUDevice) {
-    this.module = device.createShaderModule({ label: 'composite.wgsl', code: shaderSource })
+    // Shaders and pipelines are the device's, shared with every other compositor on it.
+    const shared = pipelinesFor(device)
+    this.module = shared.module
+    this.pipelines = shared.composite
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' })
     this.noLut = device.createTexture({ size: [1, 1, 1], dimension: '3d', format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING })
     this.noMask = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE })
@@ -203,49 +290,21 @@ export class Compositor {
     return pipeline
   }
 
-  /** An effect's main pass, or (with a number) one of its earlier passes. */
+  /** An effect's main pass, or (with a number) one of its earlier passes (compiled once a session, shared). */
   private effectPipeline(manifest: EffectManifest, stage: 'effect' | number = 'effect'): GPURenderPipeline {
+    const shared = pipelinesFor(this.device)
     const key = `${manifest.id}:${stage}`
-    let pipeline = this.effectPipelines.get(key)
+    let pipeline = shared.effects.get(key)
     if (!pipeline) {
-      const module = this.device.createShaderModule({ label: `effect ${manifest.id} ${stage}`, code: stage === 'effect' ? effectShaderSource(manifest) : prepassShaderSource(manifest, stage) })
-      // One explicit layout for every effect, so bindings an effect doesn't use are still valid.
-      this.effectLayout ??= this.device.createPipelineLayout({
-        bindGroupLayouts: [
-          this.device.createBindGroupLayout({
-            entries: [
-              { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-              { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-              { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-              { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-              { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-              { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '3d' } },
-              { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-              { binding: 12, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
-            ]
-          })
-        ]
-      })
-      pipeline = this.device.createRenderPipeline({
-        label: `effect ${manifest.id}`,
-        layout: this.effectLayout,
-        vertex: { module, entryPoint: 'vs' },
-        fragment: { module, entryPoint: stage === 'effect' ? 'fsEffect' : 'fsPrepass', targets: [{ format: 'rgba16float' }] },
-        primitive: { topology: 'triangle-list' }
-      })
-      this.effectPipelines.set(key, pipeline)
+      pipeline = this.device.createRenderPipeline(effectPipelineDescriptor(this.device, manifest, stage))
+      shared.effects.set(key, pipeline)
     }
     return pipeline
   }
 
   private presentPipeline(format: GPUTextureFormat, entryPoint: 'fsPresent' | 'fsCopy' = 'fsPresent'): GPURenderPipeline {
-    const key = `${format}:${entryPoint}`
-    let pipeline = this.presentPipelines.get(key)
+    const key = `present:${format}:${entryPoint}`
+    let pipeline = this.pipelines.get(key)
     if (!pipeline) {
       pipeline = this.device.createRenderPipeline({
         label: `${entryPoint} ${format}`,
@@ -254,7 +313,7 @@ export class Compositor {
         fragment: { module: this.module, entryPoint, targets: [{ format }] },
         primitive: { topology: 'triangle-list' }
       })
-      this.presentPipelines.set(key, pipeline)
+      this.pipelines.set(key, pipeline)
     }
     return pipeline
   }

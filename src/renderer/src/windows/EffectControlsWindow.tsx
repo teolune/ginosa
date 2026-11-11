@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
 import type { CurveParam, EffectInstance, EffectManifest, GradientParam, ParamSpec, ParamValue } from '@engine/effects/types'
 import { BLACK_WHITE, GRADIENT_METHODS, parseGradient, type GradientMethod } from '@engine/gradients/gradient'
@@ -581,11 +581,46 @@ function dragKind(event: DragEvent): 'stack' | 'effect' | 'preset' | null {
 }
 
 /** One effect in a stack: header (drag to reorder, on/off, reset, remove) and its controls. */
-function EffectBlock({ clip, effect, index, locked, onDropAt }: { clip: Clip; effect: EffectInstance; index: number; locked: boolean; onDropAt(event: DragEvent, index: number): void }) {
+interface EffectBlockProps {
+  clip: Clip
+  effect: EffectInstance
+  index: number
+  locked: boolean
+  selected: boolean
+  /** What of the playhead its rows show: the time, for an effect with keyframes or links; else only whether it's over the clip. */
+  when: number | string
+  /** The beat grid (readouts in beats), the masks (their names) and the Channel Rack (its rows in menus). */
+  grid: unknown
+  masks: unknown
+  rack: unknown
+  onDropAt(event: DragEvent, index: number): void
+}
+
+/**
+ * One effect's block. Drawn again only when what it shows changed (its effect, where the
+ * playhead is if it's animated, …), so with a long stack, changing one value redraws one block.
+ */
+const EffectBlock = memo(
+  EffectBlockView,
+  (a, b) =>
+    a.effect === b.effect &&
+    a.index === b.index &&
+    a.locked === b.locked &&
+    a.selected === b.selected &&
+    a.when === b.when &&
+    a.grid === b.grid &&
+    a.masks === b.masks &&
+    a.rack === b.rack &&
+    a.onDropAt === b.onDropAt &&
+    a.clip.id === b.clip.id &&
+    a.clip.start === b.clip.start &&
+    a.clip.duration === b.clip.duration
+)
+
+function EffectBlockView({ clip, effect, index, locked, selected, onDropAt }: EffectBlockProps) {
   const [open, setOpen] = useState(true)
   const [dropSide, setDropSide] = useState<'above' | 'below' | null>(null)
   const manifest = effectById(effect.effectId)
-  const selected = effectsController.selected.has(effect.id)
   const change = (changes: Parameters<typeof setEffectValues>[2]) => projectController.dispatch(setEffectValues(clip.id, effect.id, changes))
   return (
     <section
@@ -686,6 +721,9 @@ function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: bo
     // Selection belongs to the clip shown; switching clips clears it.
     effectsController.select([], 'replace')
   }, [clip.id])
+  // A stable handler (reading the latest stack), so effect blocks needn't be drawn again for it.
+  const latestDrop = useRef<(event: DragEvent, index: number) => void>(() => undefined)
+  const stableDropAt = useCallback((event: DragEvent, index: number) => latestDrop.current(event, index), [])
   const dropAt = (event: DragEvent, index: number) => {
     const kind = dragKind(event)
     if (kind === 'stack') {
@@ -695,6 +733,7 @@ function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: bo
     } else if (kind === 'effect') projectController.dispatch(addEffect([clip.id], event.dataTransfer.getData(EFFECT_DRAG_TYPE), index))
     else if (kind === 'preset') effectsController.applyPreset(event.dataTransfer.getData(PRESET_DRAG_TYPE), [clip.id])
   }
+  latestDrop.current = dropAt
   const savePreset = () =>
     setPrompt({
       title: 'Save Effect Preset',
@@ -731,9 +770,11 @@ function EffectStack({ clip, locked, selectedClipIds }: { clip: Clip; locked: bo
           Save Preset…
         </button>
       </div>
-      {clip.effects.map((effect, index) => (
-        <EffectBlock key={effect.id} clip={clip} effect={effect} index={index} locked={locked} onDropAt={dropAt} />
-      ))}
+      {clip.effects.map((effect, index) => {
+        const live = Object.values(effect.keyframes).some((t) => t.length > 0) || Object.values(effect.modulation).some((l) => l.length > 0)
+        const when = live ? timelineController.playhead : clipTime(clip).inside ? 'over' : 'off'
+        return <EffectBlock key={effect.id} clip={clip} effect={effect} index={index} locked={locked} selected={effectsController.selected.has(effect.id)} when={when} grid={projectController.project?.sequence.beatGrid ?? null} masks={projectController.project?.sequence.masks} rack={projectController.project?.sequence.rack} onDropAt={stableDropAt} />
+      })}
       {clip.effects.length === 0 && <p className="muted small fx-drop-hint">Drag an effect here from the Effects Library (⌥9), or onto the clip in the timeline.</p>}
       <PromptDialog request={prompt} />
     </div>
