@@ -6,9 +6,11 @@ import type { MediaInfo, MediaItem } from '../project/media'
 import { createProject } from '../project/model'
 import { parseProject, serializeProject } from '../project/serialize'
 import { secondsToTicks } from '../time'
-import { placeMedia, resetMotion, setClipProperties, splitClips, type TimelineCommand } from './edits'
+import { placeMedia, resetMotion, setClipProperties, splitClips, trimClips, type TimelineCommand } from './edits'
 import { applyAffine, defaultMotion, inverseMotion, motionMatrix } from './motion'
-import { audioSegments, dbToGain, videoLayersAt } from './render-plan'
+import { audioSegments, dbToGain, playsTheSame, videoLayersAt } from './render-plan'
+import { addEffect, setEffectValues } from './effect-edits'
+import { addRackRows, setRackCubes, STARTER_ROWS } from './rack-edits'
 import { sourceSequence } from './source-sequence'
 
 let counter = 0
@@ -192,5 +194,33 @@ describe('Source Monitor sequence', () => {
     expect(sourceSequence(rotated)!.settings).toMatchObject({ width: 1080, height: 1920 })
     const song = sourceSequence(SONG)!
     expect(song.clips.map((c) => c.kind)).toEqual(['audio'])
+  })
+})
+
+describe('Edits while playing', () => {
+  it('carry on through edits that leave every sound and every picture’s timing alone', () => {
+    const t = setup()
+    t.place(UHD, 0, t.V1, t.A1)
+    const picture = () => t.history.state.sequence.clips.find((c) => c.kind === 'video')!
+    const sound = () => t.history.state.sequence.clips.find((c) => c.kind === 'audio')!
+    const step = (edit: () => void) => {
+      const before = t.history.state.sequence
+      edit()
+      return playsTheSame(before, t.history.state.sequence)
+    }
+    // Carry on: the Channel Rack, an effect and its values, Motion, a track's mute.
+    expect(step(() => t.run(addRackRows(STARTER_ROWS, ids)))).toBe(true)
+    const section = t.history.state.sequence.rack.sections[0]!
+    const kick = t.history.state.sequence.rack.rows[0]!
+    expect(step(() => t.run(setRackCubes(section.id, kick.id, [0, 4, 8], true)))).toBe(true)
+    expect(step(() => t.run(addEffect([picture().id], 'datamosh', null, ids)))).toBe(true)
+    expect(step(() => t.run(setEffectValues(picture().id, picture().effects[0]!.id, { params: { momentum: 70 } })))).toBe(true)
+    expect(step(() => t.run(setClipProperties([picture().id], { motion: { scale: 80 } })))).toBe(true)
+    expect(step(() => t.history.dispatch(setTrackFlag(t.A1, 'muted', true)))).toBe(true)
+    // Start again: a sound changed, a picture moved or sped up, a clip added.
+    expect(step(() => t.run(setClipProperties([sound().id], { volume: -6 })))).toBe(false)
+    expect(step(() => t.run(trimClips({ clipIds: [picture().id], edge: 'out', delta: -s(1) })))).toBe(false)
+    expect(step(() => t.run(splitClips([picture().id], s(5), ids)))).toBe(false)
+    expect(step(() => t.place(PORTRAIT, 20, t.V2, null))).toBe(false)
   })
 })

@@ -1,5 +1,18 @@
 # Changelog
 
+## Heavy conditions (12 Nov 2026)
+
+From the code review (performance, and staying up under heavy use; `docs/Heavy-conditions-try-this.md`). Each fix has a test that showed the problem first (`heavy`):
+
+- **Edits while playing carry on playing** (decision 115, proposed). Clicking cubes, changing an effect's value, Motion, a mask or a track's mute used to start playback again, with a full catch-up first: 5 restarts and 2 catch-ups for a few cube clicks in the test. Now playback just carries on. Stateful effects carry on from the state they had, and are exact again once you pause. A Volume the Channel Rack moves follows the new cubes at once, on the clip playing and the next. Edits that move or change a sound, or move or retime a picture, still start playback again from where it was.
+- **More than 12 files at once**: ginosa keeps 12 files open and closed the oldest, even while it was being read, so a 13th sound in a mixdown or playback went silent. Now a file being read stays open, and only idle ones close.
+- **The graphics card resetting** (its memory running out, say) left a black monitor until you restarted ginosa. Now the picture starts again on its own, playback carries on, and a message says so.
+- **Big photos and montages**: decoded photos were kept forever, so a montage of large photos ran the Mac out of memory, and a picture wider than 8192 px failed. Now photos are kept within 384 MB decoded and 1 GB on the GPU (the least recently used go, never one just shown), and pictures larger than the GPU allows are scaled down to fit (16384 px on your Mac). Each export and render to cache also let go of its photos and LUTs on the GPU.
+- **Long Datamosh exports** kept a state every second they never used, up to 2 GB. Now an export keeps only the frame before: 87 MB at 1080p instead of 392 MB for 8 s.
+- **A stuck catch-up** (a decoder that stops) held up every catch-up after it, and Play, for good. Now a newer catch-up, Play, Pause or a jump goes ahead after 2 s. A catch-up stuck on its own gives up after 15 s, says so, and shows the nearest state as a preview.
+- Also fixed on the way: Stop while Play was still starting could leave a file held or the sound playing; a catch-up's decoders, kept for the next one, now go after 10 s idle.
+- **Test:** `heavy` (about 45 s; makes its media with `npm run test-media`); one new unit test (402 in all).
+
 ## Catching up after edits (12 Nov 2026)
 
 From your recording (Datamosh on a 4K clip, Channel Rack edits, "catching up" for most of a minute while playback crawled):

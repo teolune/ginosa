@@ -16,7 +16,6 @@ import { Compositor } from './compositor'
 import { LayerBuilder } from './layers'
 import { ExactRenderer } from './exact-render'
 import { TemporalStore } from './temporal'
-import { checkpointEvery } from '@engine/timeline/temporal'
 import { YuvConverter } from './yuv'
 
 export type ExportState =
@@ -32,6 +31,8 @@ class Exporter extends Observable {
   /** The modulation the last export rendered with (tests compare playback against it). */
   lastModulation: ModulationContext | null = null
   private jobId: string | null = null
+  /** Most video memory the last export's stateful effects held, and in how many states (tests). */
+  memory = { peakStateBytes: 0, peakStates: 0 }
 
   get running(): boolean {
     return this.state.kind === 'running'
@@ -50,6 +51,7 @@ class Exporter extends Observable {
   async run(project: Project, settings: ExportSettings, output: string): Promise<ExportResult | null> {
     if (this.running) throw new Error('An export is already running')
     this.cancelRequested = false
+    this.memory = { peakStateBytes: 0, peakStates: 0 }
     const started = performance.now()
     const sequence = project.sequence
     const media = project.media
@@ -67,6 +69,7 @@ class Exporter extends Observable {
     let temporal: TemporalStore | null = null
     let compositor: Compositor | null = null
     let yuv: YuvConverter | null = null
+    let layers: LayerBuilder | null = null
     try {
       if (frames === 0) throw new Error('The timeline is empty')
       // Everything the export needs must be playable now.
@@ -79,9 +82,10 @@ class Exporter extends Observable {
       const { device } = await getGpu()
       compositor = new Compositor(device)
       compositor.resize(width, height)
-      // Stateful effects run from their first frame, in order, so they're always exact here.
-      temporal = new TemporalStore(device, checkpointEvery(sequence))
-      const layers = new LayerBuilder(compositor, undefined, undefined, temporal)
+      // Stateful effects run from their first frame, in order, so they're always exact here, and
+      // each needs only the frame before: no checkpoints (they'd fill the 2 GB budget for nothing).
+      temporal = new TemporalStore(device, Infinity)
+      layers = new LayerBuilder(compositor, undefined, undefined, temporal)
       renderer = new ExactRenderer(compositor, layers, path)
       for (const item of items) if (item.colour.lut) await layers.loadLut(item.colour.lut.file)
       for (const file of lookLutFiles(sequence)) await layers.loadLookLut(file)
@@ -109,6 +113,8 @@ class Exporter extends Observable {
         const time: Ticks = index * frame
         const result = await renderer.render(sequence, media, time, this.lastModulation, 1)
         const bytes = await yuv.convert(result, index)
+        this.memory.peakStateBytes = Math.max(this.memory.peakStateBytes, temporal.bytes())
+        this.memory.peakStates = Math.max(this.memory.peakStates, temporal.states())
         await window.ginosa.export.frame(id, bytes)
         if (performance.now() - lastNotify > 100 || index === frames - 1) {
           lastNotify = performance.now()
@@ -133,6 +139,7 @@ class Exporter extends Observable {
     } finally {
       renderer?.close()
       temporal?.clear()
+      layers?.destroy()
       yuv?.destroy()
       compositor?.destroy()
     }

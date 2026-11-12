@@ -7,7 +7,7 @@ import { speedAt } from '@engine/keyframes/keyframes'
 import { clipEnd, sourceSpan, sourceTimeAt, speedRamp, timeForMedia } from '@engine/timeline/timeline'
 import type { WrappedAudioBuffer } from 'mediabunny'
 import { beatsBetween } from '@engine/audio/beat-grid'
-import { openMedia } from './sources'
+import { useMedia, type MediaUse } from './sources'
 
 /** How far ahead audio is decoded and scheduled, in seconds. */
 const LOOKAHEAD = 1.2
@@ -35,6 +35,8 @@ export class ClipFeeder {
   private pending: WrappedAudioBuffer | null = null
   private done = false
   private busy = false
+  /** Its file, held open while it's read. */
+  private use: MediaUse | null = null
   private readonly gain: GainNode
   readonly sources = new Set<AudioBufferSourceNode>()
   /** Why decoding stopped early, if it did (export fails rather than leaving a silent gap). */
@@ -56,9 +58,10 @@ export class ClipFeeder {
    * (Web Audio joins the points with straight lines). Live playback and the export
    * mixdown schedule the same curve.
    */
-  private automateVolume(): void {
+  private automateVolume(fromCtx?: number): void {
     const clip = this.segment.clip
-    const from = Math.max(clip.start, this.engine.startTime)
+    let from = Math.max(clip.start, this.engine.startTime)
+    if (fromCtx !== undefined) from = Math.max(from, this.engine.startTime + secondsToTicks(fromCtx - this.engine.ctxTimeOf(this.engine.startTime)))
     const to = clipEnd(clip)
     if (to <= from) return
     const seconds = ticksToSeconds(to - from)
@@ -66,9 +69,29 @@ export class ClipFeeder {
     const points = Math.min(2_000_000, Math.max(2, Math.ceil(seconds / GAIN_CURVE_STEP_SECONDS) + 1))
     const curve = new Float32Array(points)
     for (let i = 0; i < points; i++) curve[i] = gainAt(clip, from + ((to - from) * i) / (points - 1), this.engine.modulation)
-    this.gain.gain.value = curve[0]!
+    if (fromCtx === undefined) this.gain.gain.value = curve[0]!
     this.gain.gain.setValueCurveAtTime(curve, this.engine.ctxTimeOf(from), seconds)
   }
+
+  /**
+   * New modulation while playing (a Channel Rack edit, say): a clip whose Volume it moves
+   * follows the new curve from context time `at` (what's already playing holds until then).
+   */
+  remodulate(at: number): void {
+    if (!this.segment.clip.modulation['volume']?.length) return
+    const gain = this.gain.gain
+    try {
+      gain.cancelAndHoldAtTime(at)
+      this.automateVolume(at + 0.001)
+    } catch {
+      gain.cancelScheduledValues(0)
+      gain.setValueAtTime(gainAt(this.segment.clip, this.engine.startTime + secondsToTicks(at - this.engine.ctxTimeOf(this.engine.startTime)), this.engine.modulation), at)
+    }
+    this.remodulated++
+  }
+
+  /** Times the Volume followed new curves while playing (tests). */
+  remodulated = 0
 
   /** Context time at which this clip's media time `seconds` plays. */
   private ctxTimeFor(mediaSeconds: number): number {
@@ -116,7 +139,9 @@ export class ClipFeeder {
     try {
       const clip = this.segment.clip
       if (!this.iterator) {
-        const media = await openMedia(this.path)
+        this.use = await useMedia(this.path)
+        const media = this.use.media
+        if (this.done) return
         if (!media.audioSink) {
           this.done = true
           return
@@ -168,7 +193,14 @@ export class ClipFeeder {
       console.warn('Audio decode stopped:', this.error)
     } finally {
       this.busy = false
+      // Everything read (or stopped): the file can be closed when the limit needs it.
+      if (this.done) this.releaseFile()
     }
+  }
+
+  private releaseFile(): void {
+    this.use?.release()
+    this.use = null
   }
 
   private origin = 0
@@ -194,6 +226,7 @@ export class ClipFeeder {
     this.sources.clear()
     void this.iterator?.return(undefined).catch(() => undefined)
     this.gain.disconnect()
+    if (!this.busy) this.releaseFile()
   }
 }
 
@@ -315,6 +348,33 @@ export class AudioEngine implements MixTarget {
     this.running = true
     this.tick()
     this.timer = window.setInterval(() => this.tick(), 100)
+  }
+
+  /** An edit while playing that leaves every sound where it was: tracks' mute and solo, and the beat grid (metronome), from now. */
+  update(sequence: Sequence): void {
+    this.sequence = sequence
+    this.updateTracks(sequence)
+  }
+
+  /** New modulation curves while playing: clips whose Volume they move follow them from now; clips starting later use them anyway. */
+  setModulation(modulation: ModulationContext | null): void {
+    const same = modulation === this.modulation || (modulation?.id !== undefined && modulation.id === this.modulation?.id)
+    this.modulation = modulation
+    if (same || !this.running) return
+    const at = this.ctx.currentTime + 0.02
+    for (const feeder of this.feeders.values()) feeder.remodulate(at)
+  }
+
+  /** What comes out of the speakers, for tests to measure (made on first use). */
+  private analyser: AnalyserNode | null = null
+
+  tap(): AnalyserNode {
+    if (!this.analyser) {
+      this.analyser = this.ctx.createAnalyser()
+      this.analyser.fftSize = 1024
+      this.master.connect(this.analyser)
+    }
+    return this.analyser
   }
 
   /** Applies mute and solo immediately. */

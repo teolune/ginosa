@@ -4,7 +4,7 @@ import type { MediaItem } from '@engine/project/media'
 import type { Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
 import { frameRateValue, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from '@engine/time'
-import { sourceTimeAt, videoLayersAt, visibleFrom, type VideoLayer } from '@engine/timeline/render-plan'
+import { playsTheSame, sourceTimeAt, videoLayersAt, visibleFrom, type VideoLayer } from '@engine/timeline/render-plan'
 import { mediaLength, sequenceEnd } from '@engine/timeline/timeline'
 import type { VideoSample } from 'mediabunny'
 import { getGpu } from '../gpu/shared'
@@ -16,7 +16,7 @@ import { AudioEngine } from './audio-engine'
 import { Compositor, warmEffectPipelines, type CompositeLayer, type CompositeStep } from './compositor'
 import { EFFECTS } from '../../../effects/registry'
 import { LayerBuilder } from './layers'
-import { openMedia, openStill, type OpenedMedia } from './sources'
+import { openStill, useMedia, type MediaUse } from './sources'
 import { HoldStream, ReverseStream, VideoStream, type FrameSource } from './video-stream'
 import { TemporalStore } from './temporal'
 import { ExactFrames, ExactRenderer } from './exact-render'
@@ -72,6 +72,10 @@ const PREVIEW_AFTER_FRAMES = 3
 const EXACT_AFTER_MS = 250
 /** Catching up, the GPU is let finish every this many frames (about 30 ms of work with a heavy stack). */
 const CATCH_UP_BATCH = 3
+/** A catch-up replaced by a newer one (or Play, Pause, a jump) gets this long to finish the frame it's on. */
+const CATCH_UP_HANDOVER_MS = 2000
+/** A catch-up's decoders stay open this long for the next one (another edit or jump often follows), then go. */
+const CATCH_UP_IDLE_MS = 10_000
 
 /**
  * Timeline playback: Web Audio is the master clock; every display refresh the
@@ -101,6 +105,13 @@ export class Player extends Observable {
   metronome = false
   private compositor: Compositor | null = null
   private device: GPUDevice | null = null
+  /** Bytes of stills it holds on the GPU (for tests). */
+  stillBytes(): number {
+    return this.layers?.stillBytes() ?? 0
+  }
+
+  /** Times the GPU device was lost and the picture started again on a new one (for tests). */
+  gpuResets = 0
   private canvas: HTMLCanvasElement | null = null
   private context: GPUCanvasContext | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
@@ -126,8 +137,17 @@ export class Player extends Observable {
   private presentedCount = 0
   /** Frames shown by playback since the app started (for the performance tests). */
   framesShown = 0
+  /** Times playback started (Play, or an edit while playing that had to start it again), and edits it carried on through (tests). */
+  playStarts = 0
+  editsCarriedOn = 0
   /** Catch-ups running now, and the most at once (for the performance tests). */
   catchUpsRunning = 0
+  /** A single catch-up frame taking longer than this means its decoder has stopped: the catch-up gives up (tests shorten it). */
+  catchUpFrameMs = 15_000
+  /** Catch-ups left behind on a frame that never came (tests). */
+  catchUpsLeftBehind = 0
+  /** The last catch-up gave up: the paused frame is shown as a preview. */
+  private catchUpGaveUp = false
   maxCatchUpsRunning = 0
   /** Every catch-up's span and outcome, for the performance tests. */
   catchUpLog: Array<{ from: number; to: number; done: number; ms: number; interruptible: boolean; ended: string }> = []
@@ -174,6 +194,10 @@ export class Player extends Observable {
 
   async attach(canvas: HTMLCanvasElement): Promise<void> {
     const gpu = await getGpu()
+    if (this.device !== gpu.device) {
+      const device = gpu.device
+      void device.lost.then((info) => this.onDeviceLost(device, info.message || info.reason || 'unknown'))
+    }
     this.device = gpu.device
     if (!this.compositor) {
       this.compositor = new Compositor(gpu.device)
@@ -202,6 +226,41 @@ export class Player extends Observable {
     this.format = navigator.gpu.getPreferredCanvasFormat()
     this.context?.configure({ device: gpu.device, format: this.format, alphaMode: 'opaque' })
     this.requestStill()
+  }
+
+  /**
+   * The GPU device was lost (its memory ran out, a shader took too long, the GPU reset):
+   * everything made on it is gone. The picture starts again on a new device, carrying on
+   * playing if it was; kept states for stateful effects are worked out again.
+   */
+  private onDeviceLost(device: GPUDevice, reason: string): void {
+    if (this.device !== device) return
+    const wasPlaying = this.playing
+    const rate = this.rate
+    const at = this.playing ? this.currentTime() : this.host.playhead
+    this.gpuResets++
+    // Nothing more is drawn with the old device's objects.
+    this.compositor = null
+    this.layers = null
+    this.catchUp?.close()
+    this.catchUp = null
+    this.temporal = null
+    this.lastStill = null
+    this.device = null
+    for (const frames of this.stillFrames.values()) frames.close()
+    this.stillFrames.clear()
+    this.stop()
+    Player.warming = false
+    // In the message toast (it stays until it's closed); the monitor's own line is per frame.
+    projectController.showMessage(`The graphics card was reset (${reason}), so the picture started again. Stateful effects work out their state again.`)
+    if (this.canvas) {
+      void this.attach(this.canvas)
+        .then(() => (wasPlaying ? this.play(rate, at) : undefined))
+        .catch((error: Error) => {
+          this.message = `The graphics card was reset and the picture couldn't start again: ${error.message}`
+          this.notify()
+        })
+    }
   }
 
   detach(canvas: HTMLCanvasElement): void {
@@ -281,7 +340,8 @@ export class Player extends Observable {
   private async catchUpTo(sequence: Sequence, media: MediaItem[], time: Ticks, layers: VideoLayer[], interruptible: boolean, cancelled: () => boolean): Promise<boolean> {
     if (!this.temporal || !this.catchUp) return true
     const job = ++this.catchUpJob
-    await this.catchUpDone
+    // The one before stops at its next frame, or is left behind (catchUpStep), so this never waits for long.
+    await Promise.race([this.catchUpDone, new Promise((resolve) => setTimeout(resolve, this.catchUpFrameMs + CATCH_UP_HANDOVER_MS + 1000))])
     const stopped = () => job !== this.catchUpJob || cancelled()
     if (stopped()) return false
     let finish!: () => void
@@ -318,7 +378,15 @@ export class Player extends Observable {
             entry.ended = 'stopped'
             return false
           }
-          await this.catchUp.render(sequence, media, t, modulation, scale, true)
+          const step = await this.catchUpStep(sequence, media, t, modulation, scale, stopped)
+          if (step === 'left behind') {
+            entry.ended = 'left behind'
+            return false
+          }
+          if (step === 'stuck') {
+            entry.ended = 'stuck'
+            throw new Error(`a frame took over ${Math.round(this.catchUpFrameMs / 100) / 10} s to decode, so the picture shows the nearest state there is`)
+          }
           done++
           if (done % CATCH_UP_BATCH === 0) {
             if (inFlight) await inFlight
@@ -332,9 +400,11 @@ export class Player extends Observable {
           }
         }
       } catch (error) {
-        noted = false
-        this.message = `Couldn't catch up: ${(error as Error).message}`
-        this.notify()
+        if (entry.ended === 'running') entry.ended = 'failed'
+        if (stopped()) return false
+        // A toast (the paused frame's own messages would replace a message here at once).
+        this.catchUpGaveUp = true
+        projectController.showMessage(`Couldn't catch up: ${(error as Error).message}`)
         return true
       }
       // Timed to the end of the GPU work, not just its recording.
@@ -349,7 +419,47 @@ export class Player extends Observable {
       }
       this.catchUpsRunning--
       finish()
+      this.releaseCatchUpLater()
     }
+  }
+
+  /**
+   * One frame of a catch-up. A frame takes milliseconds; one whose decoder has stopped would
+   * hold up every catch-up after it, and Play, which waits for them. So it's left behind with
+   * its renderer 2 s after something newer replaces it, or after `catchUpFrameMs` on its own;
+   * later catch-ups get a renderer of their own.
+   */
+  private async catchUpStep(sequence: Sequence, media: MediaItem[], t: Ticks, modulation: ModulationContext | null, scale: number, stopped: () => boolean): Promise<'done' | 'left behind' | 'stuck'> {
+    const renderer = this.catchUp!
+    const step = renderer.render(sequence, media, t, modulation, scale, true)
+    const started = performance.now()
+    let stoppedAt: number | null = null
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const finished = await Promise.race([step.then(() => true), new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), 50)))])
+      clearTimeout(timer)
+      if (finished) return 'done'
+      const now = performance.now()
+      if (stopped()) stoppedAt ??= now
+      const replaced = stoppedAt !== null && now - stoppedAt > CATCH_UP_HANDOVER_MS
+      if (!replaced && now - started <= this.catchUpFrameMs) continue
+      // Its decoders go now (so their files can close), and again if its frame ever comes.
+      renderer.close()
+      void step.catch(() => undefined).finally(() => renderer.close())
+      if (this.catchUp === renderer && this.compositor && this.layers) this.catchUp = new ExactRenderer(this.compositor, this.layers, (item) => this.path(item))
+      this.catchUpsLeftBehind++
+      return replaced ? 'left behind' : 'stuck'
+    }
+  }
+
+  private catchUpIdle: ReturnType<typeof setTimeout> | null = null
+
+  private releaseCatchUpLater(): void {
+    if (this.catchUpIdle !== null) clearTimeout(this.catchUpIdle)
+    this.catchUpIdle = setTimeout(() => {
+      this.catchUpIdle = null
+      if (this.catchUpsRunning === 0) this.catchUp?.close()
+    }, CATCH_UP_IDLE_MS)
   }
 
   /** Resolves once the paused frame has been rendered exactly (and nothing more is waiting). */
@@ -405,6 +515,11 @@ export class Player extends Observable {
         preview = true
         this.scheduleExact()
       } else if (!(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback, () => (duringPlayback ? !this.playing : this.stillRender.again || this.playing)))) return
+      else if (this.catchUpGaveUp) {
+        // It couldn't get there: the nearest state there is, shown as a preview.
+        this.catchUpGaveUp = false
+        preview = true
+      }
     }
     const used = new Set<string>()
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
@@ -426,7 +541,7 @@ export class Player extends Observable {
           const key = `${layer.clip.id}:${path}:${layer.clip.speed === 0}:${layer.clip.reverse}`
           let frames = this.stillFrames.get(key)
           if (!frames) {
-            frames = new ExactFrames(await openMedia(path), layer.clip)
+            frames = new ExactFrames(await useMedia(path), layer.clip)
             this.stillFrames.set(key, frames)
           }
           used.add(key)
@@ -474,13 +589,18 @@ export class Player extends Observable {
       return
     }
     if (this.playing) {
+      // New curves (a Channel Rack edit, say): the picture uses them from its next frame; sounds whose Volume they move, from now.
+      if (!this.starting) this.audio?.setModulation(this.host.modulation?.() ?? null)
       if (!this.sequenceAtStart || project.sequence === this.sequenceAtStart) return
-      // The edit changed while playing: carry on from here with the new edit.
-      const time = this.currentTime()
-      if (project.sequence.tracks !== this.sequenceAtStart.tracks && project.sequence.clips === this.sequenceAtStart.clips) {
-        this.audio?.updateTracks(project.sequence)
+      if (!this.starting && playsTheSame(this.sequenceAtStart, project.sequence)) {
+        // Every sound and every picture's timing as it was (a cube, an effect's value, a mute): playing carries on.
+        this.audio?.update(project.sequence)
         this.sequenceAtStart = project.sequence
-      } else void this.play(this.rate, time)
+        this.editsCarriedOn++
+        return
+      }
+      // Otherwise it starts again from here with the new edit.
+      void this.play(this.rate, this.currentTime())
       return
     }
     // Nothing in the picture changed (a selection, the tool, a window): it isn't drawn again.
@@ -518,6 +638,7 @@ export class Player extends Observable {
     }
     const token = ++this.playToken
     const live = () => this.playing && token === this.playToken
+    this.playStarts++
     for (const other of Player.all) if (other !== this) other.stop()
     // Playback already running (an edit while playing starts it again) stops drawing meanwhile.
     cancelAnimationFrame(this.frameHandle)
@@ -555,9 +676,15 @@ export class Player extends Observable {
       for (const layer of videoLayersAt(project.sequence, project.media, from, this.host.modulation?.() ?? null)) {
         const path = !layer.item || layer.item.kind === 'image' ? null : this.path(layer.item)
         if (!path) continue
-        const media = await openMedia(path).catch(() => null)
-        if (!media?.videoSink) continue
-        const stream = this.openStream(media, layer, from, project.sequence)
+        const use = await useMedia(path).catch(() => null)
+        if (!use) continue
+        // Stopped meanwhile (or started again): Stop has already let go of the streams, so this one isn't kept.
+        if (!live() || !use.media.videoSink) {
+          use.release()
+          if (!live()) return
+          continue
+        }
+        const stream = this.openStream(use, layer, from, project.sequence)
         this.streams.set(layer.clip.id, stream)
         starting.push(stream.ready(600))
       }
@@ -569,7 +696,11 @@ export class Player extends Observable {
       this.audio.modulation = this.host.modulation?.() ?? null
       this.audio.metronome = this.metronome
       await this.audio.start(project.sequence, project.media, from, (item) => this.path(item))
-      if (!live()) return
+      if (!live()) {
+        // Stopped while the sound was starting: it stops too (a Play started since starts its own).
+        if (!this.playing) this.audio.stop()
+        return
+      }
     }
     // The clock starts now, not when Play was pressed.
     this.starting = false
@@ -712,7 +843,7 @@ export class Player extends Observable {
         if (texture) {
           const c = this.layers!.build(layer, { kind: 'image', texture }, sequence)
           if (c) composite.push(c)
-        } else void openStill(path).then((bitmap) => this.layers!.stillTexture(path, bitmap))
+        } else void openStill(path).then((bitmap) => this.layers?.stillTexture(path, bitmap))
         continue
       }
       if (this.rate < 0) continue // reverse shows the still-render path below
@@ -802,17 +933,35 @@ export class Player extends Observable {
   }
 
   /** Forwards, reversed or a frame hold, from the clip's media time at timeline time `at`. */
-  private openStream(media: OpenedMedia, layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource {
+  /** A stream of the clip's frames from `at`; it holds `use`'s file open until it's closed. */
+  private openStream(use: MediaUse, layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource {
+    const media = use.media
     const clip = layer.clip
-    const start = ticksToSeconds(sourceTimeAt(clip, at, ticksPerFrame(frameRateOf(sequence.settings)), layer.item ? mediaLength(layer.item) : null))
-    if (clip.speed === 0) return new HoldStream(media, start)
-    if (clip.reverse) {
-      const step = ticksToSeconds(ticksPerFrame(frameRateOf(sequence.settings))) * clip.speed
-      const rate = layer.item?.info.video?.frameRate
-      const frameSeconds = rate && rate.num > 0 ? rate.den / rate.num : 1 / 30
-      return new ReverseStream(media, start, step, frameSeconds)
+    let stream: FrameSource
+    try {
+      const start = ticksToSeconds(sourceTimeAt(clip, at, ticksPerFrame(frameRateOf(sequence.settings)), layer.item ? mediaLength(layer.item) : null))
+      if (clip.speed === 0) stream = new HoldStream(media, start)
+      else if (clip.reverse) {
+        const step = ticksToSeconds(ticksPerFrame(frameRateOf(sequence.settings))) * clip.speed
+        const rate = layer.item?.info.video?.frameRate
+        const frameSeconds = rate && rate.num > 0 ? rate.den / rate.num : 1 / 30
+        stream = new ReverseStream(media, start, step, frameSeconds)
+      } else stream = new VideoStream(media, start)
+    } catch (error) {
+      use.release()
+      throw error
     }
-    return new VideoStream(media, start)
+    return {
+      frameAt: (seconds) => stream.frameAt(seconds),
+      ready: (timeoutMs) => stream.ready(timeoutMs),
+      close: () => {
+        stream.close()
+        use.release()
+      },
+      get late() {
+        return stream.late
+      }
+    }
   }
 
   private ensureStream(layer: VideoLayer, at: Ticks, sequence: Sequence): FrameSource | null {
@@ -825,10 +974,10 @@ export class Player extends Observable {
     // Open asynchronously; the slot is filled once the file is ready.
     const placeholder: FrameSource = { frameAt: () => null, ready: async () => undefined, close: () => undefined, late: 0 }
     this.streams.set(layer.clip.id, placeholder)
-    void openMedia(path)
-      .then((media) => {
-        if (this.streams.get(layer.clip.id) !== placeholder) return
-        this.streams.set(layer.clip.id, this.openStream(media, layer, at, sequence))
+    void useMedia(path)
+      .then((use) => {
+        if (this.streams.get(layer.clip.id) !== placeholder) return use.release()
+        this.streams.set(layer.clip.id, this.openStream(use, layer, at, sequence))
       })
       .catch((error: Error) => {
         this.message = `${item.name}: ${error.message}`

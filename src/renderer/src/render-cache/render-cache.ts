@@ -281,6 +281,7 @@ class RenderCacheController extends Observable {
     } finally {
       renderer.close()
       temporal.clear()
+      layers.destroy()
       target.destroy()
       compositor.destroy()
     }

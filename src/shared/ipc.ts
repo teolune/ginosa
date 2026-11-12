@@ -313,6 +313,8 @@ export interface GinosaBridge {
     /** Files in the repo's media/test folder (snapshot runs only). */
     testMedia(): Promise<string[]>
     referenceClips(): Promise<string[]>
+    /** media/heavy: many files and big stills for the heavy-condition tests. */
+    heavyMedia(): Promise<string[]>
     /** The .cube files in ../Reference Materials/Look LUTs (read only), for the Look LUT GPU test. */
     referenceLooks(): Promise<Array<{ name: string; text: string }>>
     /** The repo's own test look LUT (src/engine/colour/fixtures/test-look.cube). */

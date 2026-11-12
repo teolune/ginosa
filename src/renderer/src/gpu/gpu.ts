@@ -37,7 +37,11 @@ export async function initGpu(onLost?: (reason: string) => void): Promise<GpuCon
   if (!adapter) throw new GpuUnavailableError('No WebGPU adapter was found.')
 
   const requiredFeatures = WANTED_FEATURES.filter((feature) => adapter.features.has(feature))
-  const device = await adapter.requestDevice({ requiredFeatures })
+  // The adapter's own limits, not WebGPU's defaults: Apple GPUs take 16384 px textures (a
+  // panorama or a 50 MP photo is wider than the default 8192) and bigger buffers.
+  const requiredLimits: Record<string, number> = {}
+  for (const name of ['maxTextureDimension2D', 'maxBufferSize', 'maxStorageBufferBindingSize'] as const) requiredLimits[name] = adapter.limits[name]
+  const device = await adapter.requestDevice({ requiredFeatures, requiredLimits })
   device.lost.then((info) => {
     onLost?.(`${info.reason}: ${info.message}`)
   })

@@ -283,6 +283,30 @@ export function dbToGain(db: number): number {
   return db <= -96 ? 0 : Math.pow(10, db / 20)
 }
 
+/**
+ * Whether playback can carry on through an edit from `a` to `b` without starting again: every
+ * sound is untouched (its clips the same), and every picture comes from the same media at the
+ * same times, so the decoders already running still fit. Effects and their values, Motion,
+ * masks, the Channel Rack, modulators, markers and tracks' switches can all differ: the
+ * picture reads them every frame, and the sound takes mute, solo and new curves as they come.
+ */
+export function playsTheSame(a: Sequence, b: Sequence): boolean {
+  if (a.settings !== b.settings) return false
+  if (a.clips === b.clips) return true
+  if (a.clips.length !== b.clips.length) return false
+  const before = new Map(a.clips.map((c) => [c.id, c]))
+  for (const clip of b.clips) {
+    const old = before.get(clip.id)
+    if (!old) return false
+    if (old === clip) continue
+    if (clip.kind === 'audio' || old.kind === 'audio') return false
+    const timing = (c: Clip) => [c.trackId, c.mediaId, c.start, c.duration, c.sourceIn, c.speed, c.reverse, c.adjustment, c.keyframes['speed']]
+    const [x, y] = [timing(old), timing(clip)]
+    if (x.some((v, i) => v !== y[i])) return false
+  }
+  return true
+}
+
 /** Whether an audio track is heard: not muted, and soloed if any audio track is. */
 export function audibleTracks(sequence: Sequence): Set<string> {
   const tracks = tracksOf(sequence, 'audio')

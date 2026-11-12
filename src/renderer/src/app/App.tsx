@@ -33,6 +33,7 @@ import { posterizeTest } from '../playback/posterize-test'
 import { buildRackUi } from '../rack/rack-demo'
 import { rackDetectTest } from '../rack/detect-test'
 import { catchUpPerf } from '../playback/catchup-perf'
+import { heavyTest } from '../playback/heavy-test'
 import { colourLightExportTest } from '../playback/colour-light-export-test'
 import { buildColourLightUi } from '../effects/colour-light-demo'
 import { buildGrainUi } from '../effects/grain-demo'
@@ -411,6 +412,11 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(2500)
       await window.ginosa.snapshot.report(await buildRackUi().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       await wait(2500)
+      break
+    }
+    case 'heavy': {
+      // Heavy conditions: many files at once, big stills, GPU loss, export memory, edits while playing.
+      await window.ginosa.snapshot.report(await heavyTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'catchup4k': {

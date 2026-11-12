@@ -1,4 +1,5 @@
 import { ALL_FORMATS, AudioBufferSink, EncodedPacket, Input, UrlSource, VideoSampleSink, type InputAudioTrack, type InputVideoTrack } from 'mediabunny'
+import { getGpu } from '../gpu/shared'
 import { TRANSFER_HLG, TRANSFER_PQ, TRANSFER_UNSPECIFIED, hvccLengthSize, hvccTransfer, rewriteHvcc, rewriteSample } from '@engine/colour/hevc-sps'
 
 /**
@@ -48,18 +49,36 @@ function rewritePackets(track: InputVideoTrack, lengthSize: number): void {
   }
 }
 
-const opened = new Map<string, Promise<OpenedMedia>>()
-const order: string[] = []
+/**
+ * Open files, by path, least recently used first. Readers (picture streams, exact frames,
+ * sound feeders) hold a file while they read it (`useMedia`); at most MAX_OPEN files stay
+ * open, but a file someone is still reading is never closed (closing cancels its reads), so
+ * a timeline using more files at once (a mixdown of sound from many clips, many stacked
+ * layers) goes over the limit until they're done.
+ */
+interface Opened {
+  media: Promise<OpenedMedia>
+  users: number
+}
+
+const opened = new Map<string, Opened>()
 const MAX_OPEN = 12
 
-export function openMedia(path: string): Promise<OpenedMedia> {
-  let media = opened.get(path)
-  if (media) {
-    order.splice(order.indexOf(path), 1)
-    order.push(path)
-    return media
+/** A file held open while it's read: `release` it when done (closing the reader). */
+export interface MediaUse {
+  readonly media: OpenedMedia
+  release(): void
+}
+
+function entryFor(path: string): Opened {
+  const existing = opened.get(path)
+  if (existing) {
+    // Most recently used goes to the end.
+    opened.delete(path)
+    opened.set(path, existing)
+    return existing
   }
-  media = (async () => {
+  const media = (async (): Promise<OpenedMedia> => {
     const input = new Input({ formats: ALL_FORMATS, source: new UrlSource(window.ginosa.mediaUrl(path)) })
     const video = await input.getPrimaryVideoTrack()
     let rawHdr: OpenedMedia['rawHdr'] = null
@@ -112,34 +131,125 @@ export function openMedia(path: string): Promise<OpenedMedia> {
       rawHdr
     }
   })()
+  const entry: Opened = { media, users: 0 }
   media.catch(() => {
-    opened.delete(path)
-    order.splice(order.indexOf(path), 1)
+    if (opened.get(path) === entry) opened.delete(path)
   })
-  opened.set(path, media)
-  order.push(path)
-  while (order.length > MAX_OPEN) {
-    const oldest = order.shift()!
-    void opened.get(oldest)?.then((m) => (m.input as unknown as { dispose?: () => void }).dispose?.()).catch(() => undefined)
-    opened.delete(oldest)
-  }
-  return media
+  opened.set(path, entry)
+  return entry
 }
 
-const stills = new Map<string, Promise<ImageBitmap>>()
-
-/** Decodes a still once; the compositor uploads it to the GPU. */
-export function openStill(path: string): Promise<ImageBitmap> {
-  let bitmap = stills.get(path)
-  if (!bitmap) {
-    bitmap = fetch(window.ginosa.mediaUrl(path))
-      .then((response) => {
-        if (!response.ok) throw new Error(`Couldn't read the image (${response.status})`)
-        return response.blob()
-      })
-      .then((blob) => createImageBitmap(blob))
-    bitmap.catch(() => stills.delete(path))
-    stills.set(path, bitmap)
+/** Closes the least recently used files nobody is reading, down to MAX_OPEN. */
+function closeIdle(): void {
+  if (opened.size <= MAX_OPEN) return
+  for (const [path, entry] of opened) {
+    if (opened.size <= MAX_OPEN) break
+    if (entry.users > 0) continue
+    opened.delete(path)
+    void entry.media.then((m) => (m.input as unknown as { dispose?: () => void }).dispose?.()).catch(() => undefined)
   }
-  return bitmap
+}
+
+/** Open files and how many are being read (for tests). */
+export function openFiles(): { open: number; inUse: number; held: string[] } {
+  const held = [...opened].filter(([, entry]) => entry.users > 0).map(([path]) => path)
+  return { open: opened.size, inUse: held.length, held }
+}
+
+/** A file, opened once and shared, for a quick look (not held: it may be closed once idle). */
+export function openMedia(path: string): Promise<OpenedMedia> {
+  const entry = entryFor(path)
+  closeIdle()
+  return entry.media
+}
+
+/** A file held open until `release()`: for anything that reads from it over time. */
+export async function useMedia(path: string): Promise<MediaUse> {
+  const entry = entryFor(path)
+  entry.users++
+  closeIdle()
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    entry.users--
+    closeIdle()
+  }
+  try {
+    return { media: await entry.media, release }
+  } catch (error) {
+    release()
+    throw error
+  }
+}
+
+/**
+ * Decoded stills, least recently used first, within a memory budget: a photo montage can't
+ * fill memory. Each GPU keeps its own copy (LayerBuilder), so this only saves decoding again.
+ * Anything used in the last couple of seconds stays, whatever the budget, so a still is never
+ * closed between being handed out and being uploaded.
+ */
+interface DecodedStill {
+  bitmap: Promise<ImageBitmap>
+  bytes: number
+  usedAt: number
+}
+const stills = new Map<string, DecodedStill>()
+export const STILL_CACHE_BYTES = 384 * 1024 * 1024
+const RECENT_MS = 2000
+
+function trimStills(): void {
+  let total = 0
+  for (const entry of stills.values()) total += entry.bytes
+  const now = performance.now()
+  for (const [path, entry] of stills) {
+    if (total <= STILL_CACHE_BYTES) break
+    if (entry.bytes === 0 || now - entry.usedAt < RECENT_MS) continue
+    stills.delete(path)
+    total -= entry.bytes
+    void entry.bitmap.then((b) => b.close()).catch(() => undefined)
+  }
+}
+
+/** Bytes of decoded stills held (for tests). */
+export function stillCacheBytes(): number {
+  let total = 0
+  for (const entry of stills.values()) total += entry.bytes
+  return total
+}
+
+/**
+ * Decodes a still once; the compositor uploads it to the GPU. Full size (for punch-ins,
+ * decision 26), unless it's bigger than the GPU can hold: then it's scaled to fit.
+ */
+export function openStill(path: string): Promise<ImageBitmap> {
+  const existing = stills.get(path)
+  if (existing) {
+    existing.usedAt = performance.now()
+    stills.delete(path)
+    stills.set(path, existing)
+    return existing.bitmap
+  }
+  const entry: DecodedStill = { bitmap: Promise.resolve(null as unknown as ImageBitmap), bytes: 0, usedAt: performance.now() }
+  entry.bitmap = (async () => {
+    const response = await fetch(window.ginosa.mediaUrl(path))
+    if (!response.ok) throw new Error(`Couldn't read the image (${response.status})`)
+    let image = await createImageBitmap(await response.blob())
+    const limit = (await getGpu()).device.limits.maxTextureDimension2D
+    if (image.width > limit || image.height > limit) {
+      const k = limit / Math.max(image.width, image.height)
+      const smaller = await createImageBitmap(image, { resizeWidth: Math.max(1, Math.floor(image.width * k)), resizeHeight: Math.max(1, Math.floor(image.height * k)), resizeQuality: 'high' })
+      image.close()
+      image = smaller
+    }
+    entry.bytes = image.width * image.height * 4
+    entry.usedAt = performance.now()
+    trimStills()
+    return image
+  })()
+  entry.bitmap.catch(() => {
+    if (stills.get(path) === entry) stills.delete(path)
+  })
+  stills.set(path, entry)
+  return entry.bitmap
 }

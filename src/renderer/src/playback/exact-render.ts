@@ -7,13 +7,16 @@ import { stateLayers } from '@engine/timeline/temporal'
 import type { VideoSample } from 'mediabunny'
 import type { Compositor, CompositeStep } from './compositor'
 import type { LayerBuilder } from './layers'
-import { openMedia, openStill, type OpenedMedia } from './sources'
+import { openStill, useMedia, type MediaUse, type OpenedMedia } from './sources'
 
 /** Further ahead than this, a new decode from the nearest keyframe is quicker than decoding on. */
 const JUMP_SECONDS = 2
 
 /** For the performance tests: decodes started again from a keyframe, and frames decoded. */
 export const exactStats = { restarts: 0, decoded: 0 }
+
+/** Test hook: the next frame rendered waits for this first, as behind a decoder that has stopped. */
+export const exactHooks: { stallNext: Promise<void> | null } = { stallNext: null }
 
 /**
  * Frames for one clip, exactly, with no deadline. Forward clips decode in order;
@@ -26,10 +29,15 @@ export class ExactFrames {
   private held: { seconds: number; sample: VideoSample } | null = null
   private lastSeconds = -Infinity
 
+  private readonly media: OpenedMedia
+
+  /** Holds `use`'s file open until `close()`. */
   constructor(
-    private readonly media: OpenedMedia,
+    private readonly use: MediaUse,
     private readonly clip: Clip
-  ) {}
+  ) {
+    this.media = use.media
+  }
 
   async frameAt(seconds: number): Promise<VideoSample | null> {
     const sink = this.media.videoSink
@@ -79,6 +87,7 @@ export class ExactFrames {
     this.restart()
     this.held?.sample.close()
     this.held = null
+    this.use.release()
   }
 }
 
@@ -103,6 +112,11 @@ export class ExactRenderer {
    * stateful effects on (catching up, unseen), so what doesn't feed their state is skipped.
    */
   async render(sequence: Sequence, media: MediaItem[], time: Ticks, modulation: ModulationContext | null, scale: number, stateOnly = false): Promise<GPUTexture> {
+    if (exactHooks.stallNext) {
+      const stall = exactHooks.stallNext
+      exactHooks.stallNext = null
+      await stall
+    }
     const started = performance.now()
     const whole = videoLayersAt(sequence, media, time, modulation)
     const plan = stateOnly ? stateLayers(whole) : whole
@@ -125,7 +139,7 @@ export class ExactRenderer {
         }
         let source = this.sources.get(layer.clip.id)
         if (!source) {
-          source = new ExactFrames(await openMedia(file), layer.clip)
+          source = new ExactFrames(await useMedia(file), layer.clip)
           this.sources.set(layer.clip.id, source)
         }
         const waited = performance.now()

@@ -12,7 +12,7 @@ import { projectController } from '../state/project-controller'
 import { timelineController as tl } from '../timeline/timeline-controller'
 import { ExactFrames, exactStats } from './exact-render'
 import { player } from './player'
-import { openMedia } from './sources'
+import { useMedia } from './sources'
 
 /**
  * Catching up stateful effects on your 4K Apple Log clips (your "very slow" recording of
@@ -95,8 +95,7 @@ export async function catchUpPerf(): Promise<Record<string, unknown>> {
 
   // 1. Decoding alone: 250 frames in order.
   {
-    const media = await openMedia(mediaController.playablePath(one)!)
-    const frames = new ExactFrames(media, clips()[0]!)
+    const frames = new ExactFrames(await useMedia(mediaController.playablePath(one)!), clips()[0]!)
     const started = performance.now()
     let n = 0
     for (; n < 250; n++) if (!(await frames.frameAt(n / 25))) break

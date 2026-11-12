@@ -271,6 +271,14 @@ function registerIpc(): void {
     return (await readdir(dir).catch(() => [] as string[])).filter((f) => !f.startsWith('.')).sort().map((f) => join(dir, f))
   })
 
+  // Heavy-condition test media (npm run test-media): many files, big stills.
+  ipcMain.handle('snapshot:heavyMedia', async () => {
+    if (!snapshot) return []
+    const dir = join(process.cwd(), 'media', 'heavy')
+    const { readdir } = await import('node:fs/promises')
+    return (await readdir(dir).catch(() => [] as string[])).filter((f) => !f.startsWith('.')).sort().map((f) => join(dir, f))
+  })
+
   // Your own clips for the footage check: ../Reference Materials/AppleLogClips (never copied or changed).
   ipcMain.handle('snapshot:referenceClips', async () => {
     if (!snapshot) return []
@@ -429,10 +437,12 @@ app.whenReady().then(async () => {
 
   if (snapshotMode) {
     if (!snapshot) return
+    // The heavy-conditions scenario runs several long parts (about 45 s when all pass).
+    const limit = snapshot.scenario === 'heavy' ? 180 : 60
     setTimeout(() => {
-      console.error('[snapshot] timed out after 60 s')
+      console.error(`[snapshot] timed out after ${limit} s`)
       app.exit(4)
-    }, 60_000).unref()
+    }, limit * 1000).unref()
   }
 
   menu.build()

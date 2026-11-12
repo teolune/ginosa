@@ -20,7 +20,9 @@ import type { TemporalStore } from './temporal'
  */
 export class LayerBuilder {
   private luts = new Map<string, GpuLut | 'loading' | 'failed'>()
-  private stills = new Map<string, GPUTexture>()
+  /** Stills on the GPU, least recently used first, within STILL_TEXTURE_BYTES. */
+  private stills = new Map<string, { texture: GPUTexture; usedAt: number }>()
+  static readonly STILL_TEXTURE_BYTES = 1024 * 1024 * 1024
   /** Masks packed this frame (a mask several effects share is packed once). */
   private packed = new WeakMap<ResolvedShape[], { data: Float32Array; parts: number }>()
 
@@ -99,16 +101,52 @@ export class LayerBuilder {
 
   /** A still already on the GPU, or null. */
   loadedStill(path: string): GPUTexture | null {
-    return this.stills.get(path) ?? null
+    const entry = this.stills.get(path)
+    if (!entry) return null
+    entry.usedAt = performance.now()
+    this.stills.delete(path)
+    this.stills.set(path, entry)
+    return entry.texture
   }
 
   stillTexture(path: string, bitmap: ImageBitmap): GPUTexture {
-    let texture = this.stills.get(path)
-    if (!texture) {
-      texture = this.compositor.imageTexture(bitmap)
-      this.stills.set(path, texture)
-    }
+    const loaded = this.loadedStill(path)
+    if (loaded) return loaded
+    const texture = this.compositor.imageTexture(bitmap)
+    this.stills.set(path, { texture, usedAt: performance.now() })
+    this.trimStills()
     return texture
+  }
+
+  /**
+   * Over budget, the least recently used stills go, but never one used in the last couple of
+   * seconds (a frame being put together may still draw it); the budget gives way instead.
+   */
+  private trimStills(): void {
+    let total = this.stillBytes()
+    const now = performance.now()
+    for (const [path, entry] of this.stills) {
+      if (total <= LayerBuilder.STILL_TEXTURE_BYTES) break
+      if (now - entry.usedAt < 2000) continue
+      this.stills.delete(path)
+      total -= entry.texture.width * entry.texture.height * 4
+      entry.texture.destroy()
+    }
+  }
+
+  /** Bytes of stills on the GPU. */
+  stillBytes(): number {
+    let total = 0
+    for (const { texture } of this.stills.values()) total += texture.width * texture.height * 4
+    return total
+  }
+
+  /** Frees its stills and LUTs (an export or a cache render that's finished). */
+  destroy(): void {
+    for (const { texture } of this.stills.values()) texture.destroy()
+    this.stills.clear()
+    for (const lut of this.luts.values()) if (typeof lut === 'object') lut.texture.destroy()
+    this.luts.clear()
   }
 
   /** How this layer's pixels become working values: undo Chromium's display step, then the file's conversion. */

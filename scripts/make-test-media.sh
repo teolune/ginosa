@@ -91,5 +91,21 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='if(gte(t\,0.
 echo "4K still image"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
 
+# Heavy-condition tests (media/heavy, so the test folder's own listing stays the same):
+# sound from more files than ginosa keeps open, and big stills.
+heavy="media/heavy"
+mkdir -p "$heavy"
+echo "14 tones, 3 s each, 220 Hz apart (a mixdown reading more files at once than ginosa keeps open)"
+for n in $(seq -w 1 14); do
+  freq=$(( 10#$n * 220 ))
+  [ -f "$heavy/tone_$n.wav" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.25*sin(2*PI*$freq*t)':sample_rate=48000:duration=3" -c:a pcm_s16le "$heavy/tone_$n.wav"
+done
+echo "24 stills of 4000 x 3000 (a photo montage), each its own colour"
+for n in $(seq -w 1 24); do
+  [ -f "$heavy/photo_$n.png" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x$(printf '%02x%02x%02x' $(( 10#$n * 10 )) $(( 255 - 10#$n * 9 )) 128):s=4000x3000:d=1,drawbox=x=1500:y=1000:w=1000:h=1000:color=white:t=fill" -frames:v 1 "$heavy/photo_$n.png"
+done
+echo "A 12000 x 3000 panorama (wider than WebGPU's default 8192 px texture limit)"
+[ -f "$heavy/panorama_12000.png" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x2060a0:s=12000x3000:d=1,drawbox=x=5500:y=1000:w=1000:h=1000:color=white:t=fill" -frames:v 1 "$heavy/panorama_12000.png"
+
 echo
-ls -lh "$out"
+ls -lh "$out" "$heavy" | tail -5

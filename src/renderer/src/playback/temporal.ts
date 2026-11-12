@@ -94,20 +94,34 @@ export class TemporalStore {
     const limit = Number.isFinite(seconds) ? Math.floor((secondsToTicks(Math.max(0, seconds)) - after.resetAt) / this.frame) : Infinity
     if (!(limit > 0)) return false
     const gone = [...slot.kept].filter(([f, k]) => f >= limit || !k.exact)
+    const carried = this.carriedOn(slot)
     // As on any change: the exact states near where it was used stay for previews meanwhile.
-    const near = gone.filter(([f, k]) => k.exact && Math.abs(f - slot.lastFrame) <= 2 * this.checkpointEvery)
+    const near = gone.filter(([f, k]) => k.exact && f !== carried?.[0] && Math.abs(f - slot.lastFrame) <= 2 * this.checkpointEvery)
     if (near.length) {
       this.dropStale(slotId)
       this.stale.set(slotId, { ...slot, kept: new Map(near) })
     }
     for (const [f, k] of gone) {
       slot.kept.delete(f)
-      if (!near.some(([g]) => g === f)) this.giveKept(k)
+      if (f === carried?.[0]) slot.kept.set(f, { ...k, exact: false })
+      else if (!near.some(([g]) => g === f)) this.giveKept(k)
     }
     slot.raw = key
     slot.key = this.slotKey(key)
     this.stats.carried++
     return true
+  }
+
+  /**
+   * Live playback through an edit (a cube, an effect's value): the newest state carries on, as
+   * an approximation, so the picture doesn't jump back to an older checkpoint or start over
+   * while playing. The exact states follow once playback stops.
+   */
+  private carriedOn(slot: Slot): [number, Kept] | null {
+    if (this.mode !== 'live') return null
+    let newest: [number, Kept] | null = null
+    for (const entry of slot.kept) if (!newest || entry[0] > newest[0]) newest = entry
+    return newest
   }
 
   /** The state for one stateful effect on one frame (`frame` = frames since its reset). */
@@ -221,6 +235,13 @@ export class TemporalStore {
     return total
   }
 
+  /** States held (each effect's recent frames, checkpoints and stale states), for tests. */
+  states(): number {
+    let n = 0
+    for (const slot of [...this.slots.values(), ...this.stale.values()]) n += slot.kept.size
+    return n
+  }
+
   private dropStale(slotId: string): void {
     const old = this.stale.get(slotId)
     if (!old) return
@@ -240,17 +261,20 @@ export class TemporalStore {
     let slot = this.slots.get(slotId)
     if (slot && slot.key !== key && slot.width === width && slot.height === height) this.carryOver(slotId, slot, raw)
     if (!slot || slot.key !== key || slot.width !== width || slot.height !== height) {
+      let carried: [number, Kept] | null = null
       if (slot) {
+        if (slot.width === width && slot.height === height) carried = this.carriedOn(slot)
         // The exact states near where it was last used stay, for previews, until the new key catches up.
-        const near = [...slot.kept].filter(([f, k]) => k.exact && Math.abs(f - slot!.lastFrame) <= 2 * this.checkpointEvery)
+        const near = [...slot.kept].filter(([f, k]) => k.exact && f !== carried?.[0] && Math.abs(f - slot!.lastFrame) <= 2 * this.checkpointEvery)
         if (near.length) {
           this.dropStale(slotId)
           this.stale.set(slotId, { ...slot, kept: new Map(near) })
         }
-        for (const [f, k] of slot.kept) if (!near.some(([g]) => g === f)) this.giveKept(k)
+        for (const [f, k] of slot.kept) if (f !== carried?.[0] && !near.some(([g]) => g === f)) this.giveKept(k)
         this.stats.resets++
       }
-      slot = { key, raw, width, height, kept: new Map(), usedAt: 0, lastFrame: 0 }
+      slot = { key, raw, width, height, kept: new Map(), usedAt: 0, lastFrame: carried?.[0] ?? 0 }
+      if (carried) slot.kept.set(carried[0], { ...carried[1], exact: false })
       this.slots.set(slotId, slot)
     }
     slot.usedAt = ++this.clock

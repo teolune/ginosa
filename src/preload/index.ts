@@ -132,6 +132,7 @@ const bridge: GinosaBridge = {
     simulateCrash: () => ipcRenderer.invoke('snapshot:simulateCrash'),
     testMedia: () => ipcRenderer.invoke('snapshot:testMedia'),
     referenceClips: () => ipcRenderer.invoke('snapshot:referenceClips'),
+    heavyMedia: () => ipcRenderer.invoke('snapshot:heavyMedia'),
     referenceGradients: () => ipcRenderer.invoke('snapshot:referenceGradients'),
     referenceLooks: () => ipcRenderer.invoke('snapshot:referenceLooks'),
     testLook: () => ipcRenderer.invoke('snapshot:testLook'),
