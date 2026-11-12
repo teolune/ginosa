@@ -12,6 +12,9 @@ import { openMedia, openStill, type OpenedMedia } from './sources'
 /** Further ahead than this, a new decode from the nearest keyframe is quicker than decoding on. */
 const JUMP_SECONDS = 2
 
+/** For the performance tests: decodes started again from a keyframe, and frames decoded. */
+export const exactStats = { restarts: 0, decoded: 0 }
+
 /**
  * Frames for one clip, exactly, with no deadline. Forward clips decode in order;
  * reversed clips and holds fetch each frame they need.
@@ -52,6 +55,7 @@ export class ExactFrames {
       this.current?.close()
       this.current = this.peek
       this.peek = (await this.iterator.next()).value ?? null
+      exactStats.decoded++
     }
     // The first frame of the clip can sit just after the requested time (a stream's first timestamp).
     if (!this.current && this.peek) {
@@ -62,6 +66,7 @@ export class ExactFrames {
   }
 
   private restart(): void {
+    if (this.iterator) exactStats.restarts++
     void this.iterator?.return(undefined).catch(() => undefined)
     this.iterator = null
     this.current?.close()

@@ -1,6 +1,6 @@
 import type { VideoLayer } from '@engine/timeline/render-plan'
 import { isStateful } from '@engine/timeline/temporal'
-import type { Ticks } from '@engine/time'
+import { secondsToTicks, type Ticks } from '@engine/time'
 import type { EffectState } from './compositor'
 
 /**
@@ -27,6 +27,8 @@ const bytesOf = (k: Kept) => [k.texture, ...k.extras].reduce((sum, t) => sum + (
 
 interface Slot {
   key: string
+  /** The key as the layers give it (without the playback resolution). */
+  raw: string
   width: number
   height: number
   kept: Map<number, Kept>
@@ -52,7 +54,13 @@ export class TemporalStore {
   private stale = new Map<string, Slot>()
   /** Playback resolution: part of every key (a state at one size is no use at another). */
   scale = 1
-  stats = { approximate: 0, missed: 0, resets: 0 }
+  stats = { approximate: 0, missed: 0, resets: 0, carried: 0 }
+  /** Ticks per frame, for placing a change in the modulation curves on a slot's frames. */
+  frame: Ticks = 0
+  /** Where two modulation contexts' curves first differ, in seconds (Infinity: nowhere; 0: not known). */
+  modulationChange: ((before: string, after: string) => number) | null = null
+  /** What each key is made of (the layers describe theirs before asking for states). */
+  private parts = new Map<string, { base: string; modulation: string; resetAt: Ticks }>()
 
   constructor(
     private readonly device: GPUDevice,
@@ -65,6 +73,43 @@ export class TemporalStore {
     return `${key}@${this.scale}`
   }
 
+  /** A layer's key and what it's made of (render-plan's LayerTemporal). */
+  describe(t: { key: string; base?: string; modulation?: string; resetAt: Ticks }): void {
+    if (t.base === undefined || t.modulation === undefined || this.parts.has(t.key)) return
+    this.parts.set(t.key, { base: t.base, modulation: t.modulation, resetAt: t.resetAt })
+    if (this.parts.size > 256) this.parts.delete(this.parts.keys().next().value!)
+  }
+
+  /**
+   * A slot whose key changed only in its modulation curves (a Channel Rack edit, say) keeps its
+   * exact states from before the first frame the curves change on: they were made from the same
+   * inputs. The rest go, as on any other change. True if it was carried over.
+   */
+  private carryOver(slotId: string, slot: Slot, key: string): boolean {
+    if (!this.modulationChange || this.frame <= 0) return false
+    const before = this.parts.get(slot.raw)
+    const after = this.parts.get(key)
+    if (!before || !after || before.base !== after.base || before.resetAt !== after.resetAt) return false
+    const seconds = this.modulationChange(before.modulation, after.modulation)
+    const limit = Number.isFinite(seconds) ? Math.floor((secondsToTicks(Math.max(0, seconds)) - after.resetAt) / this.frame) : Infinity
+    if (!(limit > 0)) return false
+    const gone = [...slot.kept].filter(([f, k]) => f >= limit || !k.exact)
+    // As on any change: the exact states near where it was used stay for previews meanwhile.
+    const near = gone.filter(([f, k]) => k.exact && Math.abs(f - slot.lastFrame) <= 2 * this.checkpointEvery)
+    if (near.length) {
+      this.dropStale(slotId)
+      this.stale.set(slotId, { ...slot, kept: new Map(near) })
+    }
+    for (const [f, k] of gone) {
+      slot.kept.delete(f)
+      if (!near.some(([g]) => g === f)) this.giveKept(k)
+    }
+    slot.raw = key
+    slot.key = this.slotKey(key)
+    this.stats.carried++
+    return true
+  }
+
   /** The state for one stateful effect on one frame (`frame` = frames since its reset). */
   state(slotId: string, key: string, frame: number): EffectState {
     const fullKey = this.slotKey(key)
@@ -75,7 +120,7 @@ export class TemporalStore {
     const before = (width: number, height: number): Kept | null => {
       if (looked) return chosen
       looked = true
-      const slot = this.slot(slotId, fullKey, width, height)
+      const slot = this.slot(slotId, key, width, height)
       if (frame === 0) return null
       const kept = slot.kept.get(frame - 1)
       if (kept?.exact) {
@@ -99,7 +144,7 @@ export class TemporalStore {
     return {
       frames: frame,
       kept: (width, height) => {
-        const kept = this.slot(slotId, fullKey, width, height).kept.get(frame)
+        const kept = this.slot(slotId, key, width, height).kept.get(frame)
         return kept?.exact ? kept.texture : null
       },
       previous: (width, height) => before(width, height)?.texture ?? null,
@@ -134,7 +179,8 @@ export class TemporalStore {
   needs(slotId: string, key: string, frame: number): number | null {
     if (frame === 0) return null
     const slot = this.slots.get(slotId)
-    if (!slot || slot.key !== this.slotKey(key)) return 0
+    if (!slot) return 0
+    if (slot.key !== this.slotKey(key) && !this.carryOver(slotId, slot, key)) return 0
     if (slot.kept.get(frame)?.exact || slot.kept.get(frame - 1)?.exact) return null
     let best = -1
     for (const [f, k] of slot.kept) if (k.exact && f < frame - 1 && f > best) best = f
@@ -147,6 +193,7 @@ export class TemporalStore {
     for (const layer of layers) {
       const t = layer.temporal
       if (!t) continue
+      this.describe(t)
       for (const effect of layer.clip.effects) {
         if (!effect.enabled || !isStateful(effect.effectId)) continue
         const n = this.needs(`${layer.clip.id}:${effect.id}`, t.key, t.frame)
@@ -188,8 +235,10 @@ export class TemporalStore {
     return n
   }
 
-  private slot(slotId: string, key: string, width: number, height: number): Slot {
+  private slot(slotId: string, raw: string, width: number, height: number): Slot {
+    const key = this.slotKey(raw)
     let slot = this.slots.get(slotId)
+    if (slot && slot.key !== key && slot.width === width && slot.height === height) this.carryOver(slotId, slot, raw)
     if (!slot || slot.key !== key || slot.width !== width || slot.height !== height) {
       if (slot) {
         // The exact states near where it was last used stay, for previews, until the new key catches up.
@@ -201,17 +250,22 @@ export class TemporalStore {
         for (const [f, k] of slot.kept) if (!near.some(([g]) => g === f)) this.giveKept(k)
         this.stats.resets++
       }
-      slot = { key, width, height, kept: new Map(), usedAt: 0, lastFrame: 0 }
+      slot = { key, raw, width, height, kept: new Map(), usedAt: 0, lastFrame: 0 }
       this.slots.set(slotId, slot)
     }
     slot.usedAt = ++this.clock
     return slot
   }
 
-  /** Keeps the two newest frames and the exact checkpoints; then trims to the budget. */
+  /**
+   * Keeps the two newest frames, the exact checkpoints and the furthest exact state (where a
+   * stopped catch-up got to, so the next carries on from there); then trims to the budget.
+   */
   private prune(slot: Slot, frame: number): void {
+    let furthest = -1
+    for (const [f, k] of slot.kept) if (k.exact && f > furthest) furthest = f
     for (const [f, k] of slot.kept) {
-      if (f === frame || f === frame - 1) continue
+      if (f === frame || f === frame - 1 || f === furthest) continue
       if (k.exact && f > 0 && f % this.checkpointEvery === 0) continue
       slot.kept.delete(f)
       this.giveKept(k)

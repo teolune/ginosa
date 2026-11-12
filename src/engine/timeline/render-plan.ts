@@ -63,8 +63,12 @@ export interface LayerTemporal {
   frame: number
   /** When the reset is (sequence time). */
   resetAt: Ticks
-  /** Changes whenever anything the state depends on changes. */
+  /** Changes whenever anything the state depends on changes: `base` and `modulation` together. */
   key: string
+  /** Everything but the modulation curves (stateKey). */
+  base?: string
+  /** The modulation curves' id: when only this changes, states from before the curves' first change still hold. */
+  modulation?: string
   /** Frames since the latest cut beneath an adjustment layer, or since the reset on a clip (M14). */
   sinceCut: number
 }
@@ -219,7 +223,9 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
         const since = stateFrame(time, resetAt, frame)
         const f = Math.round(time / frame)
         const cut = clip.adjustment ? latestCut(sequence, tracks.slice(0, index).map((t) => t.id), Math.round(resetAt / frame), f, frame) : null
-        temporal = { frame: since, resetAt, key: `${stateKey(sequence, media, stored, resetAt)}:${modulation?.id ?? 'none'}`, sinceCut: cut === null ? since : f - cut }
+        const base = stateKey(sequence, media, stored, resetAt)
+        const curves = modulation?.id ?? 'none'
+        temporal = { frame: since, resetAt, key: `${base}:${curves}`, base, modulation: curves, sinceCut: cut === null ? since : f - cut }
       }
       // An invisible layer is skipped, unless its effects keep state (that state must still run).
       if ((clip.opacity <= 0 || weight <= 0) && !temporal) continue

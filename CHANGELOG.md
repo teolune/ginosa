@@ -1,5 +1,16 @@
 # Changelog
 
+## Catching up after edits (12 Nov 2026)
+
+From your recording (Datamosh on a 4K clip, Channel Rack edits, "catching up" for most of a minute while playback crawled):
+
+- **An edit only redoes what it changed.** A Channel Rack edit used to throw away every kept Datamosh (or Feedback) state, so the next play replayed from the clip's start. Now the states before the edited section stay: on your Apple Log clips, a cube edit followed by a still or Play redoes 34 frames (1.4 s) instead of 274 (8.9 s), with an identical picture.
+- **Play no longer runs over itself.** Play, Pause, Play quickly, or an edit while playing, used to leave two catch-ups and two playbacks fighting over the GPU (16 fps afterwards in the test, about 6 in your recording). Now one catch-up runs at a time, the older one stops, and playback runs at 25 fps.
+- **Pause while it's catching up** leaves the playhead where you pressed Play (it used to run on while nothing was shown).
+- **Nothing lost when a catch-up is interrupted**: it carries on from where it got, not from the last checkpoint; curves rebuilt the same no longer interrupt it at all.
+- **Faster in general**: the GPU is kept busy between batches. Your 4K clips cost about 27 ms a frame to catch up at Full, 15 ms at 1/2 (decision 114 proposes running effects at the clip's shown size, for about the 1/2 speed at full quality).
+- **Test:** `catchup4k` on your Apple Log clips (only read); one new unit test (401 in all).
+
 ## The 8-bit clef mark (11 Nov 2026)
 
 - **ginosa's mark is your 8-bit treble clef** (decision 113), in place of the G: in the title bar, on the title screen and in the Dock. It's your high-res file's pixel grid, kept pixel for pixel (`assets/logo/ginosa-clef.txt`), so every pixel lands on whole screen pixels and stays sharp. It's in your Icon Composer lavender, in Display P3 like your file.

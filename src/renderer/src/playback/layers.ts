@@ -40,6 +40,7 @@ export class LayerBuilder {
       // Posterize Time is worked out by the render plan: it has no GPU pass.
       if (!manifest || manifest.holdsTime) return []
       const t = layer.temporal
+      if (t) this.temporal?.describe(t)
       const state = manifest.time === 'stateful' && t && this.temporal ? this.temporal.state(`${layer.clip.id}:${effect.id}`, t.key, t.frame) : null
       // A LUT parameter (decision 77): its cube, once loaded (until then the effect passes the picture through).
       const lutSpec = manifest.params.find((p) => p.type === 'lut')

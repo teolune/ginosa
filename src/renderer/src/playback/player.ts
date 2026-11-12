@@ -62,6 +62,8 @@ export interface PlayerHost {
   subscribe(listener: () => void): () => void
   /** Modulators' outputs for this scene (the Program monitor's timeline), or null. */
   modulation?(): ModulationContext | null
+  /** Seconds up to which two modulation contexts (by id) give the same values (see TemporalStore). */
+  modulationChange?(before: string, after: string): number
 }
 
 /** Catching up more than this many frames shows a preview first (see renderStill). */
@@ -122,6 +124,20 @@ export class Player extends Observable {
   private startTime: Ticks = 0
   private lastShownFrame = -1
   private presentedCount = 0
+  /** Frames shown by playback since the app started (for the performance tests). */
+  framesShown = 0
+  /** Catch-ups running now, and the most at once (for the performance tests). */
+  catchUpsRunning = 0
+  maxCatchUpsRunning = 0
+  /** Every catch-up's span and outcome, for the performance tests. */
+  catchUpLog: Array<{ from: number; to: number; done: number; ms: number; interruptible: boolean; ended: string }> = []
+  /** Bumped by every catch-up: an older one still running stops at its next frame. */
+  private catchUpJob = 0
+  private catchUpDone: Promise<void> = Promise.resolve()
+  /** Bumped by every Play and Stop: a Play still starting (catching up, opening decoders) gives up. */
+  private playToken = 0
+  /** From Play until its first frame: the clock waits, so Pause meanwhile leaves the playhead where it was. */
+  private starting = false
   private statsWindowStart = 0
   private renderTotal = 0
   private stillRender: { busy: boolean; again: boolean } = { busy: false, again: false }
@@ -131,7 +147,7 @@ export class Player extends Observable {
   /** Whether the paused frame showing is a preview (stateful effects not yet caught up exactly). */
   approximate = false
   /** What the paused frame was last asked for: a change that alters none of it (a selection, a tool) doesn't redraw it. */
-  private shownScene: { sequence: Sequence; media: unknown; playhead: Ticks; modulation: unknown } | null = null
+  private shownScene: { sequence: Sequence; media: unknown; playhead: Ticks; modulation: ModulationContext | null } | null = null
   private sequenceAtStart: Sequence | null = null
   recording: PresentedFrame[] | null = null
   /** The last paused-frame composite (for tests that read pixels back). */
@@ -220,6 +236,8 @@ export class Player extends Observable {
       this.sequenceId = sequence.id
       this.temporal.scale = scale
       this.temporal.checkpointEvery = checkpointEvery(sequence)
+      this.temporal.frame = ticksPerFrame(frameRateOf(sequence.settings))
+      this.temporal.modulationChange = this.host.modulationChange ? (a, b) => this.host.modulationChange!(a, b) : null
     }
     if (this.canvas && (this.canvas.width !== width || this.canvas.height !== height)) {
       this.canvas.width = width
@@ -256,17 +274,25 @@ export class Player extends Observable {
   /**
    * Stateful effects need their exact state from the frame before `time`: if it isn't
    * kept, the frames from the nearest checkpoint (or their reset) are rendered first,
-   * unseen. Returns false if a newer request came in meanwhile (what was rendered so far
-   * is kept, so the next try starts from there).
+   * unseen. One catch-up runs at a time: a newer one (or `cancelled`) stops an older one at
+   * its next frame, and every frame it finished is kept, so the next one carries on from
+   * there. Returns false if it was stopped.
    */
-  private async catchUpTo(sequence: Sequence, media: MediaItem[], time: Ticks, layers: VideoLayer[], interruptible: boolean): Promise<boolean> {
+  private async catchUpTo(sequence: Sequence, media: MediaItem[], time: Ticks, layers: VideoLayer[], interruptible: boolean, cancelled: () => boolean): Promise<boolean> {
     if (!this.temporal || !this.catchUp) return true
+    const job = ++this.catchUpJob
+    await this.catchUpDone
+    const stopped = () => job !== this.catchUpJob || cancelled()
+    if (stopped()) return false
+    let finish!: () => void
+    this.catchUpDone = new Promise<void>((resolve) => (finish = resolve))
     const frame = ticksPerFrame(frameRateOf(sequence.settings))
     const scale = this.prepareTarget(sequence)
     this.temporal.mode = 'exact'
     const from = this.temporal.catchUpFrom(layers, frame)
     if (from === null || from >= time) {
       this.lastCatchUp = { frames: 0, ms: 0 }
+      finish()
       return true
     }
     const total = Math.round((time - from) / frame)
@@ -274,32 +300,56 @@ export class Player extends Observable {
     const modulation = this.host.modulation?.() ?? null
     let done = 0
     let lastNote = 0
+    let noted = false
+    const entry = { from: Math.round(from / frame), to: Math.round(time / frame), done: 0, ms: 0, interruptible, ended: 'running' }
+    if (this.catchUpLog.length > 50) this.catchUpLog.shift()
+    this.catchUpLog.push(entry)
+    this.catchUpsRunning++
+    this.maxCatchUpsRunning = Math.max(this.maxCatchUpsRunning, this.catchUpsRunning)
+    // The GPU gets a few frames at a time, one batch queued behind the one it's on: it never
+    // waits for the next, and the interface's own frames get drawn in between.
+    let inFlight: Promise<unknown> | null = null
     try {
-      for (let t = from; t < time - frame / 2; t += frame) {
-        if (interruptible && this.stillRender.again) return false
-        await this.catchUp.render(sequence, media, t, modulation, scale, true)
-        done++
-        // A few frames at a time on the GPU, so the interface's own frames get drawn in between.
-        if (interruptible && done % CATCH_UP_BATCH === 0) await this.device?.queue.onSubmittedWorkDone()
-        if (total > 10 && performance.now() - lastNote > 250) {
-          lastNote = performance.now()
-          this.message = `Stateful effects: catching up ${done} of ${total} frames…`
-          this.notify()
+      try {
+        for (let t = from; t < time - frame / 2; t += frame) {
+          entry.done = done
+          entry.ms = Math.round(performance.now() - started)
+          if (stopped()) {
+            entry.ended = 'stopped'
+            return false
+          }
+          await this.catchUp.render(sequence, media, t, modulation, scale, true)
+          done++
+          if (done % CATCH_UP_BATCH === 0) {
+            if (inFlight) await inFlight
+            inFlight = this.device?.queue.onSubmittedWorkDone() ?? null
+          }
+          if (total > 10 && performance.now() - lastNote > 250) {
+            lastNote = performance.now()
+            noted = true
+            this.message = `Stateful effects: catching up ${done} of ${total} frames…`
+            this.notify()
+          }
         }
+      } catch (error) {
+        noted = false
+        this.message = `Couldn't catch up: ${(error as Error).message}`
+        this.notify()
+        return true
       }
-    } catch (error) {
-      this.message = `Couldn't catch up: ${(error as Error).message}`
-      this.notify()
+      // Timed to the end of the GPU work, not just its recording.
+      await this.device?.queue.onSubmittedWorkDone()
+      this.lastCatchUp = { frames: done, ms: performance.now() - started }
+      Object.assign(entry, { done, ms: Math.round(this.lastCatchUp.ms), ended: 'done' })
       return true
+    } finally {
+      if (noted && this.message?.startsWith('Stateful effects: catching up')) {
+        this.message = null
+        this.notify()
+      }
+      this.catchUpsRunning--
+      finish()
     }
-    // Timed to the end of the GPU work, not just its recording.
-    await this.device?.queue.onSubmittedWorkDone()
-    this.lastCatchUp = { frames: done, ms: performance.now() - started }
-    if (total > 10) {
-      this.message = null
-      this.notify()
-    }
-    return true
   }
 
   /** Resolves once the paused frame has been rendered exactly (and nothing more is waiting). */
@@ -354,7 +404,7 @@ export class Player extends Observable {
       if (!exact && from !== null && (time - from) / frame > PREVIEW_AFTER_FRAMES) {
         preview = true
         this.scheduleExact()
-      } else if (!(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback))) return
+      } else if (!(await this.catchUpTo(sequence, project.media, time, layers, !duringPlayback, () => (duringPlayback ? !this.playing : this.stillRender.again || this.playing)))) return
     }
     const used = new Set<string>()
     const prepared: Array<{ layer: VideoLayer; source: CompositeLayer['source'] | null }> = []
@@ -437,7 +487,9 @@ export class Player extends Observable {
     const preview = this.host.scene(true)
     const scene = { sequence: preview?.sequence ?? project.sequence, media: project.media, playhead: this.host.playhead, modulation: this.host.modulation?.() ?? null }
     const last = this.shownScene
-    if (last && last.sequence === scene.sequence && last.media === scene.media && last.playhead === scene.playhead && last.modulation === scene.modulation) return
+    // Curves rebuilt the same (same id) change nothing in the picture.
+    const sameModulation = last?.modulation === scene.modulation || (last?.modulation?.id !== undefined && last.modulation.id === scene.modulation?.id)
+    if (last && last.sequence === scene.sequence && last.media === scene.media && last.playhead === scene.playhead && sameModulation) return
     this.shownScene = scene
     this.requestStill()
   }
@@ -448,6 +500,7 @@ export class Player extends Observable {
   private lastClock: Ticks = 0
 
   private currentTime(): Ticks {
+    if (this.starting) return this.startTime
     let time: Ticks
     if (this.rate === 1 && this.audio?.running) time = this.audio.smoothedTime()
     else time = this.startTime + secondsToTicks(((performance.now() - this.wallStart) / 1000) * this.rate)
@@ -463,7 +516,11 @@ export class Player extends Observable {
       this.originPending = false
       return
     }
+    const token = ++this.playToken
+    const live = () => this.playing && token === this.playToken
     for (const other of Player.all) if (other !== this) other.stop()
+    // Playback already running (an edit while playing starts it again) stops drawing meanwhile.
+    cancelAnimationFrame(this.frameHandle)
     this.stopStreams()
     this.audio?.stop()
     const end = sequenceEnd(project.sequence)
@@ -473,6 +530,7 @@ export class Player extends Observable {
       this.originPending = false
     }
     this.playing = true
+    this.starting = true
     this.rate = rate
     this.startTime = from
     this.lastClock = from
@@ -487,8 +545,8 @@ export class Player extends Observable {
     // Stateful effects start from their exact state at the first frame.
     const first = videoLayersAt(project.sequence, project.media, from, this.host.modulation?.() ?? null)
     if (rate > 0 && first.some((l) => l.temporal)) {
-      await this.catchUpTo(project.sequence, project.media, Math.floor(from / ticksPerFrame(frameRateOf(project.sequence.settings))) * ticksPerFrame(frameRateOf(project.sequence.settings)), first, false)
-      if (!this.playing) return
+      await this.catchUpTo(project.sequence, project.media, Math.floor(from / ticksPerFrame(frameRateOf(project.sequence.settings))) * ticksPerFrame(frameRateOf(project.sequence.settings)), first, false, () => !live())
+      if (!live()) return
     }
     if (this.temporal) this.temporal.mode = 'live'
     // Start decoding the first frames before the clock starts, so playback doesn't begin with a drop.
@@ -504,23 +562,32 @@ export class Player extends Observable {
         starting.push(stream.ready(600))
       }
       await Promise.all(starting)
-      if (!this.playing) return
+      if (!live()) return
     }
     if (rate === 1) {
       this.audio ??= new AudioEngine()
       this.audio.modulation = this.host.modulation?.() ?? null
       this.audio.metronome = this.metronome
       await this.audio.start(project.sequence, project.media, from, (item) => this.path(item))
+      if (!live()) return
     }
+    // The clock starts now, not when Play was pressed.
+    this.starting = false
+    this.startTime = from
+    this.lastClock = from
+    this.wallStart = performance.now()
+    this.statsWindowStart = performance.now()
     this.notify()
     cancelAnimationFrame(this.frameHandle)
     this.frameHandle = requestAnimationFrame(() => this.tick())
   }
 
   stop(): void {
+    this.playToken++
     if (!this.playing) return
     const time = this.currentTime()
     this.playing = false
+    this.starting = false
     if (this.temporal) this.temporal.mode = 'exact'
     cancelAnimationFrame(this.frameHandle)
     this.audio?.stop()
@@ -682,6 +749,7 @@ export class Player extends Observable {
     this.recording?.push({ at: performance.now(), timeline: shown, heard })
     this.renderTotal += performance.now() - started
     this.presentedCount++
+    this.framesShown++
     const elapsed = performance.now() - this.statsWindowStart
     if (elapsed >= 500) {
       this.stats = {
@@ -781,6 +849,7 @@ export const player = new Player({
   },
   setPlayhead: (time) => timelineController.setPlayhead(time),
   modulation: () => modulationController.context,
+  modulationChange: (before, after) => modulationController.firstChange(before, after),
   subscribe: (listener) => {
     const a = projectController.subscribe(listener)
     const b = timelineController.subscribe(listener)

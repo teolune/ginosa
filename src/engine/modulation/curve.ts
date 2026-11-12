@@ -262,6 +262,20 @@ export function patternLinkCurve(m: Modulator, inputs: CurveInputs, frames: numb
 }
 
 /** The curve's value at a sequence time (linear between samples; held past the ends). */
+/**
+ * The time (seconds) up to which two curves give the same values as `curveValue` reads them
+ * (linearly between samples, so a changed sample shows from the one before it): Infinity if
+ * they're the same throughout. Stateful effects keep their states from before it (W3).
+ */
+export function curveChangeAt(a: Float32Array, b: Float32Array): number {
+  if (a === b) return Infinity
+  const n = Math.min(a.length, b.length)
+  let i = 0
+  while (i < n && a[i] === b[i]) i++
+  if (i === n && a.length === b.length) return Infinity
+  return Math.max(0, (i - 1) / CURVE_RATE)
+}
+
 export function curveValue(curve: Float32Array, time: Ticks): number {
   if (curve.length === 0) return 0
   const position = (time / secondsToTicks(1)) * CURVE_RATE

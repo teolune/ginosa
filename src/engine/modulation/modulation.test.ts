@@ -14,7 +14,7 @@ import { addLink, addModulator, linkToAudio, linksTo, removeLinks, removeModulat
 import { gainAt, videoLayersAt } from '../timeline/render-plan'
 import { resolveClip, valueAt } from '../keyframes/properties'
 import { applyLinks } from './apply'
-import { CURVE_RATE, curveValue, modulatorCurve, responseCurve, sourceSignal, thresholdKnee, type CurveInputs } from './curve'
+import { CURVE_RATE, curveValue, modulatorCurve, responseCurve, sourceSignal, thresholdKnee, type CurveInputs, curveChangeAt } from './curve'
 import type { ModLink, Modulator, ModulationContext } from './types'
 import { newModulator } from '../timeline/modulation-edits'
 import { applyBuiltinPreset, BUILTIN_PRESETS } from '../timeline/builtin-presets'
@@ -346,6 +346,22 @@ describe('datamosh modes (M14)', () => {
     expect(mod.source).toMatchObject({ signal: 'hits', band: 'bass' })
     // Linear release: above 50% for half the release, which is longer than a 24 fps frame.
     expect(mod.release / 2).toBeGreaterThan(1000 / 24)
+  })
+})
+
+describe('where curves change (stateful effects keep their states before it)', () => {
+  it('finds the first changed sample, from the one before it, or Infinity when nothing changed', () => {
+    const a = new Float32Array(1000).fill(0.5)
+    const b = a.slice()
+    expect(curveChangeAt(a, a)).toBe(Infinity)
+    expect(curveChangeAt(a, b)).toBe(Infinity)
+    b[400] = 1
+    // Read between samples 399 and 400 from 399's time on.
+    expect(curveChangeAt(a, b)).toBeCloseTo(399 / CURVE_RATE, 9)
+    b[0] = 0
+    expect(curveChangeAt(a, b)).toBe(0)
+    // A longer curve (the sequence grew): the same up to the shorter one's end.
+    expect(curveChangeAt(a, new Float32Array(1200).fill(0.5))).toBeCloseTo(999 / CURVE_RATE, 9)
   })
 })
 

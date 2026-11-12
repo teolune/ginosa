@@ -1,6 +1,6 @@
 import { frameTicks } from '@engine/timeline/timeline'
 import { hashText } from '@engine/audio/sources'
-import { CURVE_RATE, curveValue, modulatorCurve, patternLinkCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
+import { CURVE_RATE, curveChangeAt, curveValue, modulatorCurve, patternLinkCurve, sourceSignal, type CurveInputs } from '@engine/modulation/curve'
 import { allLinksTo } from '@engine/timeline/rack'
 import type { Modulator, ModulationContext } from '@engine/modulation/types'
 import type { Project } from '@engine/project/model'
@@ -93,10 +93,35 @@ export function contextOf(curves: Map<string, Entry>): ModulationContext {
   }
 }
 
+/**
+ * Seconds up to which two sets of curves agree (every modulator's and every Channel Rack link's):
+ * Infinity if they agree throughout, 0 if one has a curve the other hasn't or isn't ready.
+ */
+export function curvesChangeFrom(a: Map<string, Entry>, b: Map<string, Entry>): number {
+  let first = Infinity
+  for (const id of new Set([...a.keys(), ...b.keys()])) {
+    const x = a.get(id)
+    const y = b.get(id)
+    if (!x || !y || x.ready !== y.ready) return 0
+    first = Math.min(first, curveChangeAt(x.curve, y.curve))
+    for (const link of new Set([...(x.links?.keys() ?? []), ...(y.links?.keys() ?? [])])) {
+      const p = x.links?.get(link)
+      const q = y.links?.get(link)
+      if (!p || !q) return 0
+      first = Math.min(first, curveChangeAt(p.curve, q.curve))
+    }
+    if (first <= 0) return 0
+  }
+  return first
+}
+
 class ModulationController extends Observable {
   private curves = new Map<string, Entry>()
   private timer: number | null = null
   context: ModulationContext = contextOf(this.curves)
+  /** Recent curves by their context's id, so stateful effects can tell where an edit first changed them. */
+  private history = new Map<string, Map<string, Entry>>()
+  private changes = new Map<string, number>()
 
   constructor() {
     super()
@@ -115,7 +140,31 @@ class ModulationController extends Observable {
     const project = projectController.project
     this.curves = project ? computeCurves(project, this.curves) : new Map()
     this.context = contextOf(this.curves)
+    const id = this.context.id
+    if (id) {
+      this.history.delete(id)
+      this.history.set(id, this.curves)
+      while (this.history.size > 12) this.history.delete(this.history.keys().next().value!)
+    }
     this.notify()
+  }
+
+  /**
+   * Seconds up to which the curves of context `after` give the same values as those of
+   * `before` (Infinity: throughout; 0: not known, e.g. long gone). A Channel Rack edit changes
+   * them only from its section on, so stateful effects keep their states from before it.
+   */
+  firstChange(before: string, after: string): number {
+    if (before === after) return Infinity
+    const key = `${before}>${after}`
+    const known = this.changes.get(key)
+    if (known !== undefined) return known
+    const a = this.history.get(before)
+    const b = this.history.get(after)
+    const result = a && b ? curvesChangeFrom(a, b) : 0
+    this.changes.set(key, result)
+    if (this.changes.size > 64) this.changes.delete(this.changes.keys().next().value!)
+    return result
   }
 
   entry(id: string): Entry | null {
