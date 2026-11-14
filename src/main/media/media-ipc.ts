@@ -10,7 +10,7 @@ import { DEFAULT_PREVIEW_LIMIT, PreviewStore } from '../cache/preview-store'
 import { ensureThumbnail, ensureWaveform } from './generate'
 import { checkFile, classifyImportPaths, fingerprintFile, listFolder, probeFiles, probeFile, searchForMoved } from './media-files'
 import { OptimiseQueue, type OptimiseJob } from './optimise'
-import { deleteDetectionModels, detectionModels, separateStems, setUpDetection, stemPcm, stemsStatus } from './stems'
+import { deleteDetectionModels, detectionModels, separateStems, SEPARATORS, setUpDetection, stemPcm, stemsStatus, type Separator } from './stems'
 
 /** IPC for media import, generated files, optimised copies and the cache. */
 
@@ -100,10 +100,11 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
   // Stems for the Channel Rack's detection (W3): separated once per song file, in the project's
   // cache (their own category, so the Cache window can clear them).
   ipcMain.handle('stems:status', () => stemsStatus(app.getAppPath()))
-  ipcMain.handle('stems:separate', async (event, projectId: string, input: string, key: string) => {
+  ipcMain.handle('stems:separate', async (event, projectId: string, input: string, key: string, separator: Separator) => {
     if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad stems key')
+    if (!(SEPARATORS as readonly string[]).includes(separator)) throw new Error('unknown separator')
     const dir = join(await cache.categoryDir(projectId, 'stems'), key)
-    return separateStems(app.getAppPath(), input, dir, (line) => event.sender.send('stems:progress', line))
+    return separateStems(app.getAppPath(), input, dir, separator, (line) => event.sender.send('stems:progress', line))
   })
   ipcMain.handle('stems:pcm', (_event, path: string, rate: number) => stemPcm(path, rate))
   // The detection models themselves (decision 119): listed, deleted and set up again from the Cache window.

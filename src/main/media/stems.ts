@@ -5,38 +5,51 @@ import { join } from 'node:path'
 import { runTool } from './ffmpeg'
 
 /**
- * Stem separation for the Channel Rack's Automatic Detection (decision 108): demucs-mlx
- * (Demucs's htdemucs on Apple silicon through MLX, MIT) splits a song into drums, bass,
- * vocals and the rest, on this Mac. It lives in `.stems/` in the project folder (the Python
- * environment and the model's weights), set up by `npm run stems-setup`. The song file is
- * only read; stems go to the project's cache.
+ * Stem separation for the Channel Rack's Automatic Detection (decisions 108, W4.2), on this Mac,
+ * in `.stems/` in the ginosa folder (set up by `npm run stems-setup`; the Cache window lists and
+ * deletes it). Two separators, best first:
+ *  - BS-RoFormer-SW (jarredou, through mlx-audio-separator on MLX): six stems; on MVSEP's test
+ *    set 14.11 dB on drums and 14.62 on bass, about 2.6–2.9 dB better than Demucs;
+ *  - htdemucs (Meta's Demucs, through demucs-mlx): four stems, about 7× quicker.
+ * The song file is only read; stems go to the project's cache.
  */
 
 export const STEM_NAMES = ['drums', 'bass', 'vocals', 'other'] as const
 export type StemName = (typeof STEM_NAMES)[number]
 export type StemPaths = Record<StemName, string>
 
+export const SEPARATORS = ['bs-roformer-sw', 'htdemucs'] as const
+export type Separator = (typeof SEPARATORS)[number]
+
 export interface StemsStatus {
   ready: boolean
   /** Why not, in a sentence. */
   detail: string | null
+  /** The separators set up on this Mac, best first. */
+  separators: Separator[]
 }
 
-const MODEL = 'htdemucs'
+const bin = (appRoot: string, name: string) => join(appRoot, '.stems', 'venv', 'bin', name)
+const models = (appRoot: string) => join(appRoot, '.stems', 'models')
+/** BS-RoFormer-SW's checkpoint, and the MLX weights converted from it once (the separator wants both). */
+const SW_FILES = ['BS-Roformer-SW.ckpt', 'BS-Roformer-SW.safetensors', 'BS-Roformer-SW.yaml']
 
-function separator(appRoot: string): string {
-  return join(appRoot, '.stems', 'venv', 'bin', 'demucs-mlx')
-}
+const exists = (path: string, mode = constants.R_OK) =>
+  access(path, mode).then(
+    () => true,
+    () => false
+  )
 
 export async function stemsStatus(appRoot: string): Promise<StemsStatus> {
-  try {
-    await access(separator(appRoot), constants.X_OK)
-    return { ready: true, detail: null }
-  } catch {
-    return { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: run  npm run stems-setup  in Terminal (once).' }
-  }
+  const separators: Separator[] = []
+  if ((await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await Promise.all(SW_FILES.map((f) => exists(join(models(appRoot), f))))).every(Boolean)) separators.push('bs-roformer-sw')
+  if (await exists(bin(appRoot, 'demucs-mlx'), constants.X_OK)) separators.push('htdemucs')
+  return separators.length
+    ? { ready: true, detail: null, separators }
+    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators }
 }
 
+/** A separator's stems in `dir`: `drums.wav` as kept in the cache, or `…_(drums)_…` as mlx-audio-separator names them. */
 async function findStems(dir: string): Promise<Partial<StemPaths>> {
   const found: Partial<StemPaths> = {}
   const walk = async (d: string): Promise<void> => {
@@ -50,7 +63,7 @@ async function findStems(dir: string): Promise<Partial<StemPaths>> {
       const full = join(d, e.name)
       if (e.isDirectory()) await walk(full)
       else {
-        const stem = e.name.replace(/\.(flac|wav|mp3)$/i, '') as StemName
+        const stem = (/_\((\w+)\)_/.exec(e.name)?.[1] ?? e.name.replace(/\.(flac|wav|mp3)$/i, '')) as StemName
         if ((STEM_NAMES as readonly string[]).includes(stem) && !found[stem]) found[stem] = full
       }
     }
@@ -64,34 +77,46 @@ function complete(stems: Partial<StemPaths>): stems is StemPaths {
 }
 
 /**
- * The song's stems, from the cache when they've been made before (`dir` is keyed by the
- * song file's fingerprint), otherwise separated now: the song is converted to a WAV first
- * (so any format ginosa imports works), then demucs-mlx runs on it.
+ * The song's stems by `separator`, from the cache when they've been made before (`dir` is keyed
+ * by the song file's fingerprint and the separator), otherwise separated now: the song is
+ * converted to a WAV first (so any format ginosa imports works), then the separator runs on it.
  */
-export async function separateStems(appRoot: string, input: string, dir: string, onLine: (line: string) => void = () => undefined): Promise<StemPaths> {
+export async function separateStems(appRoot: string, input: string, dir: string, separator: Separator, onLine: (line: string) => void = () => undefined): Promise<StemPaths> {
   const cached = await findStems(dir)
   if (complete(cached)) return cached
   const status = await stemsStatus(appRoot)
-  if (!status.ready) throw new Error(status.detail ?? 'Stem separation isn’t set up')
+  if (!status.separators.includes(separator)) throw new Error(status.detail ?? `${separator} isn’t set up on this Mac`)
   if (settingUp) throw new Error('Detection is being set up; try again when it has finished.')
   separating++
   try {
-    return await separate(appRoot, input, dir, onLine)
+    return await separate(appRoot, input, dir, separator, onLine)
   } finally {
     separating--
   }
 }
 
-async function separate(appRoot: string, input: string, dir: string, onLine: (line: string) => void): Promise<StemPaths> {
+function command(appRoot: string, separator: Separator, wav: string, out: string): { exe: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const stems = join(appRoot, '.stems')
+  if (separator === 'htdemucs') return { exe: bin(appRoot, 'demucs-mlx'), args: [wav, '-o', out, '-n', 'htdemucs'], env: { ...process.env, DEMUCS_MLX_CACHE_DIR: join(stems, 'weights') } }
+  // Its weights stay in .stems/models (never ~/.cache), and it runs in MLX's default precision
+  // (TF32 on the M5's GPU: 42.6 dB from full float32 on the drums of your song, far below separation's own error).
+  return {
+    exe: bin(appRoot, 'mlx-audio-separator'),
+    args: [wav, '-m', 'BS-Roformer-SW.ckpt', '--model_file_dir', models(appRoot), '--output_dir', out, '--output_format', 'WAV'],
+    env: { ...process.env, HF_HOME: join(stems, 'hf') }
+  }
+}
+
+async function separate(appRoot: string, input: string, dir: string, separator: Separator, onLine: (line: string) => void): Promise<StemPaths> {
   const work = `${dir}.working`
   await rm(work, { recursive: true, force: true })
   await mkdir(work, { recursive: true })
   const wav = join(work, 'song.wav')
   const decoded = await runTool('ffmpeg', ['-v', 'error', '-y', '-i', input, '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_f32le', wav], { collect: false })
   if (decoded.code !== 0) throw new Error(`Couldn’t read the song: ${decoded.stderr.trim().split('\n').at(-1) ?? 'FFmpeg failed'}`)
+  const { exe, args, env } = command(appRoot, separator, wav, join(work, 'out'))
   await new Promise<void>((resolve, reject) => {
-    const env = { ...process.env, DEMUCS_MLX_CACHE_DIR: join(appRoot, '.stems', 'weights') }
-    const child = spawn(separator(appRoot), [wav, '-o', join(work, 'out'), '-n', MODEL], { stdio: ['ignore', 'pipe', 'pipe'], env })
+    const child = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], env })
     let tail = ''
     const read = (chunk: Buffer) => {
       const text = chunk.toString()
@@ -101,10 +126,10 @@ async function separate(appRoot: string, input: string, dir: string, onLine: (li
     child.stdout.on('data', read)
     child.stderr.on('data', read)
     child.on('error', reject)
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`demucs-mlx stopped (exit ${code}): ${tail.trim().split('\n').at(-1) ?? ''}`))))
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${separator} stopped (exit ${code}): ${tail.trim().split('\n').at(-1) ?? ''}`))))
   })
   const made = await findStems(join(work, 'out'))
-  if (!complete(made)) throw new Error(`demucs-mlx didn’t write all four stems (found ${Object.keys(made).join(', ') || 'none'})`)
+  if (!complete(made)) throw new Error(`${separator} didn’t write all four stems (found ${Object.keys(made).join(', ') || 'none'})`)
   await mkdir(dir, { recursive: true })
   const out = {} as StemPaths
   for (const name of STEM_NAMES) {
@@ -136,12 +161,12 @@ export interface DetectionModels {
 }
 
 const PART_NAMES: Record<string, string> = {
-  venv: 'Python packages (MLX, demucs-mlx)',
+  venv: 'Python packages (MLX, PyTorch, the separators)',
   python: 'Python 3.12 (a private copy)',
   bootstrap: 'Setup tools (uv)',
   weights: 'Demucs model (htdemucs)',
   hf: 'Models from Hugging Face',
-  models: 'Models'
+  models: 'Separation models (BS-RoFormer-SW, …)'
 }
 
 async function bytesIn(path: string): Promise<number> {

@@ -3,7 +3,7 @@ import type { RackDetect } from '@engine/project/model'
 import { secondsToTicks } from '@engine/time'
 import { setBeatGrid } from '@engine/timeline/audio-edits'
 import { deleteClips, placeMedia } from '@engine/timeline/edits'
-import type { BenchKey } from '@shared/ipc'
+import type { BenchKey, StemSeparator } from '@shared/ipc'
 import { analysisController } from '../audio/analysis-controller'
 import { detectTempo } from '../control-panel/actions'
 import { mediaController } from '../state/media-controller'
@@ -76,7 +76,9 @@ async function setUp(key: BenchKey): Promise<{ seconds: number }> {
 
 export async function detectBench(): Promise<Record<string, unknown>> {
   const keys = [await generatedDrums(), ...(await window.ginosa.snapshot.benchKeys())].filter((k): k is BenchKey => k !== null)
-  const methods: Array<'bands' | 'stems'> = (await window.ginosa.stems.status()).ready ? ['bands', 'stems'] : ['bands']
+  // Bands, then each separator set up (W4.2: BS-RoFormer-SW and htdemucs).
+  const runs: Array<{ label: string; method: 'bands' | 'stems'; separator?: StemSeparator }> = [{ label: 'bands', method: 'bands' }, ...(await window.ginosa.stems.status()).separators.map((separator) => ({ label: separator, method: 'stems' as const, separator }))]
+  const methods = runs.map((r) => r.label)
   const songs: Array<Record<string, unknown>> = []
   const all: Record<string, Partial<Record<RackDetect, HitScore[]>>> = Object.fromEntries(methods.map((m) => [m, {}]))
   for (const key of keys) {
@@ -85,9 +87,9 @@ export async function detectBench(): Promise<Record<string, unknown>> {
       const { seconds } = await setUp(key)
       song['seconds'] = Math.round(seconds * 10) / 10
       song['bpm'] = Math.round((projectController.project!.sequence.beatGrid?.bpm ?? 0) * 100) / 100
-      for (const method of methods) {
+      for (const { label: method, ...how } of runs) {
         const started = performance.now()
-        const done = await detector.run({ method })
+        const done = await detector.run(how)
         const times = detector.last?.times ?? {}
         const result: Record<string, unknown> = { done, ms: Math.round(performance.now() - started) }
         if (!done) result['error'] = projectController.lastError

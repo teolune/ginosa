@@ -94,6 +94,40 @@ else
   installed && ok "demucs-mlx $DEMUCS_MLX_VERSION installed" || { bad "demucs-mlx didn't install properly."; exit 1; }
 fi
 
+# W4.2: BS-RoFormer-SW (six stems, the better separator) through mlx-audio-separator (MIT), with
+# PyTorch to convert its checkpoint for MLX once (and for W4.3's drum transcriber).
+SEPARATOR_VERSION="0.1.20"
+TORCH_VERSION="2.15.0"
+separator_installed() {
+  "$venv/bin/python" -c "import importlib.metadata as m, sys; sys.exit(0 if m.version('mlx-audio-separator') == '$SEPARATOR_VERSION' and m.version('torch') == '$TORCH_VERSION' else 1)" >/dev/null 2>&1
+}
+if separator_installed; then
+  ok "mlx-audio-separator $SEPARATOR_VERSION and PyTorch $TORCH_VERSION are already installed"
+else
+  say "Installing mlx-audio-separator $SEPARATOR_VERSION and PyTorch $TORCH_VERSION (about 500 MB)…"
+  if ! "$venv/bin/python" -m pip install --prefer-binary "mlx-audio-separator==$SEPARATOR_VERSION" "torch==$TORCH_VERSION" "safetensors==0.8.0" "soundfile==0.14.0"; then
+    bad "pip couldn't install them (the error is above)."; exit 1
+  fi
+  separator_installed && ok "mlx-audio-separator and PyTorch installed" || { bad "They didn't install properly."; exit 1; }
+fi
+models="$stems/models"
+if [[ -s "$models/BS-Roformer-SW.safetensors" && -f "$models/BS-Roformer-SW.ckpt" && -f "$models/BS-Roformer-SW.yaml" ]]; then
+  ok "BS-RoFormer-SW is downloaded and converted for MLX"
+else
+  say "Downloading BS-RoFormer-SW (about 700 MB) and converting it for MLX…"
+  mkdir -p "$models"
+  if ! HF_HOME="$stems/hf" "$venv/bin/mlx-audio-separator" -m BS-Roformer-SW.ckpt --model_file_dir "$models" --preconvert_only --save_converted_safetensors; then
+    bad "Couldn't download or convert BS-RoFormer-SW (above)."; exit 1
+  fi
+  [[ -s "$models/BS-Roformer-SW.safetensors" ]] || { bad "BS-RoFormer-SW wasn't converted."; exit 1; }
+  ok "BS-RoFormer-SW downloaded and converted"
+fi
+# Only the converted copy is used; the separator just checks the checkpoint is there before
+# loading it, so the 700 MB original becomes an empty placeholder (mlx-audio-separator 0.1.20).
+if [[ -s "$models/BS-Roformer-SW.ckpt" && -s "$models/BS-Roformer-SW.safetensors" ]]; then
+  : > "$models/BS-Roformer-SW.ckpt" && ok "Freed 700 MB: the original checkpoint isn't needed once converted"
+fi
+
 say "Testing it (the first run downloads the model, about 160 MB)…"
 work="$(mktemp -d)"
 input="$root/media/test/song_120bpm.wav"
@@ -103,15 +137,19 @@ if [[ ! -f "$input" ]]; then
 fi
 start=$(date +%s)
 result=0
-if "$venv/bin/demucs-mlx" "$input" -o "$work/out" -n htdemucs; then
+mkdir -p "$work/sw"
+# BS-RoFormer-SW only takes stereo (ginosa always hands it a stereo WAV); the test song is mono.
+ffmpeg -hide_banner -loglevel error -y -i "$input" -ac 2 -ar 44100 "$work/stereo.wav" && input="$work/stereo.wav"
+if "$venv/bin/demucs-mlx" "$input" -o "$work/out" -n htdemucs && HF_HOME="$stems/hf" "$venv/bin/mlx-audio-separator" "$input" -m BS-Roformer-SW.ckpt --model_file_dir "$models" --output_dir "$work/sw" --output_format WAV > "$work/sw.log" 2>&1; then
   count=$(find "$work/out" -type f \( -name 'drums.*' -o -name 'bass.*' -o -name 'vocals.*' -o -name 'other.*' \) | wc -l | tr -d ' ')
   if [[ "$count" == "4" ]]; then
-    ok "Split $(basename "$input") into drums, bass, vocals and other in $(( $(date +%s) - start )) s"
+    sw=$(find "$work/sw" -type f -name '*_(drums)_*' | wc -l | tr -d ' ')
+    if [[ "$sw" == "1" ]]; then ok "Split $(basename "$input") with Demucs and with BS-RoFormer-SW in $(( $(date +%s) - start )) s"; else bad "BS-RoFormer-SW wrote no drums stem."; result=1; fi
   else
     bad "Only $count of the 4 stems were written."; result=1
   fi
 else
-  bad "demucs-mlx stopped with an error (above)."; result=1
+  bad "A separator stopped with an error:"; [[ -f "$work/sw.log" ]] && tail -5 "$work/sw.log"; result=1
 fi
 rm -rf "$work"
 if (( result == 0 )); then

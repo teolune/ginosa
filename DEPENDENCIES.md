@@ -66,6 +66,10 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | htdemucs weights (`ssmall256/demucs-mlx` on Hugging Face, converted from Meta's checkpoints; downloaded on the first run and checked against digests in demucs-mlx) | The separation model | MIT, as the weights' page states (the same licence as Demucs; trained by Alexandre Défossez and others at Meta AI Research). Some read Meta's original checkpoint release as research-only: fine for a personal app that never passes the weights on; check again before ever shipping ginosa to others |
 | Python 3.12 (a private copy in `.stems/python`, from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), when this Mac has no Python 3.10–3.13; yours is 3.15) | Runs demucs-mlx and the detection lab | PSF License (and the licences of the libraries it bundles, listed in its distribution) |
 | [uv](https://github.com/astral-sh/uv) (in `.stems/bootstrap`) | Fetches that Python 3.12 | MIT or Apache-2.0 |
+| [mlx-audio-separator](https://pypi.org/project/mlx-audio-separator/) 0.1.20 | Runs BS-RoFormer-SW (and other separation models) on MLX for Detect (W4.2) | MIT (derived from python-audio-separator, MIT) |
+| BS-RoFormer-SW weights (jarredou; downloaded by mlx-audio-separator into `.stems/models`, converted for MLX once) | The separator Detect uses first: six stems | CC BY-NC-SA 4.0 (non-commercial; approved for this personal app, decision 117) |
+| [PyTorch](https://pytorch.org) 2.15.0 | Converts BS-RoFormer-SW's checkpoint for MLX once; W4.3's drum transcriber | BSD-3-Clause |
+| safetensors 0.8.0, soundfile 0.14.0, requests, PyYAML | Weights, audio files and downloads for the separator | Apache-2.0, BSD-3-Clause, Apache-2.0, MIT |
 | [STAR Drums](https://doi.org/10.5281/zenodo.15690078) preview (in `media/bench`, not in the repo) | The detection bench's real songs with exact drum hits (W4.1) | Code and annotations BSD-3-Clause; audio under various Creative Commons licences, listed in its `LICENSE` folder |
 
 No new npm packages.

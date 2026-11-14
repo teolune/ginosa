@@ -1,5 +1,22 @@
 # Changelog
 
+## A better separator, measured (W4.2, 14 Nov 2026)
+
+- **Detect separates with BS-RoFormer-SW first** (through mlx-audio-separator on MLX): six stems (vocals, drums, bass, guitar, piano, other), about 2.6–2.9 dB cleaner drums and bass than Demucs on MVSEP's test set. Demucs stays as the fallback. Your 2-minute song takes about 25 s instead of 5 s, once (stems are cached per song).
+- **What it changed, honestly** (the four STAR Drums songs, F-measure within ±30 ms):
+
+  | Detect listening to | Kick | Snare and clap | Hi-hat |
+  | --- | --- | --- | --- |
+  | Bands of the whole mix | 0.49 | 0.21 | 0.68 |
+  | Demucs stems | 0.90 | 0.47 | 0.85 |
+  | BS-RoFormer-SW stems | 0.89 | 0.49 | 0.87 |
+
+  About +0.01 overall: with today's way of finding hits (level jumps in a band of the drums), the separator isn't what holds it back. W4.3's drum transcriber is. BS-RoFormer-SW stays first because its cleaner stems should count for more once the transcriber listens to them.
+- **On your M5**, MLX runs the model in its faster TF32 maths; full float32 changes your song's drums by 42.6 dB below their level (bass 63.6, vocals 44.4) and takes 41 s instead of 27, so the faster maths stays.
+- **Setup** (`npm run stems-setup`, or Set Up in the Cache window) installs it all: mlx-audio-separator, PyTorch (to convert the model once; W4.3 needs it too) and the model, about 2 GB in `.stems/` with Demucs. The model's 700 MB original checkpoint is kept as an empty placeholder once converted (only the converted copy is used).
+- Found on the way: BS-RoFormer-SW refuses mono files. ginosa always hands it stereo; the setup's test now does too.
+- **Detection lab** (`npm run detect-lab`): `pip-install` (a short list of packages), `tool`, `separate` (a bench song with any model, timed) and `compare` (two separations, stem by stem).
+
 ## Your GINOSA logo on the title screen (14 Nov 2026)
 
 - **The title screen shows your new logo** (decision 121): the 8-bit clef and the pixel letters "inosa" from `GINOSA(blacklogo).png`, pixel for pixel, in the mark's lavender (the screen is dark). Each clef pixel is 7 screen pixels and each letter pixel 5, which keeps your file's proportion to within 1% with every edge sharp.

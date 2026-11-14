@@ -277,8 +277,9 @@ export interface GinosaBridge {
   }
   /** Stem separation (W3): whether it's set up, a song's stems (paths), and a stem as mono samples. */
   stems: {
-    status(): Promise<{ ready: boolean; detail: string | null }>
-    separate(projectId: string, input: string, key: string): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
+    /** Whether it's set up, and the separators set up, best first (W4.2: BS-RoFormer-SW, then htdemucs). */
+    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[] }>
+    separate(projectId: string, input: string, key: string, separator: StemSeparator): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
     pcm(path: string, rate: number): Promise<ArrayBuffer>
     onProgress(listener: (line: string) => void): () => void
     /** The detection models in .stems/ (decision 119): their parts and sizes, and whether separation works. */
@@ -350,3 +351,6 @@ export interface BenchKey {
   downbeat: number | null
   hits: Partial<Record<'kick' | 'clap' | 'hihat' | 'bass', number[]>> | null
 }
+
+/** Stem separators (W4.2), best first: BS-RoFormer-SW (six stems, through mlx-audio-separator), htdemucs (Demucs, through demucs-mlx). */
+export type StemSeparator = 'bs-roformer-sw' | 'htdemucs'
