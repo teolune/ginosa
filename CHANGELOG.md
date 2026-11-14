@@ -2,7 +2,8 @@
 
 ## Your GINOSA logo on the title screen (14 Nov 2026)
 
-- **The title screen shows your new logo** (decision 121): the 8-bit clef and the pixel letters "inosa" from `GINOSA(blacklogo).png`, pixel for pixel, in the mark's lavender (the screen is dark). Each clef pixel is 7 screen pixels and each letter pixel 5, which keeps your file's proportion to within 1% with every edge sharp. The title bar keeps the small clef.
+- **The title screen shows your new logo** (decision 121): the 8-bit clef and the pixel letters "inosa" from `GINOSA(blacklogo).png`, pixel for pixel, in the mark's lavender (the screen is dark). Each clef pixel is 7 screen pixels and each letter pixel 5, which keeps your file's proportion to within 1% with every edge sharp.
+- **The title bar (top left) shows it too**, at 40 points: the smallest size where the letters stay sharp, one screen pixel each. The title bar is 6 points taller (44) to hold it, and the window's buttons moved down to stay centred.
 - `assets/logo/ginosa-letters.txt` holds the letters as you drew them (each letter on its own grid); `scripts/make-logo.py` builds the logo from it and the clef, also as `assets/logo/ginosa-title.svg`.
 
 ## Detection bench, started (W4.1, 14 Nov 2026)

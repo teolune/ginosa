@@ -1,4 +1,4 @@
-import { CLEF_PATH, CLEF_SIZE, TITLE_PATH, TITLE_SIZE } from './logo-path'
+import { BAR_LETTERS_PATH, BAR_SIZE, CLEF_PATH, CLEF_SIZE, TITLE_PATH, TITLE_SIZE } from './logo-path'
 
 /**
  * The ginosa mark (decision 113): your 8-bit treble clef, pixel for pixel (20 × 57), in your
@@ -47,6 +47,28 @@ export function TitleMark({ className }: { className?: string }) {
       aria-label="ginosa"
     >
       <path className="logo-clef" fillRule="evenodd" d={TITLE_PATH} />
+    </svg>
+  )
+}
+
+/**
+ * The title bar's logo (decision 121): your GINOSA logo at 40 points, the smallest size whose
+ * letters stay sharp (one screen pixel each on a Retina display). The clef, at 1.4 screen pixels
+ * a pixel to keep your proportions, is smoothed rather than snapped, so its steps stay even.
+ */
+export function BarMark({ className }: { className?: string }) {
+  const crisp = (window.devicePixelRatio || 1) >= 2
+  return (
+    <svg
+      className={`logo bar-mark ${className ?? ''}`}
+      width={BAR_SIZE.width / 2}
+      height={BAR_SIZE.height / 2}
+      viewBox={`0 0 ${BAR_SIZE.width} ${BAR_SIZE.height}`}
+      role="img"
+      aria-label="ginosa"
+    >
+      <path className="logo-clef" fillRule="evenodd" d={CLEF_PATH} transform={`scale(${BAR_SIZE.clefScale})`} />
+      <path className="logo-clef" fillRule="evenodd" d={BAR_LETTERS_PATH} shapeRendering={crisp ? 'crispEdges' : 'auto'} />
     </svg>
   )
 }

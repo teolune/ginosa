@@ -48,7 +48,7 @@ button { font: inherit; color: inherit; }
 
 /* ---- Title bar ---- */
 .titlebar {
-  height: 38px; flex: none; display: flex; align-items: center; gap: 12px;
+  height: 44px; flex: none; display: flex; align-items: center; gap: 12px;
   padding: 0 14px 0 84px; border-bottom: 1px solid var(--border); background: var(--panel);
   -webkit-app-region: drag;
 }

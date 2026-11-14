@@ -69,7 +69,8 @@ function createMainWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#111214',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 12 },
+    // Centred on the 44 px title bar (its logo is 40 px tall).
+    trafficLightPosition: { x: 14, y: 15 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

@@ -58,22 +58,35 @@ def read_letters():
     return letters
 
 
-def title_mark(clef_grid):
-    """The title screen's logo as one path, in screen pixels of a Retina display, and its size."""
-    sx = TITLE_CLEF_PX / TITLE_CLEF_CELL[0]
-    sy = TITLE_CLEF_PX / TITLE_CLEF_CELL[1]
+# In the title bar the letters are one screen pixel each (the smallest they stay sharp) and the
+# clef 1.4, in your file's proportion: 40 points tall.
+BAR_CLEF_PX = 1.4
+BAR_LETTER_PX = 1
+
+
+def letters_path(clef_px, letter_px):
+    """The letters at `letter_px` screen pixels a pixel, placed beside a clef of `clef_px` as in your file."""
+    sx = clef_px / TITLE_CLEF_CELL[0]
+    sy = clef_px / TITLE_CLEF_CELL[1]
     letters = read_letters()
     rows = letters[0][2].shape[0]
-    # The letters' baseline where it is in your file; each letter's left edge likewise.
+    # The letters' baseline where it is in your file, on a whole screen pixel; each letter's left edge likewise.
     bottom = round((LETTER_TOP + rows * LETTER_PITCH - TITLE_CLEF_ORIGIN[1]) * sy)
-    top = bottom - rows * TITLE_LETTER_PX
-    d = path_data(outline(clef_grid), TITLE_CLEF_PX, TITLE_CLEF_PX)
-    width = clef_grid.shape[1] * TITLE_CLEF_PX
+    top = bottom - rows * letter_px
+    d = ''
+    width = 0
     for _name, x, grid in letters:
         left = round((x - TITLE_CLEF_ORIGIN[0]) * sx)
-        d += path_data(outline(grid), TITLE_LETTER_PX, TITLE_LETTER_PX, left, top)
-        width = max(width, left + grid.shape[1] * TITLE_LETTER_PX)
-    return d, width, clef_grid.shape[0] * TITLE_CLEF_PX
+        d += path_data(outline(grid), letter_px, letter_px, left, top)
+        width = max(width, left + grid.shape[1] * letter_px)
+    return d, width
+
+
+def title_mark(clef_grid):
+    """The title screen's logo as one path, in screen pixels of a Retina display, and its size."""
+    d, width = letters_path(TITLE_CLEF_PX, TITLE_LETTER_PX)
+    d = path_data(outline(clef_grid), TITLE_CLEF_PX, TITLE_CLEF_PX) + d
+    return d, max(width, clef_grid.shape[1] * TITLE_CLEF_PX), clef_grid.shape[0] * TITLE_CLEF_PX
 
 
 def p3_to_srgb(rgb):
@@ -244,6 +257,8 @@ def main():
         )
 
     title_d, title_w, title_h = title_mark(grid)
+    bar_d, bar_w = letters_path(BAR_CLEF_PX, BAR_LETTER_PX)
+    bar_h = round(gh * BAR_CLEF_PX)
     with open(os.path.join(LOGO, 'ginosa-title.svg'), 'w') as f:
         f.write(
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" shape-rendering="crispEdges">\n'
@@ -270,7 +285,16 @@ def main():
             'export const TITLE_PATH =\n'
             "  '%s'\n"
             '\n'
-            'export const TITLE_SIZE = { width: %d, height: %d }\n' % (d, gw, gh, title_d, title_w, title_h)
+            'export const TITLE_SIZE = { width: %d, height: %d }\n'
+            '\n'
+            '/**\n'
+            ' * The title bar\'s logo: the letters at one screen pixel a pixel (Retina), beside the clef drawn\n'
+            ' * from CLEF_PATH at %s screen pixels a pixel, as in your file.\n'
+            ' */\n'
+            'export const BAR_LETTERS_PATH =\n'
+            "  '%s'\n"
+            '\n'
+            'export const BAR_SIZE = { width: %d, height: %d, clefScale: %s }\n' % (d, gw, gh, title_d, title_w, title_h, BAR_CLEF_PX, bar_d, bar_w, bar_h, BAR_CLEF_PX)
         )
 
     # Icon Composer: your settings, with the mark as an SVG layer where your image had the clef.
