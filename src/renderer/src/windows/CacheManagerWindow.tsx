@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CACHE_CATEGORIES, CACHE_CATEGORY_LABELS, type CacheCategory, type CacheProjectUsage, type OptimiseJob } from '@shared/media-types'
 import { formatBytes } from '../media-panel/format'
 import { mediaController } from '../state/media-controller'
@@ -69,6 +69,90 @@ function ConfirmButton({ label, confirmLabel, onConfirm, disabled }: { label: st
     >
       {armed ? confirmLabel : label}
     </button>
+  )
+}
+
+type Models = Awaited<ReturnType<typeof window.ginosa.stems.models>>
+
+/**
+ * The Channel Rack's detection models in .stems/ (decision 119): their size, Delete (once a
+ * project is finished, say) and Set Up to bring them back. Without them Detect listens to
+ * frequency bands of the whole song.
+ */
+function DetectionModels() {
+  const [models, setModels] = useState<Models | null>(null)
+  const [line, setLine] = useState<string | null>(null)
+  const lastLine = useRef<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const refresh = useCallback(async () => setModels(await window.ginosa.stems.models()), [])
+  useEffect(() => {
+    void refresh()
+    return window.ginosa.stems.onSetupLine((l) => {
+      lastLine.current = l
+      setLine(l)
+    })
+  }, [refresh])
+  if (!models) return null
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await work()
+    } catch (e) {
+      setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setBusy(false)
+      await refresh()
+    }
+  }
+  return (
+    <section className="cache-section">
+      <div className="cache-project-head">
+        <h3>Detection models</h3>
+        <span className={`status-pill ${models.ready ? 'ok' : 'warn'}`}>{models.ready ? 'Set up' : 'Not set up'}</span>
+        <span className="spacer" />
+        <span className="mono">{formatBytes(models.total)}</span>
+        {models.total > 0 && (
+          <span title="Deletes the models and Python packages the Channel Rack's Detect uses (in the ginosa folder's .stems). Detect then listens to frequency bands of the whole song until you set them up again.">
+            <ConfirmButton label="Delete Detection Models" confirmLabel="Delete them? Click again" disabled={busy} onConfirm={() => void act(() => window.ginosa.stems.deleteModels())} />
+          </span>
+        )}
+        {!models.ready && (
+          <button
+            className="button compact"
+            disabled={busy}
+            title="Downloads and installs them again (a few hundred MB)"
+            onClick={() =>
+              void act(async () => {
+                setLine('Starting…')
+                const code = await window.ginosa.stems.setUp()
+                if (code !== 0) throw new Error(`Setup stopped (exit ${code}): ${lastLine.current ?? 'no output'}`)
+                setLine(null)
+              })
+            }
+          >
+            {busy ? 'Setting Up…' : 'Set Up'}
+          </button>
+        )}
+      </div>
+      {models.parts.length > 0 && (
+        <table className="cache-table">
+          <tbody>
+            {models.parts.map((part) => (
+              <tr key={part.name}>
+                <td>{part.name}</td>
+                <td className="mono">{formatBytes(part.bytes)}</td>
+                <td />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {busy && line && <p className="small mono pad-x">{line}</p>}
+      {error && <p className="small pad-x error-text">{error}</p>}
+      <p className="small muted pad-x">Used by the Channel Rack's Detect to separate songs and find their hits, on this Mac. Each project's separated stems are listed with its cache below.</p>
+    </section>
   )
 }
 
@@ -148,6 +232,7 @@ export function CacheManagerWindow() {
       {moved && <p className="small muted pad-x">New files now go to the folder above. The previous cache stays at {moved}; delete it in Finder if you no longer need it.</p>}
       <p className="small muted pad-x">Everything here can be regenerated. Clearing it only costs time. Your original media is never touched.</p>
       <PreviewLimit onChange={() => void refresh()} />
+      <DetectionModels />
 
       {active.length > 0 && (
         <section className="cache-section">

@@ -32,6 +32,7 @@ import { grainExportTest } from '../playback/grain-export-test'
 import { posterizeTest } from '../playback/posterize-test'
 import { buildRackUi } from '../rack/rack-demo'
 import { rackDetectTest } from '../rack/detect-test'
+import { detectBench } from '../rack/detect-bench'
 import { catchUpPerf } from '../playback/catchup-perf'
 import { heavyTest } from '../playback/heavy-test'
 import { colourLightExportTest } from '../playback/colour-light-export-test'
@@ -422,6 +423,11 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
     case 'catchup4k': {
       // Catching up Datamosh on your 4K Apple Log clips, after Channel Rack edits (your recording of 11 Nov).
       await window.ginosa.snapshot.report(await catchUpPerf().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      break
+    }
+    case 'detectbench': {
+      // W4.1: Detect on songs whose hits are known (media/bench/keys and the test drums), scored channel by channel.
+      await window.ginosa.snapshot.report(await detectBench().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'rackdetect': {

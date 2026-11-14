@@ -11,3 +11,5 @@ media/test/*
 .agent/
 .stems/
 media/heavy/
+media/bench/
+__pycache__/

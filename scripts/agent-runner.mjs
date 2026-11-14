@@ -29,6 +29,13 @@ const TASKS = {
   test: () => ['npm', ['run', 'test']],
   build: () => ['npm', ['run', 'build']],
   'test-media': () => ['npm', ['run', 'test-media']],
+  // W4: stem separation and the detection bench. Each runs one of the project's own scripts.
+  'stems-setup': () => ['npm', ['run', 'stems-setup']],
+  'bench-media': () => ['npm', ['run', 'bench-media']],
+  'detect-lab': (args) => {
+    if (!args.every((a) => SAFE_ARG.test(a) && !a.includes('..'))) throw new Error('invalid detect-lab arguments')
+    return ['npm', ['run', 'detect-lab', '--', ...args]]
+  },
   doctor: () => ['npm', ['run', 'doctor']],
   install: () => ['npm', ['install']],
   'add-deps': (args) => {

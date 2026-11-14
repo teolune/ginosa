@@ -1,5 +1,15 @@
 # Changelog
 
+## Detection bench, started (W4.1, 14 Nov 2026)
+
+Your answers to the W4 plan are decisions 117–120 (licences approved, no acapella, downloads deletable, targets as the floor).
+
+- **The detection bench** (`detectbench`): runs Detect on songs whose hits are known and scores each channel: how many real hits it found and how many it found that aren't there, within ±30 ms (the F-measure, 1.0 perfect). It runs with bands of the whole song and, once stem separation is set up, with stems. Your two songs in Reference Materials (`dpackdist.wav`, `entrust(nov11).wav`) run too (only read); until they have answers, they're counted only.
+- **The Cache window lists the detection models** (`.stems/`, decision 119) with their size, **Delete Detection Models** and **Set Up**, which downloads them again. Each project's separated stems are now their own line in its cache, so they can be cleared on their own.
+- **New runner tasks** (restart `npm run agent` once): `stems-setup`, `bench-media` (the STAR Drums preview, real songs with exact drum hits) and `detect-lab` (trying models on this Mac).
+- Detect reports its hits' times before snapping, and can be told to listen by bands or by stems (for the bench).
+- **Tests:** hit scoring (4 new unit tests, 406 in all); `cacheui` passes.
+
 ## Detected sections are 8 bars (14 Nov 2026)
 
 - **Automatic Detection splits the song into 8-bar sections** (decision 116), like a section you add yourself, instead of a new section wherever the pattern seemed to change (on a whole mix that was often every 2 bars). Each section's loop keeps the cubes hit in at least half of its four 2-bar stretches, so a stray or missed hit doesn't change it.

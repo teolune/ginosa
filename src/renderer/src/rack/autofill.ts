@@ -18,21 +18,23 @@ export function songSteps(sequence: Sequence): [number, number] {
 /**
  * Fill from bands (M12's Auto-fill, kept for channels detection doesn't cover): each channel
  * takes its band's hits from an analysis source of the mix, snapped to the nearest 16th, then
- * the song is split into 8-bar sections. Null while the source is still
- * being analysed.
+ * the song is split into 8-bar sections. Gives each channel's 16ths and its hits' times (ticks,
+ * before snapping); null while the source is still being analysed.
  */
-export function fillFromBands(sourceId: string): Record<string, number[]> | null {
+export function fillFromBands(sourceId: string): { steps: Record<string, number[]>; times: Record<string, number[]> } | null {
   const sequence = projectController.project?.sequence
   const ready = analysisController.ready(sourceId)
   if (!sequence || !ready) return null
   const grid = sequence.beatGrid ?? DEFAULT_GRID
   const [from, to] = songSteps(sequence)
   const steps: Record<string, number[]> = {}
+  const times: Record<string, number[]> = {}
   for (const row of sequence.rack.rows.filter((r) => r.detect)) {
     const band = ready.result.bands[row.band]
     const hits = strongHits(band, row.detect ? DETECT_LISTEN[row.detect].gate : 0).map((h) => ready.start + secondsToTicks(h / ready.result.rate))
+    times[row.id] = hits
     steps[row.id] = stepsFromHits(hits, (t) => beatAt(grid, t), from, to)
   }
   const sections = sectionsFromHits(steps, grid, to)
-  return projectController.dispatch(replaceRackSections(sections, 'Detect Pattern')) ? steps : null
+  return projectController.dispatch(replaceRackSections(sections, 'Detect Pattern')) ? { steps, times } : null
 }

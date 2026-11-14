@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { access, lstat, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runTool } from './ffmpeg'
 
@@ -73,6 +73,16 @@ export async function separateStems(appRoot: string, input: string, dir: string,
   if (complete(cached)) return cached
   const status = await stemsStatus(appRoot)
   if (!status.ready) throw new Error(status.detail ?? 'Stem separation isn’t set up')
+  if (settingUp) throw new Error('Detection is being set up; try again when it has finished.')
+  separating++
+  try {
+    return await separate(appRoot, input, dir, onLine)
+  } finally {
+    separating--
+  }
+}
+
+async function separate(appRoot: string, input: string, dir: string, onLine: (line: string) => void): Promise<StemPaths> {
   const work = `${dir}.working`
   await rm(work, { recursive: true, force: true })
   await mkdir(work, { recursive: true })
@@ -114,4 +124,69 @@ export async function stemPcm(path: string, rate: number): Promise<ArrayBuffer> 
   if (result.code !== 0) throw new Error(`Couldn’t read the stem: ${result.stderr.trim().split('\n').at(-1) ?? 'FFmpeg failed'}`)
   const b = result.stdout
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
+}
+
+/** The detection models in `.stems/` (decision 119): what's there and its size, for the Cache window. */
+export interface DetectionModels {
+  root: string
+  total: number
+  parts: Array<{ name: string; bytes: number }>
+  /** Stem separation works (the separator is installed). */
+  ready: boolean
+}
+
+const PART_NAMES: Record<string, string> = {
+  venv: 'Python and its packages',
+  weights: 'Demucs model (htdemucs)',
+  hf: 'Models from Hugging Face',
+  models: 'Models'
+}
+
+async function bytesIn(path: string): Promise<number> {
+  const info = await lstat(path).catch(() => null)
+  if (!info) return 0
+  if (!info.isDirectory()) return info.size
+  let total = 0
+  for (const entry of await readdir(path).catch(() => [] as string[])) total += await bytesIn(join(path, entry))
+  return total
+}
+
+export async function detectionModels(appRoot: string): Promise<DetectionModels> {
+  const root = join(appRoot, '.stems')
+  const parts: DetectionModels['parts'] = []
+  for (const entry of (await readdir(root).catch(() => [] as string[])).filter((e) => !e.startsWith('.')).sort()) {
+    parts.push({ name: PART_NAMES[entry] ?? entry, bytes: await bytesIn(join(root, entry)) })
+  }
+  return { root, total: parts.reduce((sum, p) => sum + p.bytes, 0), parts, ready: (await stemsStatus(appRoot)).ready }
+}
+
+/** Separations running now: the models can't be deleted or set up meanwhile. */
+let separating = 0
+let settingUp = false
+
+export async function deleteDetectionModels(appRoot: string): Promise<void> {
+  if (separating > 0 || settingUp) throw new Error('Detection is using the models right now; try again when it has finished.')
+  await rm(join(appRoot, '.stems'), { recursive: true, force: true })
+}
+
+/** Runs `npm run stems-setup`'s script (downloads Python packages and models), line by line; resolves with its exit code. */
+export async function setUpDetection(appRoot: string, onLine: (line: string) => void): Promise<number> {
+  if (settingUp) throw new Error('Detection is already being set up.')
+  if (separating > 0) throw new Error('Detection is running; set up again when it has finished.')
+  settingUp = true
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      const child = spawn('bash', [join(appRoot, 'scripts', 'stems-setup.sh')], { cwd: appRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+      const read = (chunk: Buffer) => {
+        // eslint-disable-next-line no-control-regex
+        for (const line of chunk.toString().replace(/\x1b\[[0-9;]*m/g, '').split(/[\r\n]+/)) if (line.trim()) onLine(line.trim())
+      }
+      child.stdout.on('data', read)
+      child.stderr.on('data', read)
+      child.on('error', reject)
+      child.on('close', (code) => resolve(code ?? -1))
+    })
+  } finally {
+    settingUp = false
+  }
 }

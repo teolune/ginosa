@@ -1,8 +1,8 @@
 import { ANALYSIS_RATE, ANALYSIS_SAMPLE_RATE, strongHits, unpackBand } from '@engine/audio/analysis'
 import { beatAt } from '@engine/audio/beat-grid'
 import { hashText } from '@engine/audio/sources'
-import type { Clip } from '@engine/project/model'
-import { secondsToTicks } from '@engine/time'
+import type { Clip, RackDetect } from '@engine/project/model'
+import { secondsToTicks, ticksToSeconds } from '@engine/time'
 import { addAudioSource } from '@engine/timeline/audio-edits'
 import { DETECT_LISTEN, sectionsFromHits } from '@engine/timeline/rack'
 import { addRackRows, replaceRackSections, STARTER_ROWS, stepsFromHits } from '@engine/timeline/rack-edits'
@@ -24,8 +24,23 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 class Detector extends Observable {
   busy = false
   status = ''
-  /** How the last detection listened (for the report and tests). */
-  last: { method: 'stems' | 'bands'; hits: Record<string, number> } | null = null
+  /**
+   * How the last detection listened (for the report and tests): cubes per channel, and each kind
+   * of channel's hits in seconds on the timeline, before snapping (the detection bench scores them).
+   */
+  last: { method: 'stems' | 'bands'; hits: Record<string, number>; times: Partial<Record<RackDetect, number[]>> } | null = null
+
+  /** Hits by row id (ticks) as seconds by kind of channel. */
+  private timesByKind(times: Map<string, number[]> | Record<string, number[]>): Partial<Record<RackDetect, number[]>> {
+    const rows = projectController.project!.sequence.rack.rows
+    const entries = times instanceof Map ? [...times] : Object.entries(times)
+    const out: Partial<Record<RackDetect, number[]>> = {}
+    for (const [rowId, ticks] of entries) {
+      const kind = rows.find((r) => r.id === rowId)?.detect
+      if (kind) out[kind] = ticks.map(ticksToSeconds).sort((a, b) => a - b)
+    }
+    return out
+  }
 
   private set(busy: boolean, status: string): void {
     this.busy = busy
@@ -33,7 +48,8 @@ class Detector extends Observable {
     this.notify()
   }
 
-  async run(): Promise<boolean> {
+  /** `method` forces how it listens (the detection bench); by default stems when they're set up. */
+  async run(options: { method?: 'stems' | 'bands' } = {}): Promise<boolean> {
     const project = projectController.project
     if (!project || this.busy) return false
     const sequence = project.sequence
@@ -51,10 +67,10 @@ class Detector extends Observable {
     try {
       const missing = STARTER_ROWS.filter((s) => !sequence.rack.rows.some((r) => r.detect === s.detect))
       if (missing.length) projectController.dispatch(addRackRows(missing))
-      const stems = await window.ginosa.stems.status()
-      if (stems.ready) return await this.fromStems(project.id, songClips)
+      const stems = options.method ? options.method === 'stems' : (await window.ginosa.stems.status()).ready
+      if (stems) return await this.fromStems(project.id, songClips)
       const done = await this.fromBands(a1.id)
-      if (done) {
+      if (done && !options.method) {
         projectController.showMessage(
           `${this.summary('frequency bands of the whole song')} For a cleaner pattern, set up stem separation once (npm run stems-setup in Terminal): then the drums and bass are separated from the song first.`
         )
@@ -122,7 +138,7 @@ class Detector extends Observable {
     const [from, to] = songSteps(sequence)
     const steps: Record<string, number[]> = {}
     for (const row of rows) steps[row.id] = stepsFromHits(hits.get(row.id)!, (t) => beatAt(grid, t), from, to)
-    this.last = { method: 'stems', hits: Object.fromEntries(Object.entries(steps).map(([id, s]) => [id, s.length])) }
+    this.last = { method: 'stems', hits: Object.fromEntries(Object.entries(steps).map(([id, s]) => [id, s.length])), times: this.timesByKind(hits) }
     if (!projectController.dispatch(replaceRackSections(sectionsFromHits(steps, grid, to), 'Detect Pattern'))) return false
     projectController.showMessage(this.summary('the drums and bass separated from the song'))
     return true
@@ -146,9 +162,9 @@ class Detector extends Observable {
       this.set(true, status.kind === 'analysing' ? `Listening to the song on A1… ${Math.round(status.done * 100)}%` : 'Listening to the song on A1…')
       await wait(200)
     }
-    const steps = fillFromBands(id)
-    if (!steps) return false
-    this.last = { method: 'bands', hits: Object.fromEntries(Object.entries(steps).map(([rowId, s]) => [rowId, s.length])) }
+    const filled = fillFromBands(id)
+    if (!filled) return false
+    this.last = { method: 'bands', hits: Object.fromEntries(Object.entries(filled.steps).map(([rowId, s]) => [rowId, s.length])), times: this.timesByKind(filled.times) }
     return true
   }
 }

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { HarnessJob, HarnessReport, JournalEntry, MenuState, UnsavedChoice } from '@shared/ipc'
 import { PROJECT_EXTENSION } from '@shared/ipc'
@@ -272,6 +272,26 @@ function registerIpc(): void {
   })
 
   // Heavy-condition test media (npm run test-media): many files, big stills.
+  // The detection bench's answer keys: media/bench/keys/*.json, each naming its song relative to
+  // the ginosa folder (your songs in ../Reference Materials are only read).
+  ipcMain.handle('snapshot:benchKeys', async () => {
+    if (!snapshot) return []
+    const { readdir, readFile, access } = await import('node:fs/promises')
+    const dir = join(process.cwd(), 'media', 'bench', 'keys')
+    const keys = []
+    for (const file of (await readdir(dir).catch(() => [] as string[])).filter((f) => f.endsWith('.json')).sort()) {
+      try {
+        const key = JSON.parse(await readFile(join(dir, file), 'utf8'))
+        key.audio = resolve(process.cwd(), key.audio)
+        await access(key.audio)
+        keys.push({ name: key.name ?? file, source: key.source ?? '', audio: key.audio, bpm: key.bpm ?? null, downbeat: key.downbeat ?? null, hits: key.hits ?? null })
+      } catch {
+        // A key whose song isn't there (yet) is left out.
+      }
+    }
+    return keys
+  })
+
   ipcMain.handle('snapshot:heavyMedia', async () => {
     if (!snapshot) return []
     const dir = join(process.cwd(), 'media', 'heavy')
@@ -437,8 +457,8 @@ app.whenReady().then(async () => {
 
   if (snapshotMode) {
     if (!snapshot) return
-    // The heavy-conditions scenario runs several long parts (about 45 s when all pass).
-    const limit = snapshot.scenario === 'heavy' ? 180 : 60
+    // The heavy-conditions scenario runs several long parts (about 45 s when all pass); the detection bench separates whole songs.
+    const limit = snapshot.scenario === 'heavy' ? 180 : snapshot.scenario === 'detectbench' ? 1800 : 60
     setTimeout(() => {
       console.error(`[snapshot] timed out after ${limit} s`)
       app.exit(4)

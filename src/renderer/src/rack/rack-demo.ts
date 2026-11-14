@@ -42,7 +42,7 @@ export async function buildRackUi() {
   await analysisController.settle()
   const rows = addRackRows(STARTER_ROWS)
   projectController.dispatch(rows)
-  const filled = fillFromBands(song.sourceId) ?? {}
+  const filled = fillFromBands(song.sourceId)?.steps ?? {}
   const rack = () => projectController.project!.sequence.rack.rows
   const kick = filled[rack()[0]!.id] ?? []
   const hat = filled[rack()[2]!.id] ?? []

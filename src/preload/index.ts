@@ -103,7 +103,11 @@ const bridge: GinosaBridge = {
     status: () => ipcRenderer.invoke('stems:status'),
     separate: (projectId, input, key) => ipcRenderer.invoke('stems:separate', projectId, input, key),
     pcm: (path, rate) => ipcRenderer.invoke('stems:pcm', path, rate),
-    onProgress: (listener: (line: string) => void) => listen('stems:progress', listener)
+    onProgress: (listener: (line: string) => void) => listen('stems:progress', listener),
+    models: () => ipcRenderer.invoke('stems:models'),
+    deleteModels: () => ipcRenderer.invoke('stems:deleteModels'),
+    setUp: () => ipcRenderer.invoke('stems:setUp'),
+    onSetupLine: (listener: (line: string) => void) => listen('stems:setupLine', listener)
   },
   export: {
     chooseFile: (suggestedName, extension) => ipcRenderer.invoke('export:chooseFile', suggestedName, extension),
@@ -133,6 +137,7 @@ const bridge: GinosaBridge = {
     testMedia: () => ipcRenderer.invoke('snapshot:testMedia'),
     referenceClips: () => ipcRenderer.invoke('snapshot:referenceClips'),
     heavyMedia: () => ipcRenderer.invoke('snapshot:heavyMedia'),
+    benchKeys: () => ipcRenderer.invoke('snapshot:benchKeys'),
     referenceGradients: () => ipcRenderer.invoke('snapshot:referenceGradients'),
     referenceLooks: () => ipcRenderer.invoke('snapshot:referenceLooks'),
     testLook: () => ipcRenderer.invoke('snapshot:testLook'),

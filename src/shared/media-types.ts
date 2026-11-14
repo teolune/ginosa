@@ -68,7 +68,7 @@ export interface GenerateRequest {
   durationSeconds: number
 }
 
-export const CACHE_CATEGORIES = ['thumbnails', 'waveforms', 'optimised', 'proxies', 'renders', 'analysis', 'bakes'] as const
+export const CACHE_CATEGORIES = ['thumbnails', 'waveforms', 'optimised', 'proxies', 'renders', 'analysis', 'stems', 'bakes'] as const
 export type CacheCategory = (typeof CACHE_CATEGORIES)[number]
 
 export const CACHE_CATEGORY_LABELS: Record<CacheCategory, string> = {
@@ -78,6 +78,7 @@ export const CACHE_CATEGORY_LABELS: Record<CacheCategory, string> = {
   proxies: 'Proxies',
   renders: 'Preview renders',
   analysis: 'Audio and motion analysis',
+  stems: 'Separated stems (detection)',
   bakes: 'Datamosh bakes'
 }
 

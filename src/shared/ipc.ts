@@ -281,6 +281,12 @@ export interface GinosaBridge {
     separate(projectId: string, input: string, key: string): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
     pcm(path: string, rate: number): Promise<ArrayBuffer>
     onProgress(listener: (line: string) => void): () => void
+    /** The detection models in .stems/ (decision 119): their parts and sizes, and whether separation works. */
+    models(): Promise<{ root: string; total: number; parts: Array<{ name: string; bytes: number }>; ready: boolean }>
+    deleteModels(): Promise<void>
+    /** Runs the setup (downloads); resolves with its exit code, 0 when it worked. */
+    setUp(): Promise<number>
+    onSetupLine(listener: (line: string) => void): () => void
   }
   export: {
     chooseFile(suggestedName: string, extension: string): Promise<string | null>
@@ -315,6 +321,8 @@ export interface GinosaBridge {
     referenceClips(): Promise<string[]>
     /** media/heavy: many files and big stills for the heavy-condition tests. */
     heavyMedia(): Promise<string[]>
+    /** The detection bench's answer keys (media/bench/keys/*.json), audio paths resolved. */
+    benchKeys(): Promise<BenchKey[]>
     /** The .cube files in ../Reference Materials/Look LUTs (read only), for the Look LUT GPU test. */
     referenceLooks(): Promise<Array<{ name: string; text: string }>>
     /** The repo's own test look LUT (src/engine/colour/fixtures/test-look.cube). */
@@ -328,4 +336,17 @@ export interface GinosaBridge {
     /** Saves a JSON report next to the screenshot (renders/ui/<scenario>.json). */
     report(data: unknown): Promise<void>
   }
+}
+
+/** A song for the detection bench (W4.1) and its true hits in seconds, by kind of channel (none: run and counted only). */
+export interface BenchKey {
+  name: string
+  /** Where the song and its answers come from. */
+  source: string
+  /** The song file (only read). */
+  audio: string
+  /** Its tempo when known; otherwise the Control Panel's tempo detection finds it. */
+  bpm: number | null
+  downbeat: number | null
+  hits: Partial<Record<'kick' | 'clap' | 'hihat' | 'bass', number[]>> | null
 }
