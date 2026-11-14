@@ -1,5 +1,9 @@
 # Changelog
 
+## Detected sections are 8 bars (14 Nov 2026)
+
+- **Automatic Detection splits the song into 8-bar sections** (decision 116), like a section you add yourself, instead of a new section wherever the pattern seemed to change (on a whole mix that was often every 2 bars). Each section's loop keeps the cubes hit in at least half of its four 2-bar stretches, so a stray or missed hit doesn't change it.
+
 ## Heavy conditions (12 Nov 2026)
 
 From the code review (performance, and staying up under heavy use; `docs/Heavy-conditions-try-this.md`). Each fix has a test that showed the problem first (`heavy`):

@@ -162,19 +162,25 @@ describe('Channel Rack sections', () => {
     expect(channelHits(rackOf([[1, [0]]]), 'r', { ...GRID, downbeat: secondsToTicks(3) }).map((h) => h.step)).toEqual([-16])
   })
 
-  it('split a song into sections where the pattern changes, ignoring a stray hit', () => {
+  it('split a song into 8-bar sections, each loop voted by its 2-bar stretches, ignoring stray and missed hits', () => {
     const fourOnFloor = (bars: number, from = 0) => Array.from({ length: bars * 4 }, (_, i) => from + i * 4)
-    const kick = [...fourOnFloor(8), ...fourOnFloor(4, 128).filter((s) => s % 8 === 0)]
-    const stray = [...kick, 37]
-    const sections = sectionsFromHits({ kick: stray, clap: [] }, GRID, 192)
+    // 8 bars of four-on-the-floor, then 4 of half time; a stray kick at 37 and one missed at 72.
+    const kick = [...fourOnFloor(8), ...fourOnFloor(4, 128).filter((s) => s % 8 === 0)].filter((s) => s !== 72).concat([37])
+    const sections = sectionsFromHits({ kick, clap: [] }, GRID, 192)
     expect(sections.map((s) => s.bars)).toEqual([8, 4])
     expect(sections[0]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
+    expect(sections[0]!.cubes['clap']).toEqual([])
     expect(sections[1]!.cubes['kick']).toEqual([0, 8, 16, 24])
-    expect(sectionsFromHits({ kick: fourOnFloor(40) }, GRID, 640).map((s) => s.bars)).toEqual([16, 16, 8])
-    // A song that ends two-thirds into its 11th bar: the last, short chunk joins the section, and its loop stays whole.
+    // Always 8 bars, even where the pattern changes every 2 bars (detection's noise) or never.
+    expect(sectionsFromHits({ kick: fourOnFloor(40) }, GRID, 640).map((s) => s.bars)).toEqual([8, 8, 8, 8, 8])
+    const restless = [0, 4, 8, 12, 16, 20, 24, 28].map((s, i) => s + 32 * (i % 4))
+    expect(sectionsFromHits({ kick: restless }, GRID, 256).map((s) => s.bars)).toEqual([8, 8])
+    // A song that ends two-thirds into its 11th bar: the last section is 3 bars, its short stretch doesn't vote.
     const shortEnd = sectionsFromHits({ kick: fourOnFloor(10).concat([160, 164, 168]) }, GRID, 170)
-    expect(shortEnd.map((s) => s.bars)).toEqual([11])
-    expect(shortEnd[0]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
+    expect(shortEnd.map((s) => s.bars)).toEqual([8, 3])
+    expect(shortEnd[1]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
+    // A section that's only a short stretch takes what's there.
+    expect(sectionsFromHits({ kick: [0, 4, 8] }, GRID, 10)[0]!.cubes['kick']).toEqual([0, 4, 8])
   })
 })
 

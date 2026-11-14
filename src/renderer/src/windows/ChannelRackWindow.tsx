@@ -299,7 +299,7 @@ export function ChannelRackWindow() {
       <div className="rack-top">
         <button
           className={`cp-button ${detector.busy ? 'busy' : ''}`}
-          title={detector.busy ? detector.status : 'Automatic Detection: kicks, claps, hi-hats and bass from the song on A1, in sections where the pattern changes'}
+          title={detector.busy ? detector.status : 'Automatic Detection: kicks, claps, hi-hats and bass from the song on A1, in 8-bar sections'}
           aria-label="Detect the pattern from the song"
           disabled={detector.busy}
           onClick={() => void detector.run()}

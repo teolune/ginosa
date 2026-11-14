@@ -1,5 +1,5 @@
 import { beatAt } from '../audio/beat-grid'
-import { LOOP_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type BeatGrid, type IdFactory, type Rack, type RackCube, type RackDetect, type RackRow, type RackSection, type Sequence } from '../project/model'
+import { DEFAULT_SECTION_BARS, LOOP_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type BeatGrid, type IdFactory, type Rack, type RackCube, type RackDetect, type RackRow, type RackSection, type Sequence } from '../project/model'
 import type { ModLink } from '../modulation/types'
 
 /**
@@ -165,70 +165,46 @@ export function sectionsFromSteps(rows: ReadonlyArray<{ id: string; steps: reado
 }
 
 /**
- * Sections from hits along the song (Automatic Detection): the song in two-bar chunks from
- * bar 1 up to `endStep`; a chunk joins the section before it while its cubes are close to
- * that section's loop (at most `tolerance` of them differ) and the section stays within 16
- * bars; otherwise it starts a new section. A section's loop keeps the cubes hit in at least
- * half of its chunks, so one stray or missed hit doesn't split the song. Steps are 16ths from
- * the downbeat; the result's cubes are loop steps, by channel id.
+ * Sections from hits along the song (Automatic Detection): the song from bar 1 up to `endStep`
+ * in sections of `bars` (8 by default, like a new section; the last one is what's left). Each
+ * section's loop keeps the cubes hit in at least half of its two-bar stretches, so one stray or
+ * missed hit doesn't change it; a stretch the song ends partway through doesn't vote unless it's
+ * all the section has. Steps are 16ths from the downbeat; the result's cubes are loop steps, by
+ * channel id.
  */
 export function sectionsFromHits(
   steps: Record<string, readonly number[]>,
   grid: BeatGrid,
   endStep: number,
-  tolerance = 0.25
+  bars = DEFAULT_SECTION_BARS
 ): Array<{ bars: number; cubes: Record<string, number[]> }> {
   const perBar = stepsPerBar(grid)
   const loop = LOOP_BARS * perBar
   const origin = barOneStep(grid)
   const totalBars = Math.max(0, Math.ceil((endStep - origin) / perBar))
   const ids = Object.keys(steps)
-  /** `span`: the chunk's 16ths that are in the song (fewer in the last one when the song ends mid-loop). */
-  type Chunk = { bars: number; span: number; cubes: Map<string, Set<number>> }
-  const chunks: Chunk[] = []
-  for (let bar = 0; bar < totalBars; bar += LOOP_BARS) {
-    const bars = Math.min(LOOP_BARS, totalBars - bar)
-    const from = origin + bar * perBar
-    const cubes = new Map<string, Set<number>>()
-    for (const id of ids) cubes.set(id, new Set(steps[id]!.filter((s) => s >= from && s < from + bars * perBar).map((s) => s - from)))
-    chunks.push({ bars, span: Math.min(bars * perBar, endStep - from), cubes })
-  }
-  const key = (id: string, s: number) => `${id}:${s}`
-  const flat = (c: Map<string, Set<number>>, span: number) => new Set([...c].flatMap(([id, set]) => [...set].filter((s) => s < span).map((s) => key(id, s))))
-  type Section = { bars: number; members: Chunk[]; loop: Map<string, Set<number>> }
-  const majority = (members: Chunk[]): Map<string, Set<number>> => {
-    const out = new Map<string, Set<number>>()
+  const sections: Array<{ bars: number; cubes: Record<string, number[]> }> = []
+  for (let first = 0; first < totalBars; first += bars) {
+    const length = Math.min(bars, totalBars - first)
+    // Its two-bar stretches; `whole`: all of it is in the song.
+    const stretches: Array<{ whole: boolean; cubes: Map<string, Set<number>> }> = []
+    for (let bar = first; bar < first + length; bar += LOOP_BARS) {
+      const from = origin + bar * perBar
+      const span = Math.min(Math.min(LOOP_BARS, first + length - bar) * perBar, endStep - from)
+      const cubes = new Map<string, Set<number>>()
+      for (const id of ids) cubes.set(id, new Set(steps[id]!.filter((s) => s >= from && s < from + span).map((s) => s - from)))
+      stretches.push({ whole: span >= loop, cubes })
+    }
+    const voters = stretches.some((s) => s.whole) ? stretches.filter((s) => s.whole) : stretches
+    const cubes: Record<string, number[]> = {}
     for (const id of ids) {
       const counts = new Map<number, number>()
-      for (const m of members) for (const s of m.cubes.get(id)!) counts.set(s, (counts.get(s) ?? 0) + 1)
-      out.set(id, new Set([...counts].filter(([, n]) => n * 2 >= members.length).map(([s]) => s)))
+      for (const v of voters) for (const s of v.cubes.get(id)!) counts.set(s, (counts.get(s) ?? 0) + 1)
+      cubes[id] = [...counts].filter(([, n]) => n * 2 >= voters.length).map(([s]) => s).sort((x, y) => x - y)
     }
-    return out
+    sections.push({ bars: length, cubes })
   }
-  const sections: Section[] = []
-  for (const chunk of chunks) {
-    const current = sections.at(-1)
-    // The song's last chunk may be cut short: it's compared over the part that's in the song,
-    // joins the section before it when that matches, and doesn't vote on the loop.
-    const whole = chunk.span === loop
-    if (current && current.bars + chunk.bars <= MAX_SECTION_BARS) {
-      const a = flat(current.loop, chunk.span)
-      const b = flat(chunk.cubes, chunk.span)
-      const union = new Set([...a, ...b])
-      let differ = 0
-      for (const k of union) if (a.has(k) !== b.has(k)) differ++
-      if (union.size === 0 || differ / union.size <= tolerance) {
-        current.bars += chunk.bars
-        if (whole) {
-          current.members.push(chunk)
-          current.loop = majority(current.members)
-        }
-        continue
-      }
-    }
-    sections.push({ bars: chunk.bars, members: [chunk], loop: new Map(chunk.cubes) })
-  }
-  return sections.map((s) => ({ bars: s.bars, cubes: Object.fromEntries([...s.loop].map(([id, set]) => [id, [...set].sort((x, y) => x - y)])) }))
+  return sections
 }
 
 /** The modulators that listen to a channel: its own, and any other with it as their source (a preset's, say). */

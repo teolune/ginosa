@@ -19,7 +19,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * A1. With stem separation set up, the song is split into drums, bass, vocals and the rest
  * first and each channel listens to its own stem; without it, to frequency bands of A1's
  * whole sound (and the message says so). Hits snap to the nearest 16th on the beat grid, and
- * the song is split into sections where the pattern changes.
+ * the song is split into 8-bar sections.
  */
 class Detector extends Observable {
   busy = false

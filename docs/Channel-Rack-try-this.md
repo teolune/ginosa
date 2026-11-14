@@ -48,7 +48,7 @@ npm start
 - [ ] In a project with nothing on A1, the A1 lane says **♪ Drop the song here**. Drop a song there.
 - [ ] Set the tempo with the Control Panel's sparkles (or type it on the knob).
 - [ ] Open the **Channel Rack** (Control Panel). Press its sparkles (**Detect**). The rack's top bar says what it's doing; with stems: *Separating the song into drums, bass and vocals…*, then *Finding kick, clap, hi-hat in the drums…* and *bass in the bass*. The first time takes a while; the stems are kept in the project's cache, so detecting again is quick.
-- [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into sections (A, B, C…) where the pattern changes, up to 16 bars each. Undo brings back what was there.
+- [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into 8-bar sections (A, B, C…; the last one is what's left). Undo brings back what was there.
 - [ ] Tell me how it did: which channels are right, which miss hits or catch the wrong sound, and whether the sections fall where the song changes.
 
 ## Cubes
