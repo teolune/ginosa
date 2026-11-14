@@ -8,6 +8,15 @@ Your answers to the W4 plan are decisions 117–120 (licences approved, no acape
 - **The Cache window lists the detection models** (`.stems/`, decision 119) with their size, **Delete Detection Models** and **Set Up**, which downloads them again. Each project's separated stems are now their own line in its cache, so they can be cleared on their own.
 - **New runner tasks** (restart `npm run agent` once): `stems-setup`, `bench-media` (the STAR Drums preview, real songs with exact drum hits) and `detect-lab` (trying models on this Mac).
 - Detect reports its hits' times before snapping, and can be told to listen by bands or by stems (for the bench).
+- **Stem separation is set up on your Mac.** Your Python is 3.15, which MLX's audio package doesn't support yet, so `stems-setup` now fetches a private Python 3.12 into `.stems/` (nothing outside it changes; a first try left a `python3.12` link in `~/.local/bin`, which the setup has removed). About 560 MB in all, listed and deletable in the Cache window.
+- **The baseline** (the four STAR Drums songs, F-measure within ±30 ms; targets 0.95 / 0.90 / 0.85):
+
+  | Detect listening to | Kick | Snare and clap | Hi-hat |
+  | --- | --- | --- | --- |
+  | Bands of the whole mix (what your songs got until now) | 0.49 | 0.21 | 0.67 |
+  | Demucs stems (now set up) | 0.90 | 0.47 | 0.85 |
+
+  Separating first already doubles the kick score. Snares and claps are the weak spot: 175 found that aren't there against 97 real ones, as the 1.5–5 kHz band of the drums also catches hi-hats, toms and cymbals. That's what W4.3's drum transcriber is for.
 - **Tests:** hit scoring (4 new unit tests, 406 in all); `cacheui` passes.
 
 ## Detected sections are 8 bars (14 Nov 2026)

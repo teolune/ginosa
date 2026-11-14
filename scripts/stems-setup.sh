@@ -32,18 +32,46 @@ hint() {
 say "ginosa: stem separation setup"
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then bad "This needs a Mac with Apple silicon."; exit 1; fi
 
-# Python 3.10 or newer, the versions MLX's audio packages are surely built for first.
+# Python 3.10 to 3.13: the versions MLX's audio packages are built for (none for 3.15 yet).
 minor_of() { "$1" -c 'import sys; print(sys.version_info[1] if sys.version_info[0] == 3 else 0)' 2>/dev/null || echo 0; }
-python=""
-for m in 12 13 11 10 14 15 16; do
-  for candidate in "python3.$m" "/opt/homebrew/bin/python3.$m" "/Library/Frameworks/Python.framework/Versions/3.$m/bin/python3" "/usr/local/bin/python3.$m"; do
-    if command -v "$candidate" >/dev/null 2>&1 && [[ "$(minor_of "$candidate")" == "$m" ]]; then python="$candidate"; break 2; fi
+find_python() {
+  local m candidate
+  for m in 12 13 11 10; do
+    for candidate in "python3.$m" "/opt/homebrew/bin/python3.$m" "/Library/Frameworks/Python.framework/Versions/3.$m/bin/python3" "/usr/local/bin/python3.$m" "$stems/python/bin/python3.$m"; do
+      if command -v "$candidate" >/dev/null 2>&1 && [[ "$(minor_of "$candidate")" == "$m" ]]; then echo "$candidate"; return; fi
+    done
   done
+}
+# A first version of this script let uv add a python3.12 link in ~/.local/bin; it only ever
+# points into .stems/, so it goes (nothing else there is touched).
+for link in "$HOME/.local/bin/python3.12"; do
+  if [[ -L "$link" && "$(readlink "$link")" == "$stems/"* ]] || { [[ -f "$link" ]] && grep -qa "$stems/python" "$link" 2>/dev/null; }; then
+    rm -f "$link" && ok "Removed $link (a link into .stems/ left by the first setup)"
+  fi
 done
-if [[ -z "$python" ]] && command -v python3 >/dev/null 2>&1 && (( $(minor_of python3) >= 10 )); then python="python3"; fi
-if [[ -z "$python" ]]; then bad "No Python 3.10 or newer on this Mac."; hint; exit 1; fi
+
+python="$(find_python)"
+if [[ -z "$python" ]]; then
+  # None on this Mac: a private Python 3.12 in .stems/python (about 40 MB), fetched by uv
+  # (Astral's installer, MIT/Apache-2.0) from python-build-standalone. Nothing outside .stems/ changes.
+  any=""
+  for candidate in python3 /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then any="$candidate"; break; fi
+  done
+  if [[ -z "$any" ]]; then bad "No Python on this Mac at all."; hint; exit 1; fi
+  say "This Mac's Python is $("$any" -c 'import sys; print("%d.%d" % sys.version_info[:2])'); MLX needs 3.10–3.13. Fetching a private Python 3.12 into .stems/python…"
+  mkdir -p "$stems"
+  if [[ ! -x "$stems/bootstrap/bin/uv" ]]; then
+    "$any" -m venv "$stems/bootstrap" && "$stems/bootstrap/bin/python" -m pip install --quiet --upgrade pip uv || { bad "Couldn't install uv to fetch Python 3.12."; hint; exit 1; }
+  fi
+  export UV_PYTHON_INSTALL_DIR="$stems/python" UV_PYTHON_BIN_DIR="$stems/python/bin" UV_CACHE_DIR="$stems/uv-cache"
+  if ! "$stems/bootstrap/bin/uv" python install 3.12; then bad "uv couldn't fetch Python 3.12 (above)."; hint; exit 1; fi
+  python="$("$stems/bootstrap/bin/uv" python find 3.12 2>/dev/null)"
+  [[ -x "$python" ]] || { bad "Python 3.12 was fetched but can't be found."; exit 1; }
+  rm -rf "$stems/uv-cache"
+fi
 version="$("$python" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
-ok "Python $version ($(command -v "$python"))"
+ok "Python $version ($python)"
 
 installed() {
   [[ -x "$venv/bin/python" ]] && "$venv/bin/python" -c "import importlib.metadata as m, sys; sys.exit(0 if m.version('demucs-mlx') == '$DEMUCS_MLX_VERSION' else 1)" >/dev/null 2>&1

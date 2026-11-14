@@ -136,7 +136,9 @@ export interface DetectionModels {
 }
 
 const PART_NAMES: Record<string, string> = {
-  venv: 'Python and its packages',
+  venv: 'Python packages (MLX, demucs-mlx)',
+  python: 'Python 3.12 (a private copy)',
+  bootstrap: 'Setup tools (uv)',
   weights: 'Demucs model (htdemucs)',
   hf: 'Models from Hugging Face',
   models: 'Models'

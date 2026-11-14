@@ -27,7 +27,7 @@ bash scripts/setup.sh       # installs npm dependencies
 | `npm run test-media` | Generates synthetic test clips in `media/test/`, and the heavy-conditions media in `media/heavy/` (tones, big photos, a panorama) |
 | `npm run render -- --input <file> --frames 0,24 --effect invert` | Renders frames through the GPU pipeline to PNG (in `renders/`), without opening a window |
 | `npm run doctor` | Re-runs the environment check |
-| `npm run stems-setup` | Once: sets up stem separation for the Channel Rack's detection (demucs-mlx in `.stems/`). The Cache window shows it under Detection models, to delete or set up again |
+| `npm run stems-setup` | Once: sets up stem separation for the Channel Rack's detection (demucs-mlx in `.stems/`, with a private Python 3.12 there when the Mac has none it can use; about 560 MB). The Cache window shows it under Detection models, to delete or set up again |
 | `npm run bench-media` | Downloads the detection bench's test songs into `media/bench/` (the STAR Drums preview, about 97 MB) |
 | `npm run detect-lab -- env` | The detection lab: tries models in `.stems/venv` on this Mac (`env` lists what's installed and the GPU); results in `media/bench/lab/` |
 | `npm run agent` | Lets Claude run the commands above on this Mac (see `scripts/agent-runner.mjs`) |

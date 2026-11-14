@@ -64,7 +64,9 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | MLX, mlx-metal | Apple's machine-learning framework that demucs-mlx runs on | MIT |
 | mlx-audio-io, mlx-spectro | Audio reading/writing and the STFT for demucs-mlx | MIT; mlx-audio-io includes libsoxr (LGPL-2.1), its notice shipped inside the package |
 | htdemucs weights (`ssmall256/demucs-mlx` on Hugging Face, converted from Meta's checkpoints; downloaded on the first run and checked against digests in demucs-mlx) | The separation model | MIT, as the weights' page states (the same licence as Demucs; trained by Alexandre Défossez and others at Meta AI Research). Some read Meta's original checkpoint release as research-only: fine for a personal app that never passes the weights on; check again before ever shipping ginosa to others |
-| Python 3.10 or newer (3.12 preferred: `brew install python@3.12`) | Runs demucs-mlx | PSF License |
+| Python 3.12 (a private copy in `.stems/python`, from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), when this Mac has no Python 3.10–3.13; yours is 3.15) | Runs demucs-mlx and the detection lab | PSF License (and the licences of the libraries it bundles, listed in its distribution) |
+| [uv](https://github.com/astral-sh/uv) (in `.stems/bootstrap`) | Fetches that Python 3.12 | MIT or Apache-2.0 |
+| [STAR Drums](https://doi.org/10.5281/zenodo.15690078) preview (in `media/bench`, not in the repo) | The detection bench's real songs with exact drum hits (W4.1) | Code and annotations BSD-3-Clause; audio under various Creative Commons licences, listed in its `LICENSE` folder |
 
 No new npm packages.
 
