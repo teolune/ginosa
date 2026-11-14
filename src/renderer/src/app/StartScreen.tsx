@@ -3,7 +3,7 @@ import { newProjectSize, parseRatio, type NewProjectChoice, type ResolutionChoic
 import { FRAME_RATES, type FrameRateName } from '@engine/time'
 import { projectController } from '../state/project-controller'
 import { useObservable } from '../state/observable'
-import { Logo } from './Logo'
+import { TitleMark } from './Logo'
 
 const RESOLUTIONS: Array<{ value: ResolutionChoice; label: string }> = [
   { value: 'custom', label: 'Custom Resolution' },
@@ -81,8 +81,7 @@ export function StartScreen() {
     <div className="start-screen">
       <div className="start-card">
         <div className="start-brand">
-          <Logo height={120} />
-          <span className="wordmark large">ginosa</span>
+          <TitleMark />
         </div>
         <div className="start-panels">
           <section className="start-panel new-project" aria-label="New Project">

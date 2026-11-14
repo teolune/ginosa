@@ -1,4 +1,4 @@
-import { CLEF_PATH, CLEF_SIZE } from './logo-path'
+import { CLEF_PATH, CLEF_SIZE, TITLE_PATH, TITLE_SIZE } from './logo-path'
 
 /**
  * The ginosa mark (decision 113): your 8-bit treble clef, pixel for pixel (20 × 57), in your
@@ -24,6 +24,29 @@ export function Logo({ height = 30, className }: { height?: number; className?: 
       aria-hidden="true"
     >
       <path className="logo-clef" fillRule="evenodd" d={CLEF_PATH} />
+    </svg>
+  )
+}
+
+/**
+ * The title screen's logo (decision 121): your GINOSA logo, the clef and "inosa" pixel for
+ * pixel, in the mark's lavender. One unit of its outline is one screen pixel on a Retina display
+ * (so it's drawn at half its units in points): the clef's pixels are 7 screen pixels and the
+ * letters' 5, and every edge lands on a whole pixel. Built by scripts/make-logo.py.
+ */
+export function TitleMark({ className }: { className?: string }) {
+  const crisp = (window.devicePixelRatio || 1) >= 2
+  return (
+    <svg
+      className={`logo title-mark ${className ?? ''}`}
+      width={TITLE_SIZE.width / 2}
+      height={TITLE_SIZE.height / 2}
+      viewBox={`0 0 ${TITLE_SIZE.width} ${TITLE_SIZE.height}`}
+      shapeRendering={crisp ? 'crispEdges' : 'auto'}
+      role="img"
+      aria-label="ginosa"
+    >
+      <path className="logo-clef" fillRule="evenodd" d={TITLE_PATH} />
     </svg>
   )
 }

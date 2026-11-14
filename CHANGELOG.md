@@ -1,5 +1,10 @@
 # Changelog
 
+## Your GINOSA logo on the title screen (14 Nov 2026)
+
+- **The title screen shows your new logo** (decision 121): the 8-bit clef and the pixel letters "inosa" from `GINOSA(blacklogo).png`, pixel for pixel, in the mark's lavender (the screen is dark). Each clef pixel is 7 screen pixels and each letter pixel 5, which keeps your file's proportion to within 1% with every edge sharp. The title bar keeps the small clef.
+- `assets/logo/ginosa-letters.txt` holds the letters as you drew them (each letter on its own grid); `scripts/make-logo.py` builds the logo from it and the clef, also as `assets/logo/ginosa-title.svg`.
+
 ## Detection bench, started (W4.1, 14 Nov 2026)
 
 Your answers to the W4 plan are decisions 117–120 (licences approved, no acapella, downloads deletable, targets as the floor).
