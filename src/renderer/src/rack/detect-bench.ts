@@ -15,7 +15,8 @@ import { detector } from './detect'
  * (F-measure within ±30 ms, engine/audio/hit-score). The songs: the generated test drums, and
  * the answer keys in media/bench/keys (the STAR Drums preview, your songs from Reference
  * Materials). Each runs with bands of the whole song and, when stem separation is set up, with
- * stems. Songs without answers are run and counted only.
+ * each separator's stems (bands of the stems), and with the best separator's stems and the drum
+ * transcriber (W4.3) when that's set up. Songs without answers are run and counted only.
  */
 
 const KINDS: RackDetect[] = ['kick', 'clap', 'hihat', 'bass']
@@ -76,8 +77,13 @@ async function setUp(key: BenchKey): Promise<{ seconds: number }> {
 
 export async function detectBench(): Promise<Record<string, unknown>> {
   const keys = [await generatedDrums(), ...(await window.ginosa.snapshot.benchKeys())].filter((k): k is BenchKey => k !== null)
-  // Bands, then each separator set up (W4.2: BS-RoFormer-SW and htdemucs).
-  const runs: Array<{ label: string; method: 'bands' | 'stems'; separator?: StemSeparator }> = [{ label: 'bands', method: 'bands' }, ...(await window.ginosa.stems.status()).separators.map((separator) => ({ label: separator, method: 'stems' as const, separator }))]
+  // Bands, then each separator set up (W4.2: BS-RoFormer-SW and htdemucs), then the best with the drum transcriber (W4.3).
+  const status = await window.ginosa.stems.status()
+  const runs: Array<{ label: string; method: 'bands' | 'stems'; separator?: StemSeparator; drums?: 'transcriber' | 'bands' }> = [
+    { label: 'bands', method: 'bands' },
+    ...status.separators.map((separator) => ({ label: separator, method: 'stems' as const, separator, drums: 'bands' as const })),
+    ...(status.transcriber && status.separators[0] ? [{ label: `${status.separators[0]}+transcriber`, method: 'stems' as const, separator: status.separators[0], drums: 'transcriber' as const }] : [])
+  ]
   const methods = runs.map((r) => r.label)
   const songs: Array<Record<string, unknown>> = []
   const all: Record<string, Partial<Record<RackDetect, HitScore[]>>> = Object.fromEntries(methods.map((m) => [m, {}]))

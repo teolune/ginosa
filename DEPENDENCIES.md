@@ -68,7 +68,11 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | [uv](https://github.com/astral-sh/uv) (in `.stems/bootstrap`) | Fetches that Python 3.12 | MIT or Apache-2.0 |
 | [mlx-audio-separator](https://pypi.org/project/mlx-audio-separator/) 0.1.20 | Runs BS-RoFormer-SW (and other separation models) on MLX for Detect (W4.2) | MIT (derived from python-audio-separator, MIT) |
 | BS-RoFormer-SW weights (jarredou; downloaded by mlx-audio-separator into `.stems/models`, converted for MLX once) | The separator Detect uses first: six stems | CC BY-NC-SA 4.0 (non-commercial; approved for this personal app, decision 117) |
-| [PyTorch](https://pytorch.org) 2.15.0 | Converts BS-RoFormer-SW's checkpoint for MLX once; W4.3's drum transcriber | BSD-3-Clause |
+| [PyTorch](https://pytorch.org) 2.15.0 | Converts BS-RoFormer-SW's and DrumSep's checkpoints for MLX once; runs ADTOF (W4.3) | BSD-3-Clause |
+| [ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch) (commit 85c192e, its weights included) | The drum transcriber's main ear (W4.3): kick, snare, toms, hi-hat and cymbal hits in the drums stem. Xavier Riley's PyTorch port of ADTOF (Zehren, Alunno and Bientinesi, 2023) | CC BY-NC-SA 4.0, as ADTOF (non-commercial; approved, decision 117) |
+| DrumSep weights (MDX23C, by aufr33 and jarredou; downloaded by mlx-audio-separator into `.stems/models`, converted for MLX once, the checkpoint then an empty placeholder) | Splits the drums stem into kick, snare, toms, hi-hat, ride and crash, whose onsets add the hits ADTOF missed (W4.3) | Not stated by its authors (approved, decision 117) |
+| [librosa](https://librosa.org) 1.0.1, with numba 0.68.1, llvmlite 0.50.0, soxr 1.1.0 | Onsets in DrumSep's pieces; audio loading for ADTOF | ISC; numba BSD-2-Clause; llvmlite BSD-2-Clause and Apache-2.0 with LLVM exception; soxr LGPL-2.1 or later (its notice inside the package) |
+| [pretty_midi](https://github.com/craffel/pretty-midi) 0.2.11.post0, with mido 1.3.3 | Reads ADTOF's MIDI | MIT; MIT |
 | safetensors 0.8.0, soundfile 0.14.0, requests, PyYAML | Weights, audio files and downloads for the separator | Apache-2.0, BSD-3-Clause, Apache-2.0, MIT |
 | [STAR Drums](https://doi.org/10.5281/zenodo.15690078) preview (in `media/bench`, not in the repo) | The detection bench's real songs with exact drum hits (W4.1) | Code and annotations BSD-3-Clause; audio under various Creative Commons licences, listed in its `LICENSE` folder |
 

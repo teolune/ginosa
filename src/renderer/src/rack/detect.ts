@@ -2,11 +2,11 @@ import { ANALYSIS_RATE, ANALYSIS_SAMPLE_RATE, strongHits, unpackBand } from '@en
 import { beatAt } from '@engine/audio/beat-grid'
 import { hashText } from '@engine/audio/sources'
 import type { Clip, RackDetect } from '@engine/project/model'
-import { secondsToTicks, ticksToSeconds } from '@engine/time'
+import { ticksToSeconds } from '@engine/time'
 import { addAudioSource } from '@engine/timeline/audio-edits'
 import { DETECT_LISTEN, sectionsFromHits } from '@engine/timeline/rack'
 import { addRackRows, replaceRackSections, STARTER_ROWS, stepsFromHits } from '@engine/timeline/rack-edits'
-import { clipEnd, sourceSpan, timeForMedia } from '@engine/timeline/timeline'
+import { mediaTimesOnTimeline } from '@engine/timeline/timeline'
 import type { StemSeparator } from '@shared/ipc'
 import { analysisController, runWorker } from '../audio/analysis-controller'
 import { Observable } from '../state/observable'
@@ -18,9 +18,11 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 /**
  * The Channel Rack's Automatic Detection (decision 108). The song is the clip (or clips) on
  * A1. With stem separation set up, the song is split into drums, bass, vocals and the rest
- * first and each channel listens to its own stem; without it, to frequency bands of A1's
- * whole sound (and the message says so). Hits snap to the nearest 16th on the beat grid, and
- * the song is split into 8-bar sections.
+ * first; the drum transcriber (W4.3, when set up) then finds the kick, snare and hi-hat hits
+ * in the drums stem, and otherwise each channel listens to its band of its stem. Without
+ * separation, the channels listen to frequency bands of A1's whole sound (and the message
+ * says so). Hits snap to the nearest 16th on the beat grid, and the song is split into 8-bar
+ * sections.
  */
 class Detector extends Observable {
   busy = false
@@ -29,7 +31,7 @@ class Detector extends Observable {
    * How the last detection listened (for the report and tests): cubes per channel, and each kind
    * of channel's hits in seconds on the timeline, before snapping (the detection bench scores them).
    */
-  last: { method: 'stems' | 'bands'; separator: StemSeparator | null; hits: Record<string, number>; times: Partial<Record<RackDetect, number[]>> } | null = null
+  last: { method: 'stems' | 'bands'; separator: StemSeparator | null; drums: 'transcriber' | 'bands' | null; hits: Record<string, number>; times: Partial<Record<RackDetect, number[]>> } | null = null
 
   /** Hits by row id (ticks) as seconds by kind of channel. */
   private timesByKind(times: Map<string, number[]> | Record<string, number[]>): Partial<Record<RackDetect, number[]>> {
@@ -50,10 +52,11 @@ class Detector extends Observable {
   }
 
   /**
-   * `method` forces how it listens and `separator` which separator makes the stems (the detection
-   * bench); by default stems from the best separator set up, else bands.
+   * `method` forces how it listens, `separator` which separator makes the stems and `drums` how
+   * the drum channels listen to the drums stem (the detection bench); by default stems from the
+   * best separator set up, with the drum transcriber when it's set up, else bands.
    */
-  async run(options: { method?: 'stems' | 'bands'; separator?: StemSeparator } = {}): Promise<boolean> {
+  async run(options: { method?: 'stems' | 'bands'; separator?: StemSeparator; drums?: 'transcriber' | 'bands' } = {}): Promise<boolean> {
     const project = projectController.project
     if (!project || this.busy) return false
     const sequence = project.sequence
@@ -73,7 +76,7 @@ class Detector extends Observable {
       if (missing.length) projectController.dispatch(addRackRows(missing))
       const status = await window.ginosa.stems.status()
       const stems = options.method ? options.method === 'stems' : status.ready
-      if (stems) return await this.fromStems(project.id, songClips, options.separator ?? status.separators[0] ?? 'htdemucs')
+      if (stems) return await this.fromStems(project.id, songClips, options.separator ?? status.separators[0] ?? 'htdemucs', options.drums ?? (status.transcriber ? 'transcriber' : 'bands'), !status.transcriber && !options.drums)
       const done = await this.fromBands(a1.id)
       if (done && !options.method) {
         projectController.showMessage(
@@ -98,25 +101,38 @@ class Detector extends Observable {
     return `Filled ${list} from ${from} on A1, in ${sections} (Undo brings back what was there).`
   }
 
-  /** Separates each song file on A1 (once; kept in the cache), then finds each channel's hits in its stem. */
-  private async fromStems(projectId: string, clips: Clip[], separator: StemSeparator): Promise<boolean> {
+  /**
+   * Separates each song file on A1 (once; kept in the cache), then finds each channel's hits: the
+   * drum channels' from the drum transcriber (`drums`), or each channel's in its band of its stem.
+   */
+  private async fromStems(projectId: string, clips: Clip[], separator: StemSeparator, drums: 'transcriber' | 'bands', suggestTranscriber: boolean): Promise<boolean> {
     const project = projectController.project!
     const grid = project.sequence.beatGrid!
     const rows = project.sequence.rack.rows.filter((r) => r.detect)
     const hits = new Map<string, number[]>(rows.map((r) => [r.id, []]))
+    const transcribed = (row: (typeof rows)[number]) => drums === 'transcriber' && DETECT_LISTEN[row.detect!].stem === 'drums'
+    let phase = 'Separating the song into drums, bass and vocals…'
     const off = window.ginosa.stems.onProgress((line) => {
       const percent = /(\d{1,3})%/.exec(line)?.[1]
-      if (percent) this.set(true, `Separating the song into drums, bass and vocals… ${percent}%`)
+      if (percent) this.set(true, `${phase} ${percent}%`)
     })
     try {
       for (const clip of clips) {
         const item = project.media.find((m) => m.id === clip.mediaId)
         if (!item) continue
-        this.set(true, 'Separating the song into drums, bass and vocals…')
+        phase = 'Separating the song into drums, bass and vocals…'
+        this.set(true, phase)
         const key = hashText(JSON.stringify(['stems', separator, item.fingerprint]))
         const paths = await window.ginosa.stems.separate(projectId, item.path, key, separator)
+        const drumRows = rows.filter(transcribed)
+        if (drumRows.length) {
+          phase = 'Transcribing the drums hit by hit…'
+          this.set(true, phase)
+          const found = await window.ginosa.stems.drumHits(projectId, key)
+          for (const row of drumRows) hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, found[row.detect as 'kick' | 'clap' | 'hihat'] ?? []))
+        }
         for (const stem of ['drums', 'bass'] as const) {
-          const wanted = rows.filter((r) => DETECT_LISTEN[r.detect!].stem === stem)
+          const wanted = rows.filter((r) => DETECT_LISTEN[r.detect!].stem === stem && !transcribed(r))
           if (wanted.length === 0) continue
           this.set(true, `Finding ${wanted.map((r) => r.name.toLowerCase()).join(', ')} in the ${stem}…`)
           const pcm = new Float32Array(await window.ginosa.stems.pcm(paths[stem], ANALYSIS_SAMPLE_RATE))
@@ -125,14 +141,7 @@ class Detector extends Observable {
           wanted.forEach((row, i) => {
             const band = unpackBand(reply.bands[i]!.slice(0))
             if (!band) return
-            const from = clip.sourceIn
-            const to = clip.sourceIn + sourceSpan(clip)
-            for (const frame of strongHits(band, DETECT_LISTEN[row.detect!].gate)) {
-              const media = secondsToTicks(frame / ANALYSIS_RATE)
-              if (media < from || media >= to) continue
-              const time = timeForMedia(clip, media)
-              if (time >= clip.start && time < clipEnd(clip)) hits.get(row.id)!.push(time)
-            }
+            hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, strongHits(band, DETECT_LISTEN[row.detect!].gate).map((frame) => frame / ANALYSIS_RATE)))
           })
         }
       }
@@ -143,9 +152,10 @@ class Detector extends Observable {
     const [from, to] = songSteps(sequence)
     const steps: Record<string, number[]> = {}
     for (const row of rows) steps[row.id] = stepsFromHits(hits.get(row.id)!, (t) => beatAt(grid, t), from, to)
-    this.last = { method: 'stems', separator, hits: Object.fromEntries(Object.entries(steps).map(([id, s]) => [id, s.length])), times: this.timesByKind(hits) }
+    this.last = { method: 'stems', separator, drums, hits: Object.fromEntries(Object.entries(steps).map(([id, s]) => [id, s.length])), times: this.timesByKind(hits) }
     if (!projectController.dispatch(replaceRackSections(sectionsFromHits(steps, grid, to), 'Detect Pattern'))) return false
-    projectController.showMessage(this.summary('the drums and bass separated from the song'))
+    const heard = drums === 'transcriber' ? 'the drums (transcribed hit by hit) and bass separated from the song' : 'the drums and bass separated from the song'
+    projectController.showMessage(suggestTranscriber ? `${this.summary(heard)} For hit-by-hit drums, set up detection again in the Cache window: it adds the drum transcriber.` : this.summary(heard))
     return true
   }
 
@@ -169,7 +179,7 @@ class Detector extends Observable {
     }
     const filled = fillFromBands(id)
     if (!filled) return false
-    this.last = { method: 'bands', separator: null, hits: Object.fromEntries(Object.entries(filled.steps).map(([rowId, s]) => [rowId, s.length])), times: this.timesByKind(filled.times) }
+    this.last = { method: 'bands', separator: null, drums: null, hits: Object.fromEntries(Object.entries(filled.steps).map(([rowId, s]) => [rowId, s.length])), times: this.timesByKind(filled.times) }
     return true
   }
 }

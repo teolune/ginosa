@@ -277,9 +277,11 @@ export interface GinosaBridge {
   }
   /** Stem separation (W3): whether it's set up, a song's stems (paths), and a stem as mono samples. */
   stems: {
-    /** Whether it's set up, and the separators set up, best first (W4.2: BS-RoFormer-SW, then htdemucs). */
-    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[] }>
+    /** Whether it's set up, the separators set up, best first (W4.2: BS-RoFormer-SW, then htdemucs), and whether the drum transcriber is (W4.3). */
+    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[]; transcriber: boolean }>
     separate(projectId: string, input: string, key: string, separator: StemSeparator): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
+    /** The drum transcriber's hits (seconds in the song file) in the drums stem separated under `key` (W4.3). */
+    drumHits(projectId: string, key: string): Promise<Partial<Record<'kick' | 'clap' | 'hihat' | 'toms' | 'cymbals', number[]>>>
     pcm(path: string, rate: number): Promise<ArrayBuffer>
     onProgress(listener: (line: string) => void): () => void
     /** The detection models in .stems/ (decision 119): their parts and sizes, and whether separation works. */

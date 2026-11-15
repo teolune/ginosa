@@ -21,7 +21,8 @@ async function until(test: () => boolean, ms: number): Promise<boolean> {
  * W3's Automatic Detection, end to end, as you'd use it: the 128 BPM test drums (a kick on
  * every beat, a snare on 2 and 4, hi-hats on every 8th) on A1, the tempo from the Control
  * Panel's sparkles, then the Channel Rack's Detect. With stem separation set up the song is
- * separated first; without it the channels listen to bands of the whole song. Either way the
+ * separated first (and its drums transcribed, W4.3, when that's set up); without it the
+ * channels listen to bands of the whole song. Either way the
  * kicks must land on the beats, the claps on 2 and 4 and the hi-hats on the 8ths.
  */
 export async function rackDetectTest(): Promise<Record<string, unknown>> {
@@ -55,6 +56,8 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
   const hat = stepsOf('Hi-hat')
   check(done, `detection didn't finish: ${message}`)
   check(detector.last?.method === (stems.ready ? 'stems' : 'bands'), `listened by ${detector.last?.method}, expected ${stems.ready ? 'stems' : 'bands'}`)
+  const drums = stems.ready ? (stems.transcriber ? 'transcriber' : 'bands') : null
+  check(detector.last?.drums === drums, `drums by ${detector.last?.drums}, expected ${drums}`)
   check(sections.length >= 1, 'no sections')
   check(kick.length >= 6 && kick.every((s) => s % 4 === 0), `kicks not on the beats: ${kick.join(' ')}`)
   check(clap.length >= 3 && clap.every((s) => s % 8 === 4), `claps not on 2 and 4: ${clap.join(' ')}`)
@@ -66,6 +69,7 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
     verdict: reasons.length ? 'fail' : 'pass',
     reasons,
     method: detector.last?.method ?? null,
+    drums: detector.last?.drums ?? null,
     stems: stems.ready ? 'ready' : stems.detail,
     seconds,
     grid: sequence.beatGrid,

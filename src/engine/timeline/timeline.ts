@@ -164,6 +164,24 @@ export function timeForMedia(clip: Clip, media: Ticks): number {
   return clip.start + (d >= 0 ? timelineForMedia(ramp, 0, d, 1) : -timelineForMedia(ramp, 0, -d, -1))
 }
 
+/**
+ * Moments in a clip's media (seconds from the file's start, such as hits found in the song)
+ * where they play on the timeline, for those within the part of the media the clip uses.
+ */
+export function mediaTimesOnTimeline(clip: Clip, seconds: readonly number[]): Ticks[] {
+  const from = clip.sourceIn
+  const to = clip.sourceIn + sourceSpan(clip)
+  const end = clipEnd(clip)
+  const out: Ticks[] = []
+  for (const s of seconds) {
+    const media = secondsToTicks(s)
+    if (media < from || media >= to) continue
+    const time = timeForMedia(clip, media)
+    if (time >= clip.start && time < end) out.push(time)
+  }
+  return out
+}
+
 /** How much media a clip uses, in ticks (its duration × speed, or what its speed ramp covers; 0 for a frame hold). */
 export function sourceSpan(clip: Clip): Ticks {
   const ramp = speedRamp(clip)

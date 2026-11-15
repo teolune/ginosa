@@ -27,6 +27,7 @@ import type { TimelineCommand } from './edits'
 import { placeMedia } from './edits'
 import { importMedia } from '../project/media-commands'
 import type { MediaInfo, MediaItem } from '../project/media'
+import { mediaTimesOnTimeline } from './timeline'
 
 let counter = 0
 const ids = () => `rk-${++counter}`
@@ -263,5 +264,19 @@ describe('Channel Rack as a modulation source', () => {
       [4, { [rows()[0]!.id]: [{ step: 0, amounts: {} }, { step: 8, amounts: {} }] }],
       [2, {}]
     ])
+  })
+})
+
+describe('Detection’s hits on the timeline', () => {
+  it('moves hits in the song file to where the clip plays them, and drops those it doesn’t use', () => {
+    const { history, run } = setup()
+    const info: MediaInfo = { container: 'wav', durationSeconds: 10, bitRate: null, video: null, audio: { codec: 'pcm_s16le', sampleRate: 44100, channels: 2, channelLayout: 'stereo' } }
+    const item: MediaItem = { id: 'm-s', name: 'song', kind: 'audio', path: '/f/song.wav', fingerprint: { size: 1, mtimeMs: 1, sample: 's' }, info, binId: null, importedAt: '2026-11-15T00:00:00Z', marks: { in: null, out: null }, colour: { input: 'auto', lut: null } }
+    history.dispatch(importMedia([item]))
+    const A1 = history.state.sequence.tracks.find((t) => t.kind === 'audio')!.id
+    // The song from 2 s to 6 s, placed at 5 s on the timeline.
+    run(placeMedia({ mediaId: 'm-s', sourceIn: secondsToTicks(2), sourceOut: secondsToTicks(6), at: secondsToTicks(5), videoTrackId: null, audioTrackId: A1, mode: 'overwrite' }, ids))
+    const clip = history.state.sequence.clips.find((c) => c.kind === 'audio')!
+    expect(mediaTimesOnTimeline(clip, [0.5, 1.999, 2, 3.25, 5.999, 6, 9])).toEqual([secondsToTicks(5), secondsToTicks(6.25), secondsToTicks(8.999)])
   })
 })

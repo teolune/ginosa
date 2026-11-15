@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, lstat, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { access, lstat, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runTool } from './ffmpeg'
 
@@ -11,7 +11,8 @@ import { runTool } from './ffmpeg'
  *  - BS-RoFormer-SW (jarredou, through mlx-audio-separator on MLX): six stems; on MVSEP's test
  *    set 14.11 dB on drums and 14.62 on bass, about 2.6–2.9 dB better than Demucs;
  *  - htdemucs (Meta's Demucs, through demucs-mlx): four stems, about 7× quicker.
- * The song file is only read; stems go to the project's cache.
+ * Then the drum transcriber (W4.3, scripts/detect/listen.py) finds the kick, snare and hi-hat
+ * hits in the drums stem. The song file is only read; stems and hits go to the project's cache.
  */
 
 export const STEM_NAMES = ['drums', 'bass', 'vocals', 'other'] as const
@@ -27,6 +28,8 @@ export interface StemsStatus {
   detail: string | null
   /** The separators set up on this Mac, best first. */
   separators: Separator[]
+  /** The drum transcriber (W4.3: DrumSep and ADTOF) is set up. */
+  transcriber: boolean
 }
 
 const bin = (appRoot: string, name: string) => join(appRoot, '.stems', 'venv', 'bin', name)
@@ -40,13 +43,29 @@ const exists = (path: string, mode = constants.R_OK) =>
     () => false
   )
 
+const allThere = async (dir: string, files: string[]) => (await Promise.all(files.map((f) => exists(join(dir, f))))).every(Boolean)
+
+/** DrumSep (MDX23C, aufr33 and jarredou): its checkpoint (a placeholder once converted), MLX weights and settings. */
+const DRUMSEP_FILES = ['MDX23C-DrumSep-aufr33-jarredou.ckpt', 'MDX23C-DrumSep-aufr33-jarredou.safetensors', 'config_drumsep_mdx23c.yaml']
+
+const LISTEN = (appRoot: string) => join(appRoot, 'scripts', 'detect', 'listen.py')
+
+/** ADTOF's PyTorch port in the environment, DrumSep's weights and the script that runs them. */
+async function transcriberReady(appRoot: string): Promise<boolean> {
+  const lib = join(appRoot, '.stems', 'venv', 'lib')
+  const versions = (await readdir(lib).catch(() => [] as string[])).filter((d) => d.startsWith('python'))
+  const adtof = (await Promise.all(versions.map((v) => exists(join(lib, v, 'site-packages', 'adtof_pytorch', 'model.py'))))).some(Boolean)
+  return adtof && (await exists(bin(appRoot, 'python'), constants.X_OK)) && (await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await allThere(models(appRoot), DRUMSEP_FILES)) && (await exists(LISTEN(appRoot)))
+}
+
 export async function stemsStatus(appRoot: string): Promise<StemsStatus> {
   const separators: Separator[] = []
-  if ((await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await Promise.all(SW_FILES.map((f) => exists(join(models(appRoot), f))))).every(Boolean)) separators.push('bs-roformer-sw')
+  if ((await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await allThere(models(appRoot), SW_FILES))) separators.push('bs-roformer-sw')
   if (await exists(bin(appRoot, 'demucs-mlx'), constants.X_OK)) separators.push('htdemucs')
+  const transcriber = separators.length > 0 && (await transcriberReady(appRoot))
   return separators.length
-    ? { ready: true, detail: null, separators }
-    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators }
+    ? { ready: true, detail: null, separators, transcriber }
+    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators, transcriber }
 }
 
 /** A separator's stems in `dir`: `drums.wav` as kept in the cache, or `…_(drums)_…` as mlx-audio-separator names them. */
@@ -63,7 +82,8 @@ async function findStems(dir: string): Promise<Partial<StemPaths>> {
       const full = join(d, e.name)
       if (e.isDirectory()) await walk(full)
       else {
-        const stem = (/_\((\w+)\)_/.exec(e.name)?.[1] ?? e.name.replace(/\.(flac|wav|mp3)$/i, '')) as StemName
+        // The last name in brackets ("song_(drums)_BS-Roformer-SW_(kick)_…" is a kick), else the file's name.
+        const stem = ([...e.name.matchAll(/_\((\w+)\)_/g)].at(-1)?.[1] ?? e.name.replace(/\.(flac|wav|mp3)$/i, '')) as StemName
         if ((STEM_NAMES as readonly string[]).includes(stem) && !found[stem]) found[stem] = full
       }
     }
@@ -93,6 +113,60 @@ export async function separateStems(appRoot: string, input: string, dir: string,
   } finally {
     separating--
   }
+}
+
+/** The drum transcriber's channels (listen.py): ADTOF's five classes, ginosa's names. */
+export const DRUM_KINDS = ['kick', 'clap', 'hihat', 'toms', 'cymbals'] as const
+export type DrumHits = Partial<Record<(typeof DRUM_KINDS)[number], number[]>>
+/** Raised when listen.py's method changes, so songs are transcribed again. */
+const TRANSCRIBER_VERSION = 3
+
+/**
+ * The drum hits (seconds in the song file) in the stems in `dir` (made by separateStems): from
+ * the cache when transcribed before, otherwise by listen.py now (DrumSep, ADTOF, then each
+ * channel's hits: ADTOF's, plus the strong onsets in its DrumSep piece ADTOF missed).
+ */
+export async function drumHits(appRoot: string, dir: string, onLine: (line: string) => void = () => undefined): Promise<DrumHits> {
+  const out = join(dir, `drum-hits-v${TRANSCRIBER_VERSION}`)
+  const file = join(out, 'drum-hits.json')
+  const read = async (): Promise<DrumHits | null> => {
+    const text = await readFile(file, 'utf8').catch(() => null)
+    if (text === null) return null
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const hits: DrumHits = {}
+    for (const kind of DRUM_KINDS) {
+      const times = parsed[kind]
+      if (Array.isArray(times)) hits[kind] = times.filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t >= 0)
+    }
+    return hits
+  }
+  const cached = await read()
+  if (cached) return cached
+  const drums = (await findStems(dir)).drums
+  if (!drums) throw new Error('the song hasn’t been separated into stems yet')
+  if (!(await transcriberReady(appRoot))) throw new Error('the drum transcriber isn’t set up on this Mac: set up detection again in the Cache window')
+  if (settingUp) throw new Error('Detection is being set up; try again when it has finished.')
+  separating++
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin(appRoot, 'python'), [LISTEN(appRoot), drums, out], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HF_HOME: join(appRoot, '.stems', 'hf') } })
+      let tail = ''
+      const take = (chunk: Buffer) => {
+        const text = chunk.toString()
+        tail = (tail + text).slice(-4000)
+        for (const line of text.split(/[\r\n]+/)) if (line.trim()) onLine(line.trim())
+      }
+      child.stdout.on('data', take)
+      child.stderr.on('data', take)
+      child.on('error', reject)
+      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`the drum transcriber stopped (exit ${code}): ${tail.trim().split('\n').at(-1) ?? ''}`))))
+    })
+  } finally {
+    separating--
+  }
+  const made = await read()
+  if (!made) throw new Error('the drum transcriber wrote no hits')
+  return made
 }
 
 function command(appRoot: string, separator: Separator, wav: string, out: string): { exe: string; args: string[]; env: NodeJS.ProcessEnv } {
@@ -161,12 +235,12 @@ export interface DetectionModels {
 }
 
 const PART_NAMES: Record<string, string> = {
-  venv: 'Python packages (MLX, PyTorch, the separators)',
+  venv: 'Python packages (MLX, PyTorch, the separators, ADTOF)',
   python: 'Python 3.12 (a private copy)',
   bootstrap: 'Setup tools (uv)',
   weights: 'Demucs model (htdemucs)',
   hf: 'Models from Hugging Face',
-  models: 'Separation models (BS-RoFormer-SW, …)'
+  models: 'Separation models (BS-RoFormer-SW, DrumSep)'
 }
 
 async function bytesIn(path: string): Promise<number> {

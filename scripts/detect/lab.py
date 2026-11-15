@@ -37,13 +37,15 @@ def env() -> dict:
 
 
 # Packages the lab may add to .stems/venv (nothing else): separation, transcription, and audio files.
-INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval"}
+INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval", "pretty-midi"}
+# ADTOF's PyTorch port isn't on PyPI: it installs from its GitHub repository (weights included).
+INSTALLABLE_URLS = {"git+https://github.com/xavriley/ADTOF-pytorch"}
 
 
 def pip_install(*specs: str) -> dict:
     """Adds packages to .stems/venv: only those in INSTALLABLE, pinned like name==1.2.3 or with extras like name[extra]."""
-    names = [s.split("[")[0].split("=")[0].split("<")[0].split(">")[0].lower() for s in specs]
-    refused = [n for n in names if n not in INSTALLABLE]
+    names = [s if s in INSTALLABLE_URLS else s.split("[")[0].split("=")[0].split("<")[0].split(">")[0].lower() for s in specs]
+    refused = [n for n in names if n not in INSTALLABLE and n not in INSTALLABLE_URLS]
     if refused or not specs:
         return {"refused": refused or ["nothing to install"]}
     done = subprocess.run([sys.executable, "-m", "pip", "install", "--prefer-binary", *specs], capture_output=True, text=True)
@@ -117,7 +119,53 @@ def compare(dir_a: str, dir_b: str) -> dict:
     return out
 
 
-COMMANDS = {"env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare}
+def w43_prepare(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w43
+
+    return w43.prepare(*slugs)
+
+
+def w43_score(*args: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w43
+
+    return w43.score(*args)
+
+
+def w43_claps() -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w43
+
+    return {
+        "star-1327741": w43.clap_features("star-1327741", "training/mtg-jamendo/annotation/1327741_mix_ar_80s_chrome_kit_full.txt"),
+        "star-ismir-0445": w43.clap_features("star-ismir-0445", "training/ismir04/annotation/ismir_0445_mix_ar_60s_late_kit_full.txt"),
+    }
+
+
+def listen(slug: str) -> dict:
+    """Detect's own transcriber (listen.py) on a STAR song's BS-RoFormer-SW drums stem, timed, and scored like w43-score."""
+    import time
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    import listen as app
+    import w43
+
+    out = LAB / "listen" / slug
+    start = time.time()
+    app.main(str(w43.drums_stem(slug)), str(out), keep_pieces=False)
+    hits = json.loads((out / "drum-hits.json").read_text())
+    return {"seconds": round(time.time() - start, 1), "found": {k: len(v) for k, v in hits.items()}, "pieces left": (out / "pieces").exists()}
+
+
+def w43_dominance(margin: str = "6", *slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w43
+
+    return w43.dominance(margin, *slugs)
+
+
+COMMANDS = {"w43-dominance": w43_dominance, "listen": listen, "env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare, "w43-prepare": w43_prepare, "w43-score": w43_score, "w43-claps": w43_claps}
 
 
 def main(argv: list[str]) -> int:

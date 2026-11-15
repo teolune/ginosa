@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Sets up stem separation for the Channel Rack's Automatic Detection (decision 108): a
 # Python environment in .stems/venv with demucs-mlx (MIT), which splits a song into drums,
-# bass, vocals and the rest on this Mac, with Apple's MLX. Run it once:  npm run stems-setup
+# bass, vocals and the rest on this Mac, with Apple's MLX; then BS-RoFormer-SW (W4.2) and the
+# drum transcriber (W4.3, DrumSep and ADTOF). Run it once:  npm run stems-setup
 #
 # Everything goes in .stems/ in this folder, the model's weights too (htdemucs, about
 # 160 MB, downloaded from Hugging Face on the first run and checked against digests built
@@ -128,6 +129,41 @@ if [[ -s "$models/BS-Roformer-SW.ckpt" && -s "$models/BS-Roformer-SW.safetensors
   : > "$models/BS-Roformer-SW.ckpt" && ok "Freed 700 MB: the original checkpoint isn't needed once converted"
 fi
 
+# W4.3: the drum transcriber (scripts/detect/listen.py). ADTOF (Zehren et al.; the PyTorch port by
+# Xavier Riley, CC BY-NC-SA 4.0, its weights included) and DrumSep (MDX23C, by aufr33 and
+# jarredou), with librosa (ISC) for onsets and pretty_midi (MIT) to read ADTOF's MIDI.
+ADTOF_COMMIT="85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9"
+LIBROSA_VERSION="1.0.1"
+PRETTY_MIDI_VERSION="0.2.11.post0"
+transcriber_installed() {
+  "$venv/bin/python" -c "import importlib.metadata as m, json, sys; u = json.loads(m.distribution('adtof-pytorch').read_text('direct_url.json') or '{}'); sys.exit(0 if u.get('vcs_info', {}).get('commit_id') == '$ADTOF_COMMIT' and m.version('librosa') == '$LIBROSA_VERSION' and m.version('pretty_midi') == '$PRETTY_MIDI_VERSION' else 1)" >/dev/null 2>&1
+}
+if transcriber_installed; then
+  ok "The drum transcriber (ADTOF, librosa, pretty_midi) is already installed"
+else
+  say "Installing the drum transcriber: ADTOF, librosa and pretty_midi (about 60 MB)…"
+  if ! "$venv/bin/python" -m pip install --prefer-binary "adtof-pytorch @ git+https://github.com/xavriley/ADTOF-pytorch@$ADTOF_COMMIT" "librosa==$LIBROSA_VERSION" "pretty_midi==$PRETTY_MIDI_VERSION"; then
+    bad "pip couldn't install them (the error is above)."; exit 1
+  fi
+  transcriber_installed && ok "ADTOF, librosa and pretty_midi installed" || { bad "They didn't install properly."; exit 1; }
+fi
+DRUMSEP="MDX23C-DrumSep-aufr33-jarredou"
+if [[ -s "$models/$DRUMSEP.safetensors" && -f "$models/$DRUMSEP.ckpt" && -f "$models/config_drumsep_mdx23c.yaml" ]]; then
+  ok "DrumSep is downloaded and converted for MLX"
+else
+  say "Downloading DrumSep (about 440 MB) and converting it for MLX…"
+  if ! HF_HOME="$stems/hf" "$venv/bin/mlx-audio-separator" -m "$DRUMSEP.ckpt" --model_file_dir "$models" --preconvert_only --save_converted_safetensors; then
+    bad "Couldn't download or convert DrumSep (above)."; exit 1
+  fi
+  [[ -s "$models/$DRUMSEP.safetensors" ]] || { bad "DrumSep wasn't converted."; exit 1; }
+  ok "DrumSep downloaded and converted"
+fi
+# As with BS-RoFormer-SW, only the converted copy is loaded (mlx-audio-separator 0.1.20 reads the
+# settings from the .yaml and the weights from the .safetensors), so the checkpoint becomes a placeholder.
+if [[ -s "$models/$DRUMSEP.ckpt" && -s "$models/$DRUMSEP.safetensors" ]]; then
+  : > "$models/$DRUMSEP.ckpt" && ok "Freed 440 MB: DrumSep's original checkpoint isn't needed once converted"
+fi
+
 say "Testing it (the first run downloads the model, about 160 MB)…"
 work="$(mktemp -d)"
 input="$root/media/test/song_120bpm.wav"
@@ -143,8 +179,18 @@ ffmpeg -hide_banner -loglevel error -y -i "$input" -ac 2 -ar 44100 "$work/stereo
 if "$venv/bin/demucs-mlx" "$input" -o "$work/out" -n htdemucs && HF_HOME="$stems/hf" "$venv/bin/mlx-audio-separator" "$input" -m BS-Roformer-SW.ckpt --model_file_dir "$models" --output_dir "$work/sw" --output_format WAV > "$work/sw.log" 2>&1; then
   count=$(find "$work/out" -type f \( -name 'drums.*' -o -name 'bass.*' -o -name 'vocals.*' -o -name 'other.*' \) | wc -l | tr -d ' ')
   if [[ "$count" == "4" ]]; then
-    sw=$(find "$work/sw" -type f -name '*_(drums)_*' | wc -l | tr -d ' ')
-    if [[ "$sw" == "1" ]]; then ok "Split $(basename "$input") with Demucs and with BS-RoFormer-SW in $(( $(date +%s) - start )) s"; else bad "BS-RoFormer-SW wrote no drums stem."; result=1; fi
+    drums="$(find "$work/sw" -type f -name '*_(drums)_*' | head -1)"
+    if [[ -n "$drums" ]]; then
+      ok "Split $(basename "$input") with Demucs and with BS-RoFormer-SW in $(( $(date +%s) - start )) s"
+      start=$(date +%s)
+      if HF_HOME="$stems/hf" "$venv/bin/python" "$root/scripts/detect/listen.py" "$drums" "$work/listen" > "$work/listen.log" 2>&1 && [[ -s "$work/listen/drum-hits.json" ]]; then
+        ok "Transcribed its drums with DrumSep and ADTOF in $(( $(date +%s) - start )) s"
+      else
+        bad "The drum transcriber stopped with an error:"; tail -5 "$work/listen.log"; result=1
+      fi
+    else
+      bad "BS-RoFormer-SW wrote no drums stem."; result=1
+    fi
   else
     bad "Only $count of the 4 stems were written."; result=1
   fi
@@ -153,7 +199,7 @@ else
 fi
 rm -rf "$work"
 if (( result == 0 )); then
-  say "Ready. In ginosa, the Channel Rack's Detect now separates the song on A1 first."
+  say "Ready. In ginosa, the Channel Rack's Detect now separates the song on A1 first, then transcribes its drums hit by hit."
 else
   info "Stem separation isn't working yet; Detect keeps using frequency bands of the whole song."
 fi

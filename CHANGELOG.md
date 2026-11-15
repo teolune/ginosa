@@ -1,5 +1,23 @@
 # Changelog
 
+## Drums transcribed hit by hit (W4.3, 15 Nov 2026)
+
+- **Detect transcribes the drums** once the song is separated (decision 122): ADTOF, a drum transcriber trained on real recordings, lists the kick, snare and hi-hat hits in the drums stem, and DrumSep splits the drums stem into kick, snare, toms, hi-hat, ride and crash, whose strong onsets add the hits ADTOF missed. The rack's top bar says *Transcribing the drums hit by hit…*. Bass is unchanged (W4.4).
+- **What it changed** (the four STAR Drums songs, F-measure within ±30 ms; targets 0.95, 0.90, 0.85):
+
+  | Detect listening to | Kick | Snare and clap | Hi-hat |
+  | --- | --- | --- | --- |
+  | Bands of the whole mix | 0.49 | 0.21 | 0.68 |
+  | Bands of BS-RoFormer-SW's drums | 0.89 | 0.49 | 0.87 |
+  | **The drum transcriber** | **0.99** | **0.84** | **0.92** |
+
+  Kick and hi-hat pass. Snares alone score 0.96; what's left is handclaps, which neither model knows (ADTOF found 3 of STAR's 33). On your songs, the extra claps DrumSep adds land on the beats where ADTOF's claps are, completing the pattern, so they look real; I can't score them until your songs have answers.
+- **DrumSep only adds hits when it agrees with ADTOF** about what it hears (at least 40% of its onsets at ADTOF's hits are its own kind). STAR's pieces agree 0.80–1.00 and keep everything; on the generated test drums, whose snare and hi-hats are both white noise, the snare piece agrees 0.35 and adds nothing (claps 0.48 → 0.93 there, and `rackdetect` passes again). On your songs the pieces agree 0.50–1.00.
+- **Speed**: 13–16 s for your songs on top of separation, once (the hits are kept beside the stems in the project's cache; DrumSep's pieces are let go of after).
+- **Setup** (`npm run stems-setup`, or Set Up in the Cache window) installs ADTOF, librosa and pretty_midi and downloads DrumSep (440 MB, kept as its 437 MB MLX copy with the checkpoint an empty placeholder), then tests the transcriber on the test song.
+- **Found on the way: the tempo is wrong on both your songs.** Their drums line up within 3–10 ms on a grid of 83.5 BPM (`dpackdist`) and 81 BPM (`entrust`), or double that, but the Control Panel's sparkles find 128 and 167. Snapped to the wrong grid, even perfect hits make the wrong cubes, so the grid (W4.5) matters as much as the hits.
+- **Detection lab**: `w43-prepare`, `w43-score <gate>` (ADTOF, DrumSep's onsets, both, either), `w43-claps`, `w43-dominance` and `listen <song>` (Detect's own transcriber, timed).
+
 ## A better separator, measured (W4.2, 14 Nov 2026)
 
 - **Detect separates with BS-RoFormer-SW first** (through mlx-audio-separator on MLX): six stems (vocals, drums, bass, guitar, piano, other), about 2.6–2.9 dB cleaner drums and bass than Demucs on MVSEP's test set. Demucs stays as the fallback. Your 2-minute song takes about 25 s instead of 5 s, once (stems are cached per song).
