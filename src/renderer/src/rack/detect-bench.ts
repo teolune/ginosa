@@ -1,6 +1,6 @@
 import { combineScores, roundScore, scoreHits, type HitScore } from '@engine/audio/hit-score'
 import type { RackDetect } from '@engine/project/model'
-import { secondsToTicks } from '@engine/time'
+import { secondsToTicks, ticksToSeconds } from '@engine/time'
 import { setBeatGrid } from '@engine/timeline/audio-edits'
 import { deleteClips, placeMedia } from '@engine/timeline/edits'
 import type { BenchKey, StemSeparator } from '@shared/ipc'
@@ -47,12 +47,37 @@ async function generatedDrums(): Promise<BenchKey | null> {
     audio,
     bpm: 128,
     downbeat: 0.4,
+    grid: null,
     hits: { kick: beats, clap: beats.filter((_, i) => i % 2 === 1), hihat: Array.from({ length: 127 }, (_, i) => 0.4 + (i * beat) / 2) }
   }
 }
 
+/** A grid as the bench reports it (seconds), and against the true grid when the key has one. */
+function gridReport(truth: BenchKey['grid']): Record<string, unknown> | null {
+  const grid = projectController.project!.sequence.beatGrid
+  if (!grid) return null
+  const out: Record<string, unknown> = { bpm: Math.round(grid.bpm * 1000) / 1000, downbeat: Math.round(ticksToSeconds(grid.downbeat) * 10000) / 10000 }
+  if (truth) {
+    const beat = 60 / truth.bpm
+    const beats = (ticksToSeconds(grid.downbeat) - truth.downbeat) / beat
+    out['tempoRight'] = Math.abs(grid.bpm - truth.bpm) / truth.bpm < 0.005
+    // Bar 1 against the true bar lines: how many beats off (0 = on a bar line), and how far from the nearest beat.
+    out['barOffBeats'] = ((Math.round(beats) % 4) + 4) % 4
+    out['beatOffMs'] = Math.round((beats - Math.round(beats)) * beat * 1000)
+  }
+  return out
+}
+
+/** The Control Panel's tempo detection by `method`, from no grid; the grid it set. */
+async function detectGrid(method: 'beats' | 'analysis', truth: BenchKey['grid']): Promise<Record<string, unknown> | null> {
+  if (projectController.project!.sequence.beatGrid) run(setBeatGrid(null))
+  detectTempo({ method })
+  if (!(await until(() => projectController.project!.sequence.beatGrid !== null, 120_000))) return null
+  return gridReport(truth)
+}
+
 /** One song on A1 (everything else cleared), with its tempo. */
-async function setUp(key: BenchKey): Promise<{ seconds: number }> {
+async function setUp(key: BenchKey): Promise<{ seconds: number; tempo: Record<string, unknown> }> {
   const clips = projectController.project!.sequence.clips.map((c) => c.id)
   if (clips.length) run(deleteClips(clips))
   let item = projectController.project!.media.find((m) => m.path === key.audio)
@@ -65,14 +90,16 @@ async function setUp(key: BenchKey): Promise<{ seconds: number }> {
   const seconds = item.info.durationSeconds
   const a1 = projectController.project!.sequence.tracks.find((t) => t.kind === 'audio')!.id
   run(placeMedia({ mediaId: item.id, sourceIn: 0, sourceOut: secondsToTicks(seconds), at: 0, videoTrackId: null, audioTrackId: a1, mode: 'overwrite' }))
+  const tempo: Record<string, unknown> = {}
   if (key.bpm) run(setBeatGrid({ bpm: key.bpm, downbeat: secondsToTicks(key.downbeat ?? 0), beatsPerBar: 4, sourceId: null }))
   else {
-    run(setBeatGrid(null))
-    detectTempo()
-    if (!(await until(() => projectController.project!.sequence.beatGrid !== null, 120_000))) throw new Error(`no tempo found in ${key.name}`)
+    // Both of the Control Panel's ways (W4.5), Beat This! last so Detect uses its grid when it's set up.
+    tempo['analysis'] = await detectGrid('analysis', key.grid)
+    if ((await window.ginosa.stems.status()).beats) tempo['beat-this'] = await detectGrid('beats', key.grid)
+    if (!projectController.project!.sequence.beatGrid) throw new Error(`no tempo found in ${key.name}`)
   }
   await analysisController.settle()
-  return { seconds }
+  return { seconds, tempo }
 }
 
 export async function detectBench(): Promise<Record<string, unknown>> {
@@ -90,9 +117,13 @@ export async function detectBench(): Promise<Record<string, unknown>> {
   for (const key of keys) {
     const song: Record<string, unknown> = { name: key.name, source: key.source }
     try {
-      const { seconds } = await setUp(key)
+      const { seconds, tempo } = await setUp(key)
       song['seconds'] = Math.round(seconds * 10) / 10
-      song['bpm'] = Math.round((projectController.project!.sequence.beatGrid?.bpm ?? 0) * 100) / 100
+      song['tempo'] = tempo
+      if (key.grid) song['trueGrid'] = key.grid
+      const grid = projectController.project!.sequence.beatGrid
+      song['bpm'] = Math.round((grid?.bpm ?? 0) * 1000) / 1000
+      song['downbeat'] = grid ? Math.round(ticksToSeconds(grid.downbeat) * 10000) / 10000 : null
       for (const { label: method, ...how } of runs) {
         const started = performance.now()
         const done = await detector.run(how)

@@ -37,7 +37,7 @@ def env() -> dict:
 
 
 # Packages the lab may add to .stems/venv (nothing else): separation, transcription, and audio files.
-INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval", "pretty-midi"}
+INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval", "pretty-midi", "beat-this", "einops", "rotary-embedding-torch"}
 # ADTOF's PyTorch port isn't on PyPI: it installs from its GitHub repository (weights included).
 INSTALLABLE_URLS = {"git+https://github.com/xavriley/ADTOF-pytorch"}
 
@@ -165,7 +165,57 @@ def w43_dominance(margin: str = "6", *slugs: str) -> dict:
     return w43.dominance(margin, *slugs)
 
 
-COMMANDS = {"w43-dominance": w43_dominance, "listen": listen, "env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare, "w43-prepare": w43_prepare, "w43-score": w43_score, "w43-claps": w43_claps}
+def midi_info() -> dict:
+    """The STAR preview's MIDI files: tempo changes, time signatures and the first note, to see whether they hold a beat grid."""
+    import pretty_midi
+
+    out = {}
+    for f in sorted((ROOT / "media" / "bench" / "star-preview").rglob("*.mid")):
+        m = pretty_midi.PrettyMIDI(str(f))
+        times, tempi = m.get_tempo_changes()
+        notes = sorted(n.start for i in m.instruments for n in i.notes)
+        out[f.name] = {
+            "tempo changes": len(tempi),
+            "tempi (first 5)": [round(float(t), 3) for t in tempi[:5]],
+            "at": [round(float(t), 3) for t in times[:5]],
+            "time signatures": [(ts.numerator, ts.denominator, round(ts.time, 3)) for ts in m.time_signature_changes[:3]],
+            "resolution": m.resolution,
+            "first note": round(notes[0], 3) if notes else None,
+            "beats (first 6)": [round(float(b), 3) for b in m.get_beats()[:6]],
+            "downbeats (first 3)": [round(float(b), 3) for b in m.get_downbeats()[:3]],
+        }
+    return out
+
+
+def w45_beats(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w45
+
+    return w45.beats(*slugs)
+
+
+def w45_grids(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w45
+
+    return w45.grids(*slugs)
+
+
+def w45_bar_one() -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w45
+
+    return w45.bar_one()
+
+
+def w45_phases(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w45
+
+    return w45.phases(*slugs)
+
+
+COMMANDS = {"w45-phases": w45_phases, "w45-bar-one": w45_bar_one, "w45-beats": w45_beats, "w45-grids": w45_grids, "midi-info": midi_info, "w43-dominance": w43_dominance, "listen": listen, "env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare, "w43-prepare": w43_prepare, "w43-score": w43_score, "w43-claps": w43_claps}
 
 
 def main(argv: list[str]) -> int:

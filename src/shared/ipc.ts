@@ -278,7 +278,9 @@ export interface GinosaBridge {
   /** Stem separation (W3): whether it's set up, a song's stems (paths), and a stem as mono samples. */
   stems: {
     /** Whether it's set up, the separators set up, best first (W4.2: BS-RoFormer-SW, then htdemucs), and whether the drum transcriber is (W4.3). */
-    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[]; transcriber: boolean }>
+    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[]; transcriber: boolean; beats: boolean }>
+    /** Beat This!'s beats and downbeats in a song file, and where its music starts (seconds; W4.5), kept under `key`. */
+    beats(projectId: string, input: string, key: string): Promise<{ beats: number[]; downbeats: number[]; firstSound: number }>
     separate(projectId: string, input: string, key: string, separator: StemSeparator): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
     /** The drum transcriber's hits (seconds in the song file) in the drums stem separated under `key` (W4.3). */
     drumHits(projectId: string, key: string): Promise<Partial<Record<'kick' | 'clap' | 'hihat' | 'toms' | 'cymbals', number[]>>>
@@ -351,6 +353,8 @@ export interface BenchKey {
   /** Its tempo when known; otherwise the Control Panel's tempo detection finds it. */
   bpm: number | null
   downbeat: number | null
+  /** The true grid when known but left for detection to find (W4.5): your DAW's tempo, bar 1 in seconds. */
+  grid: { bpm: number; downbeat: number; note: string } | null
   hits: Partial<Record<'kick' | 'clap' | 'hihat' | 'bass', number[]>> | null
 }
 

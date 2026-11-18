@@ -73,6 +73,8 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | DrumSep weights (MDX23C, by aufr33 and jarredou; downloaded by mlx-audio-separator into `.stems/models`, converted for MLX once, the checkpoint then an empty placeholder) | Splits the drums stem into kick, snare, toms, hi-hat, ride and crash, whose onsets add the hits ADTOF missed (W4.3) | Not stated by its authors (approved, decision 117) |
 | [librosa](https://librosa.org) 1.0.1, with numba 0.68.1, llvmlite 0.50.0, soxr 1.1.0 | Onsets in DrumSep's pieces; audio loading for ADTOF | ISC; numba BSD-2-Clause; llvmlite BSD-2-Clause and Apache-2.0 with LLVM exception; soxr LGPL-2.1 or later (its notice inside the package) |
 | [pretty_midi](https://github.com/craffel/pretty-midi) 0.2.11.post0, with mido 1.3.3 | Reads ADTOF's MIDI | MIT; MIT |
+| [Beat This!](https://github.com/CPJKU/beat_this) 1.1.0 (`beat-this`), its final0 checkpoint (81 MB, from JKU's server into `.stems/torch`) | The tempo and bar 1 of the song on A1 (W4.5): the song's beats and downbeats | MIT (code and weights; Institute of Computational Perception, JKU Linz) |
+| torchaudio 2.11.1, einops 0.8.2, rotary-embedding-torch 0.9.2 | Beat This!'s spectrogram and its model's parts | BSD-2-Clause; MIT; MIT |
 | safetensors 0.8.0, soundfile 0.14.0, requests, PyYAML | Weights, audio files and downloads for the separator | Apache-2.0, BSD-3-Clause, Apache-2.0, MIT |
 | [STAR Drums](https://doi.org/10.5281/zenodo.15690078) preview (in `media/bench`, not in the repo) | The detection bench's real songs with exact drum hits (W4.1) | Code and annotations BSD-3-Clause; audio under various Creative Commons licences, listed in its `LICENSE` folder |
 

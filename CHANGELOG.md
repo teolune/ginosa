@@ -1,5 +1,26 @@
 # Changelog
 
+## Tempo and bar 1 from the song (W4.5, 18 Nov 2026)
+
+- **The sparkles listen to the song on A1 with Beat This!** once detection is set up (decision 123). Beat This! is a beat and downbeat tracker (ISMIR 2024, MIT). It lists the song's beats and bar lines, and ginosa lays one steady tempo through them. Tempos under 90 BPM are counted twice as fast, as your DAW counts your songs (167, where Beat This! hears 83.5). Bar 1 is the first bar line where the music starts, so silence at the start doesn't push it into the silence. A song cut mid-bar starts at its first whole bar. Without a song on A1, the sparkles listen to the mix as before.
+- **Fixed: the sparkles pressed right after placing a song** (within 0.6 s) gave it the tempo of what was there before. The test bench did this, and it's why I told you on 15 Nov that the sparkles got your songs wrong: they don't.
+- **Measured** (BPM, then bar 1 in seconds; your songs' answers from you: 167 and 162, bar 1 at the start of your export):
+
+  | Song | The mix (as before) | Beat This! |
+  | --- | --- | --- |
+  | `dpackdist` | 167.001, 0.015 | 166.988, 0.009 |
+  | `entrust` | 161.999, 0.009 | 161.952, −0.012 |
+  | STAR ismir_0443 | 162.06, a beat off (snares on 1 and 3) | 162.01, snares on 2 and 4 |
+  | STAR ismir_0445 | **70.05** | 210.06 |
+  | STAR Music_Delta | 109.94, bar 1 two beats in | 110.06, bar 1 at the start |
+  | STAR 1327741 (triplet feel) | 135.99, kick on 1 | 136.01, a beat early |
+
+  On 18 copies of your songs and the test drums, cut by 1, 2, 3 and 6 beats or delayed by 1.3 s of silence, Beat This! put bar 1 right every time. It takes under half a second a song on the M5's GPU (once it's loaded, about 3 s).
+- **Not built, measured as not needed yet:** nudge and swing suggestions per channel. On your songs the hits sit 2–9 ms from Beat This!'s grid, with no swing. Also not built: checking bar 1 against the drums when Beat This! is unsure. Only STAR's triplet-feel song needed that.
+- **Setup** installs Beat This! 1.1.0 and its 81 MB model into `.stems/` (the Cache window lists it), and its test now finds the test song's beats too.
+- **The performance slider is planned** as M18 (decision 124; it replaces decision 114). It goes in the plan doc's milestone list with your six steps; I swapped the frame rates at steps 4 and 5 so each step up is cheaper, and added settings at steps 2, 3 and Performance Mode. It needs your hex colours.
+- **Detection lab**: `w45-beats`, `w45-grids` (each song's grid and how many drum hits sit on it), `w45-bar-one` (the cut and delayed copies) and `w45-phases` (the hits' offsets from the grid).
+
 ## Drums transcribed hit by hit (W4.3, 15 Nov 2026)
 
 - **Detect transcribes the drums** once the song is separated (decision 122): ADTOF, a drum transcriber trained on real recordings, lists the kick, snare and hi-hat hits in the drums stem, and DrumSep splits the drums stem into kick, snare, toms, hi-hat, ride and crash, whose strong onsets add the hits ADTOF missed. The rack's top bar says *Transcribing the drums hit by hit…*. Bass is unchanged (W4.4).
@@ -15,7 +36,7 @@
 - **DrumSep only adds hits when it agrees with ADTOF** about what it hears (at least 40% of its onsets at ADTOF's hits are its own kind). STAR's pieces agree 0.80–1.00 and keep everything; on the generated test drums, whose snare and hi-hats are both white noise, the snare piece agrees 0.35 and adds nothing (claps 0.48 → 0.93 there, and `rackdetect` passes again). On your songs the pieces agree 0.50–1.00.
 - **Speed**: 13–16 s for your songs on top of separation, once (the hits are kept beside the stems in the project's cache; DrumSep's pieces are let go of after).
 - **Setup** (`npm run stems-setup`, or Set Up in the Cache window) installs ADTOF, librosa and pretty_midi and downloads DrumSep (440 MB, kept as its 437 MB MLX copy with the checkpoint an empty placeholder), then tests the transcriber on the test song.
-- **Found on the way: the tempo is wrong on both your songs.** Their drums line up within 3–10 ms on a grid of 83.5 BPM (`dpackdist`) and 81 BPM (`entrust`), or double that, but the Control Panel's sparkles find 128 and 167. Snapped to the wrong grid, even perfect hits make the wrong cubes, so the grid (W4.5) matters as much as the hits.
+- ~~Found on the way: the tempo is wrong on both your songs~~ **Corrected 18 Nov:** that was the bench's bug, not the sparkles'. The bench pressed them less than 0.6 s after placing each song, so each song got the previous song's tempo. Measured properly, the sparkles find 167 and 162 on your songs, as your DAW has them (see W4.5).
 - **Detection lab**: `w43-prepare`, `w43-score <gate>` (ADTOF, DrumSep's onsets, both, either), `w43-claps`, `w43-dominance` and `listen <song>` (Detect's own transcriber, timed).
 
 ## A better separator, measured (W4.2, 14 Nov 2026)

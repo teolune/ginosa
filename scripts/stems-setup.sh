@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Sets up stem separation for the Channel Rack's Automatic Detection (decision 108): a
 # Python environment in .stems/venv with demucs-mlx (MIT), which splits a song into drums,
-# bass, vocals and the rest on this Mac, with Apple's MLX; then BS-RoFormer-SW (W4.2) and the
-# drum transcriber (W4.3, DrumSep and ADTOF). Run it once:  npm run stems-setup
+# bass, vocals and the rest on this Mac, with Apple's MLX; then BS-RoFormer-SW (W4.2), the drum
+# transcriber (W4.3, DrumSep and ADTOF) and Beat This! (W4.5). Run it once:  npm run stems-setup
 #
 # Everything goes in .stems/ in this folder, the model's weights too (htdemucs, about
 # 160 MB, downloaded from Hugging Face on the first run and checked against digests built
@@ -158,6 +158,34 @@ else
   [[ -s "$models/$DRUMSEP.safetensors" ]] || { bad "DrumSep wasn't converted."; exit 1; }
   ok "DrumSep downloaded and converted"
 fi
+# W4.5: Beat This! (Foscarin, Schlüter and Widmer, ISMIR 2024; code and weights MIT) for the tempo
+# and bar 1 of the song on A1, with torchaudio (BSD-2-Clause), einops and rotary-embedding-torch
+# (MIT). Its checkpoint (final0, 81 MB) comes from JKU's server into .stems/torch, not ~/.cache.
+BEAT_THIS_VERSION="1.1.0"
+TORCHAUDIO_VERSION="2.11.1"
+export TORCH_HOME="$stems/torch"
+beats_installed() {
+  "$venv/bin/python" -c "import importlib.metadata as m, sys; sys.exit(0 if m.version('beat-this') == '$BEAT_THIS_VERSION' and m.version('torchaudio') == '$TORCHAUDIO_VERSION' else 1)" >/dev/null 2>&1
+}
+if beats_installed; then
+  ok "Beat This! $BEAT_THIS_VERSION is already installed"
+else
+  say "Installing Beat This! $BEAT_THIS_VERSION (the beat and bar finder, a few MB)…"
+  if ! "$venv/bin/python" -m pip install --prefer-binary "beat-this==$BEAT_THIS_VERSION" "torchaudio==$TORCHAUDIO_VERSION" "einops==0.8.2" "rotary-embedding-torch==0.9.2"; then
+    bad "pip couldn't install Beat This! (the error is above)."; exit 1
+  fi
+  beats_installed && ok "Beat This! installed" || { bad "Beat This! didn't install properly."; exit 1; }
+fi
+if [[ -s "$TORCH_HOME/hub/checkpoints/beat_this-final0.ckpt" ]]; then
+  ok "Beat This!'s model is downloaded"
+else
+  say "Downloading Beat This!'s model (81 MB)…"
+  if ! "$venv/bin/python" -c "from beat_this.inference import load_checkpoint; load_checkpoint('final0')"; then
+    bad "Couldn't download Beat This!'s model (above)."; exit 1
+  fi
+  ok "Beat This!'s model downloaded"
+fi
+
 # As with BS-RoFormer-SW, only the converted copy is loaded (mlx-audio-separator 0.1.20 reads the
 # settings from the .yaml and the weights from the .safetensors), so the checkpoint becomes a placeholder.
 if [[ -s "$models/$DRUMSEP.ckpt" && -s "$models/$DRUMSEP.safetensors" ]]; then
@@ -188,6 +216,12 @@ if "$venv/bin/demucs-mlx" "$input" -o "$work/out" -n htdemucs && HF_HOME="$stems
       else
         bad "The drum transcriber stopped with an error:"; tail -5 "$work/listen.log"; result=1
       fi
+      start=$(date +%s)
+      if "$venv/bin/python" "$root/scripts/detect/beats.py" "$input" "$work/beats.json" > "$work/beats.log" 2>&1 && [[ -s "$work/beats.json" ]]; then
+        ok "Found its beats with Beat This! in $(( $(date +%s) - start )) s ($("$venv/bin/python" -c "import json, sys; print(len(json.load(open(sys.argv[1]))['beats']))" "$work/beats.json") beats)"
+      else
+        bad "Beat This! stopped with an error:"; tail -5 "$work/beats.log"; result=1
+      fi
     else
       bad "BS-RoFormer-SW wrote no drums stem."; result=1
     fi
@@ -199,7 +233,7 @@ else
 fi
 rm -rf "$work"
 if (( result == 0 )); then
-  say "Ready. In ginosa, the Channel Rack's Detect now separates the song on A1 first, then transcribes its drums hit by hit."
+  say "Ready. In ginosa, the sparkles find the tempo and bar 1 of the song on A1 with Beat This!, and the Channel Rack's Detect separates it, then transcribes its drums hit by hit."
 else
   info "Stem separation isn't working yet; Detect keeps using frequency bands of the whole song."
 fi

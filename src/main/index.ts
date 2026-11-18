@@ -285,7 +285,7 @@ function registerIpc(): void {
         const key = JSON.parse(await readFile(join(dir, file), 'utf8'))
         key.audio = resolve(process.cwd(), key.audio)
         await access(key.audio)
-        keys.push({ name: key.name ?? file, source: key.source ?? '', audio: key.audio, bpm: key.bpm ?? null, downbeat: key.downbeat ?? null, hits: key.hits ?? null })
+        keys.push({ name: key.name ?? file, source: key.source ?? '', audio: key.audio, bpm: key.bpm ?? null, downbeat: key.downbeat ?? null, grid: key.grid ?? null, hits: key.hits ?? null })
       } catch {
         // A key whose song isn't there (yet) is left out.
       }

@@ -103,13 +103,17 @@ class AnalysisController extends Observable {
     }, DEBOUNCE_MS)
   }
 
+  /** Looks at a change still waiting out the debounce now. */
+  private flush(): void {
+    if (this.timer === null) return
+    clearTimeout(this.timer)
+    this.timer = null
+    this.refresh()
+  }
+
   /** Waits until every source is analysed (export and tests use this). */
   async settle(): Promise<void> {
-    if (this.timer !== null) {
-      clearTimeout(this.timer)
-      this.timer = null
-      this.refresh()
-    }
+    this.flush()
     while (this.busy || this.queue.length > 0) await new Promise((resolve) => setTimeout(resolve, 50))
   }
 
@@ -219,8 +223,14 @@ class AnalysisController extends Observable {
     }
   }
 
-  /** Use a source's detected tempo for the beat grid, now or as soon as it's analysed. */
+  /**
+   * Use a source's detected tempo for the beat grid, now or as soon as it's analysed. A change
+   * still waiting out the debounce is looked at first: otherwise a song placed less than 0.6 s
+   * before got the tempo of the sound there before it (the detection bench gave each song the
+   * previous song's tempo).
+   */
   useDetectedTempo(sourceId: string): boolean {
+    this.flush()
     this.pendingTempo = sourceId
     return this.applyPendingTempo(sourceId)
   }

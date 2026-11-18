@@ -30,6 +30,8 @@ export interface StemsStatus {
   separators: Separator[]
   /** The drum transcriber (W4.3: DrumSep and ADTOF) is set up. */
   transcriber: boolean
+  /** Beat This! (W4.5) is set up, for the tempo and bar 1 of the song on A1. */
+  beats: boolean
 }
 
 const bin = (appRoot: string, name: string) => join(appRoot, '.stems', 'venv', 'bin', name)
@@ -58,14 +60,26 @@ async function transcriberReady(appRoot: string): Promise<boolean> {
   return adtof && (await exists(bin(appRoot, 'python'), constants.X_OK)) && (await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await allThere(models(appRoot), DRUMSEP_FILES)) && (await exists(LISTEN(appRoot)))
 }
 
+const BEATS = (appRoot: string) => join(appRoot, 'scripts', 'detect', 'beats.py')
+const BEAT_THIS_CHECKPOINT = (appRoot: string) => join(appRoot, '.stems', 'torch', 'hub', 'checkpoints', 'beat_this-final0.ckpt')
+
+/** Beat This! in the environment, its checkpoint and the script that runs it. */
+async function beatsReady(appRoot: string): Promise<boolean> {
+  const lib = join(appRoot, '.stems', 'venv', 'lib')
+  const versions = (await readdir(lib).catch(() => [] as string[])).filter((d) => d.startsWith('python'))
+  const beatThis = (await Promise.all(versions.map((v) => exists(join(lib, v, 'site-packages', 'beat_this', 'inference.py'))))).some(Boolean)
+  return beatThis && (await exists(bin(appRoot, 'python'), constants.X_OK)) && (await exists(BEAT_THIS_CHECKPOINT(appRoot))) && (await exists(BEATS(appRoot)))
+}
+
 export async function stemsStatus(appRoot: string): Promise<StemsStatus> {
   const separators: Separator[] = []
   if ((await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await allThere(models(appRoot), SW_FILES))) separators.push('bs-roformer-sw')
   if (await exists(bin(appRoot, 'demucs-mlx'), constants.X_OK)) separators.push('htdemucs')
   const transcriber = separators.length > 0 && (await transcriberReady(appRoot))
+  const beats = await beatsReady(appRoot)
   return separators.length
-    ? { ready: true, detail: null, separators, transcriber }
-    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators, transcriber }
+    ? { ready: true, detail: null, separators, transcriber, beats }
+    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators, transcriber, beats }
 }
 
 /** A separator's stems in `dir`: `drums.wav` as kept in the cache, or `…_(drums)_…` as mlx-audio-separator names them. */
@@ -216,6 +230,59 @@ async function separate(appRoot: string, input: string, dir: string, separator: 
   return out
 }
 
+/** What Beat This! heard in a song (beats.py): seconds in the song file. */
+export interface SongBeats {
+  beats: number[]
+  downbeats: number[]
+  firstSound: number
+}
+/** Raised when beats.py's method changes, so songs are heard again. */
+const BEATS_VERSION = 1
+
+/**
+ * The beats and downbeats of the song file `input` (W4.5), from the cache in `dir` when heard
+ * before, otherwise by Beat This! now (the song is converted to a WAV first, so any format works).
+ */
+export async function songBeats(appRoot: string, input: string, dir: string): Promise<SongBeats> {
+  const file = join(dir, `beats-v${BEATS_VERSION}.json`)
+  const read = async (): Promise<SongBeats | null> => {
+    const text = await readFile(file, 'utf8').catch(() => null)
+    if (text === null) return null
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const times = (v: unknown) => (Array.isArray(v) ? v.filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t >= 0) : [])
+    return { beats: times(parsed['beats']), downbeats: times(parsed['downbeats']), firstSound: typeof parsed['firstSound'] === 'number' ? parsed['firstSound'] : 0 }
+  }
+  const cached = await read()
+  if (cached) return cached
+  if (!(await beatsReady(appRoot))) throw new Error('Beat This! isn’t set up on this Mac: set up detection again in the Cache window')
+  if (settingUp) throw new Error('Detection is being set up; try again when it has finished.')
+  separating++
+  const work = `${dir}.beats-working`
+  try {
+    await rm(work, { recursive: true, force: true })
+    await mkdir(work, { recursive: true })
+    const wav = join(work, 'song.wav')
+    const decoded = await runTool('ffmpeg', ['-v', 'error', '-y', '-i', input, '-vn', '-ac', '1', '-ar', '44100', '-c:a', 'pcm_f32le', wav], { collect: false })
+    if (decoded.code !== 0) throw new Error(`Couldn’t read the song: ${decoded.stderr.trim().split('\n').at(-1) ?? 'FFmpeg failed'}`)
+    await mkdir(dir, { recursive: true })
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin(appRoot, 'python'), [BEATS(appRoot), wav, file], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TORCH_HOME: join(appRoot, '.stems', 'torch') } })
+      let tail = ''
+      const take = (chunk: Buffer) => (tail = (tail + chunk.toString()).slice(-4000))
+      child.stdout.on('data', take)
+      child.stderr.on('data', take)
+      child.on('error', reject)
+      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Beat This! stopped (exit ${code}): ${tail.trim().split('\n').at(-1) ?? ''}`))))
+    })
+  } finally {
+    separating--
+    await rm(work, { recursive: true, force: true })
+  }
+  const heard = await read()
+  if (!heard) throw new Error('Beat This! wrote no beats')
+  return heard
+}
+
 /** A stem as mono 32-bit float samples at `rate` (for the analysis worker). */
 export async function stemPcm(path: string, rate: number): Promise<ArrayBuffer> {
   await stat(path)
@@ -235,7 +302,8 @@ export interface DetectionModels {
 }
 
 const PART_NAMES: Record<string, string> = {
-  venv: 'Python packages (MLX, PyTorch, the separators, ADTOF)',
+  venv: 'Python packages (MLX, PyTorch, the separators, ADTOF, Beat This!)',
+  torch: 'Beat This! model',
   python: 'Python 3.12 (a private copy)',
   bootstrap: 'Setup tools (uv)',
   weights: 'Demucs model (htdemucs)',

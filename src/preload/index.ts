@@ -103,6 +103,7 @@ const bridge: GinosaBridge = {
     status: () => ipcRenderer.invoke('stems:status'),
     separate: (projectId, input, key, separator) => ipcRenderer.invoke('stems:separate', projectId, input, key, separator),
     drumHits: (projectId, key) => ipcRenderer.invoke('stems:drumHits', projectId, key),
+    beats: (projectId, input, key) => ipcRenderer.invoke('stems:beats', projectId, input, key),
     pcm: (path, rate) => ipcRenderer.invoke('stems:pcm', path, rate),
     onProgress: (listener: (line: string) => void) => listen('stems:progress', listener),
     models: () => ipcRenderer.invoke('stems:models'),

@@ -10,7 +10,7 @@ import { DEFAULT_PREVIEW_LIMIT, PreviewStore } from '../cache/preview-store'
 import { ensureThumbnail, ensureWaveform } from './generate'
 import { checkFile, classifyImportPaths, fingerprintFile, listFolder, probeFiles, probeFile, searchForMoved } from './media-files'
 import { OptimiseQueue, type OptimiseJob } from './optimise'
-import { deleteDetectionModels, detectionModels, drumHits, separateStems, SEPARATORS, setUpDetection, stemPcm, stemsStatus, type Separator } from './stems'
+import { deleteDetectionModels, detectionModels, drumHits, separateStems, SEPARATORS, setUpDetection, songBeats, stemPcm, stemsStatus, type Separator } from './stems'
 
 /** IPC for media import, generated files, optimised copies and the cache. */
 
@@ -111,6 +111,11 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad stems key')
     const dir = join(await cache.categoryDir(projectId, 'stems'), key)
     return drumHits(app.getAppPath(), dir, (line) => event.sender.send('stems:progress', line))
+  })
+  // Beat This! on a song file (W4.5): its beats, kept in the stems category under `key`.
+  ipcMain.handle('stems:beats', async (_event, projectId: string, input: string, key: string) => {
+    if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad beats key')
+    return songBeats(app.getAppPath(), input, join(await cache.categoryDir(projectId, 'stems'), key))
   })
   ipcMain.handle('stems:pcm', (_event, path: string, rate: number) => stemPcm(path, rate))
   // The detection models themselves (decision 119): listed, deleted and set up again from the Cache window.

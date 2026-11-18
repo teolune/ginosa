@@ -6,6 +6,7 @@ import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
 import { Icon } from '../app/Icon'
 import { analysisController } from '../audio/analysis-controller'
 import { changeTempo, detectTempo } from './actions'
+import { songTempo } from './song-tempo'
 import { togglePreviewFullscreen } from '../panels/ProgramMonitor'
 import { player } from '../playback/player'
 import { useObservable } from '../state/observable'
@@ -37,6 +38,7 @@ export function ControlPanel() {
   useObservable(player, ['state'])
   useObservable(workspaceController)
   useObservable(analysisController)
+  useObservable(songTempo)
   const [framesMenu, setFramesMenu] = useState<{ x: number; y: number } | null>(null)
   const sequence = projectController.project?.sequence
   if (!sequence) return null
@@ -44,7 +46,7 @@ export function ControlPanel() {
   const bpm = grid?.bpm ?? UNSET_BPM
   const pending = analysisController.pendingTempo
   const pendingStatus = pending ? analysisController.state(pending).status.kind : null
-  const detecting = pendingStatus === 'queued' || pendingStatus === 'mixing' || pendingStatus === 'analysing'
+  const detecting = songTempo.busy || pendingStatus === 'queued' || pendingStatus === 'mixing' || pendingStatus === 'analysing'
   const layout = workspaceController.layout
   const rackOpen = workspaceController.isOpen('channel-rack')
   const playing = player.playing
@@ -63,7 +65,7 @@ export function ControlPanel() {
             className={`cp-button ${detecting ? 'busy' : ''}`}
             title={detecting ? 'Listening for the tempo…' : 'Automatic Detection: find the tempo and downbeat of the music'}
             aria-label="Detect tempo"
-            onClick={detectTempo}
+            onClick={() => detectTempo()}
             disabled={detecting}
           >
             <Icon name="sparkles" fallback="✦" />
