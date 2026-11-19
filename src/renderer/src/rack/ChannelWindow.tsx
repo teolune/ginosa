@@ -1,9 +1,10 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { EFFECTS, effectById } from '../../../effects/registry'
 import type { EffectManifest } from '@engine/effects/types'
-import type { Clip, Sequence } from '@engine/project/model'
+import type { Clip } from '@engine/project/model'
 import { renameRackRow } from '@engine/timeline/rack-edits'
-import { addChannelEffect, channelEffects, effectLabel, linkableValues, linkToChannel, mainParam, unlinkFromChannel } from '@engine/timeline/rack-links'
+import { addChannelEffect, channelEffects, linkToChannel, mainParam, unlinkFromChannel } from '@engine/timeline/rack-links'
+import { trackName, ValuePicker } from '../app/ValuePicker'
 import { channelModulatorIds } from '@engine/timeline/rack'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -19,20 +20,6 @@ import { rackUi } from './rack-ui'
  * linked.
  */
 
-/** Clips listed in "Link a value…": the selected first, then adjustment layers, then the rest by track and time. */
-function linkableClips(sequence: Sequence): Clip[] {
-  const selected = timelineController.selection
-  const order = new Map(sequence.tracks.map((t, i) => [t.id, i]))
-  const rank = (c: Clip) => (selected.has(c.id) ? 0 : c.adjustment ? 1 : 2)
-  return sequence.clips
-    .filter((c) => c.kind === 'video')
-    .sort((a, b) => rank(a) - rank(b) || (order.get(b.trackId) ?? 0) - (order.get(a.trackId) ?? 0) || a.start - b.start)
-}
-
-function trackName(sequence: Sequence, clip: Clip): string {
-  return sequence.tracks.find((t) => t.id === clip.trackId)?.name ?? ''
-}
-
 /** The values of an effect a channel can move, from its manifest (Mix last). */
 function manifestValues(manifest: EffectManifest): Array<{ id: string; label: string }> {
   return [
@@ -41,15 +28,12 @@ function manifestValues(manifest: EffectManifest): Array<{ id: string; label: st
   ]
 }
 
-const MAX_LISTED = 60
-
 export function ChannelWindow() {
   useObservable(projectController)
   useObservable(rackUi)
   useObservable(timelineController)
   const [mode, setMode] = useState<'list' | 'link' | 'new'>('list')
   const [query, setQuery] = useState('')
-  const [expanded, setExpanded] = useState<string | null>(null)
   const [chosen, setChosen] = useState<{ effectId: string; param: string } | null>(null)
   const sequence = projectController.project?.sequence
   const row = sequence?.rack.rows.find((r) => r.id === rackUi.channelWindow)
@@ -61,7 +45,6 @@ export function ChannelWindow() {
   const go = (next: 'list' | 'link' | 'new') => {
     setMode(next)
     setQuery('')
-    setExpanded(null)
     setChosen(null)
   }
   const close = () => rackUi.openChannelWindow(null)
@@ -152,57 +135,14 @@ export function ChannelWindow() {
       {mode === 'link' && (
         <>
           <div className="channel-window-label muted small">Link a value to {row.name}</div>
-          <input className="input compact" placeholder="Search clips, effects and values" aria-label="Search" value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
-          <div className="channel-picker">
-            {(() => {
-              const entries = linkableClips(sequence).flatMap((clip) =>
-                [null, ...clip.effects.map((e) => e.id)].map((effectId) => ({ clip, effectId, name: effectLabel(clip, effectId), values: linkableValues(clip, effectId) }))
-              )
-              const shown = entries.filter((e) => e.values.length > 0 && (matches(`${e.name} ${e.clip.name} ${trackName(sequence, e.clip)}`) || e.values.some((v) => matches(v.label))))
-              if (shown.length === 0) return <p className="muted small">No clip or effect matches.</p>
-              return (
-                <>
-                  {shown.slice(0, MAX_LISTED).map((entry) => {
-                    const key = `${entry.clip.id}:${entry.effectId ?? ''}`
-                    const open = expanded === key || (needle !== '' && shown.length <= 3)
-                    return (
-                      <div key={key} className="channel-pick">
-                        <button className={`channel-pick-head ${open ? 'open' : ''}`} aria-expanded={open} onClick={() => setExpanded(open ? null : key)}>
-                          <span className="channel-effect-name-text">{entry.name}</span>
-                          <span className="muted small">
-                            {entry.clip.name} · {trackName(sequence, entry.clip)}
-                            {timelineController.selection.has(entry.clip.id) ? ' · selected' : ''}
-                          </span>
-                        </button>
-                        {open && (
-                          <div className="channel-pick-values">
-                            {entry.values.map((value) => {
-                              const linked = (entry.effectId === null ? entry.clip.modulation : entry.clip.effects.find((e) => e.id === entry.effectId)?.modulation)?.[value.param]?.some((l) => modulators.has(l.modulatorId))
-                              return (
-                                <button
-                                  key={value.param}
-                                  className="button compact"
-                                  disabled={linked}
-                                  title={linked ? `Already linked to ${row.name}` : `Link ${value.label} to ${row.name}`}
-                                  onClick={() => {
-                                    if (dispatch(linkToChannel(row.id, { clipId: entry.clip.id, effectId: entry.effectId, param: value.param }, at))) go('list')
-                                  }}
-                                >
-                                  {value.label}
-                                  {linked ? ' ✓' : ''}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {shown.length > MAX_LISTED && <p className="muted small">{shown.length - MAX_LISTED} more: type to narrow them down.</p>}
-                </>
-              )
-            })()}
-          </div>
+          <ValuePicker
+            sequence={sequence}
+            targetName={row.name}
+            linked={(clip, effectId, param) => (effectId === null ? clip.modulation : clip.effects.find((e) => e.id === effectId)?.modulation)?.[param]?.some((l) => modulators.has(l.modulatorId)) ?? false}
+            onPick={(ref) => {
+              if (dispatch(linkToChannel(row.id, ref, at))) go('list')
+            }}
+          />
           <div className="channel-window-actions">
             <button className="button compact" onClick={() => go('list')}>
               Back

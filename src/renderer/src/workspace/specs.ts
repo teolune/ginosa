@@ -134,6 +134,17 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    // W2.2: an automation clip's curve, FL Studio's way (double-click the clip).
+    id: 'automation-editor',
+    title: 'Automation Editor',
+    shortcut: 'Alt+Shift+6',
+    defaultRect: { x: 180, y: 340, w: 980, h: 340 },
+    minSize: { w: 560, h: 220 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

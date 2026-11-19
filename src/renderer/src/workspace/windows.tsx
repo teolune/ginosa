@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AutomationEditorWindow } from '../automation/AutomationEditorWindow'
 import { AudioAnalysisWindow } from '../windows/AudioAnalysisWindow'
 import { CacheManagerWindow } from '../windows/CacheManagerWindow'
 import { ChannelRackWindow } from '../windows/ChannelRackWindow'
@@ -48,6 +49,8 @@ export function renderWindow(id: string): ReactNode {
       return <GradientEditorWindow />
     case 'playback-test':
       return <PlaybackTestWindow />
+    case 'automation-editor':
+      return <AutomationEditorWindow />
     default:
       return null
   }

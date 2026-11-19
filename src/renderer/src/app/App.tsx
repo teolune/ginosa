@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { automationTest } from '../automation/automation-test'
+import { automationEditorTest } from '../automation/editor-test'
 import { tabsTest } from './tabs-test'
 import { channelWindowTest } from '../rack/channel-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
@@ -180,6 +181,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
       }
       if (scenario === 'tabshome') projectController.showHome()
+      break
+    }
+    case 'automationeditor': {
+      // W2.2: the automation editor; every shape plays as drawn.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /square_1080\.png$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await automationEditorTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'automation': {

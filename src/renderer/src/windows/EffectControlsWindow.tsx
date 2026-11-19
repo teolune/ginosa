@@ -20,6 +20,8 @@ import { addLink, removeLinks, updateLink, updateModulator } from '@engine/timel
 import type { ModLink, Modulator } from '@engine/modulation/types'
 import type { RackRow } from '@engine/project/model'
 import { CHANNEL_DRAG_TYPE, rackUi } from '../rack/rack-ui'
+import { AUTOMATION_DRAG_TYPE } from '../automation/automation-ui'
+import { linkToAutomation } from '@engine/timeline/automation-edits'
 import { modulationUi } from '../audio/modulation-ui'
 import { modulationController } from '../audio/modulation-controller'
 import { defaultValueOf } from '../audio/default-values'
@@ -302,7 +304,8 @@ function PropertyRow({
         setMenu({ x: event.clientX, y: event.clientY })
       }}
       onDragOver={(event) => {
-        if (locked || !canModulate || !event.dataTransfer.types.includes(CHANNEL_DRAG_TYPE)) return
+        // A channel's name from the Channel Rack, or an automation clip's from its editor (W2.2).
+        if (locked || !canModulate || !(event.dataTransfer.types.includes(CHANNEL_DRAG_TYPE) || event.dataTransfer.types.includes(AUTOMATION_DRAG_TYPE))) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'link'
         if (!dropping) setDropping(true)
@@ -310,7 +313,13 @@ function PropertyRow({
       onDragLeave={() => setDropping(false)}
       onDrop={(event) => {
         const rowId = event.dataTransfer.getData(CHANNEL_DRAG_TYPE)
+        const automationId = event.dataTransfer.getData(AUTOMATION_DRAG_TYPE)
         setDropping(false)
+        if (automationId && !locked && canModulate) {
+          event.preventDefault()
+          projectController.dispatch(linkToAutomation(ref, automationId))
+          return
+        }
         if (!rowId || locked || !canModulate) return
         event.preventDefault()
         const row = sequence?.rack.rows.find((r) => r.id === rowId)

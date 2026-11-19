@@ -11,6 +11,7 @@ import { linkToAutomation, newAutomationClip, setAutomationPoints } from '../tim
 import { deleteClips, placeMedia, splitClips, type TimelineCommand } from '../timeline/edits'
 import { removeModulator } from '../timeline/modulation-edits'
 import { automationValue, bend, shapeAt, stretchCount } from './curve'
+import { dragTension, insertPoint, movePoint, removePoints, setShape, SHAPE_LABELS, snapCurveTime, snapStepBeats, tensionHandle, tensionLabel } from './edit'
 
 const s = secondsToTicks
 let counter = 0
@@ -134,5 +135,61 @@ describe('automation clips (W2)', () => {
     const broken = JSON.parse(serializeProject(history.state))
     broken.sequence.modulators = broken.sequence.modulators.filter((m: { id: string }) => m.id !== made.modulatorId)
     expect(() => parseProject(JSON.stringify(broken))).toThrow(/no automation modulator/)
+  })
+})
+
+describe('the automation editor’s edits (W2.2)', () => {
+  const GRID = { bpm: 120, downbeat: 0, beatsPerBar: 4, sourceId: null }
+  it('adds a point with the shape of the stretch it lands in, and keeps points in order', () => {
+    const points = [pt(0, 0.2, 'stairs', 0.5), pt(4, 0.8, 'wave')]
+    const { points: added, index } = insertPoint(points, s(1), 1.4)
+    expect(index).toBe(1)
+    expect(added[1]).toEqual({ time: s(1), value: 1, shape: 'stairs', tension: 0.5 })
+    expect(insertPoint(points, s(9), 0.5).index).toBe(2)
+    expect(insertPoint(points, s(9), 0.5).points[2]!.shape).toBe('wave')
+  })
+
+  it('moves a point between its neighbours only, deletes but keeps one, and sets shapes', () => {
+    const points = [pt(0, 0.2), pt(2, 0.5), pt(4, 0.8)]
+    expect(movePoint(points, 1, s(5), -1)[1]).toMatchObject({ time: s(4), value: 0 })
+    expect(movePoint(points, 1, s(-1), 2)[1]).toMatchObject({ time: 0, value: 1 })
+    expect(removePoints(points, [0, 2])!.map((p) => p.time)).toEqual([s(2)])
+    expect(removePoints(points, [0, 1, 2])).toBeNull()
+    expect(setShape(points, [0, 2], 'pulse').map((p) => p.shape)).toEqual(['pulse', 'single', 'pulse'])
+  })
+
+  it('bends a curve the way the handle is dragged, rising or falling, and counts steps up', () => {
+    const rising = [pt(0, 0.2), pt(2, 0.8)]
+    const falling = [pt(0, 0.8), pt(2, 0.2)]
+    // Dragging the handle up a quarter of the graph: +0.5 bulges a rising stretch up, and a falling one too.
+    expect(dragTension(0, rising[0]!, rising[1], -50, 200)).toBeCloseTo(0.5, 9)
+    expect(dragTension(0, falling[0]!, falling[1], -50, 200)).toBeCloseTo(-0.5, 9)
+    const up = { ...rising[0]!, tension: 0.5 }
+    const down = { ...falling[0]!, tension: -0.5 }
+    expect(automationValue([up, rising[1]!], s(1))).toBeGreaterThan(0.5)
+    expect(automationValue([down, falling[1]!], s(1))).toBeGreaterThan(0.5)
+    expect(dragTension(0.9, rising[0]!, rising[1], -400, 200)).toBe(1)
+    const stairs = { ...rising[0]!, shape: 'stairs' as const }
+    expect(stretchCount(dragTension(0, stairs, rising[1], -50, 200))).toBeGreaterThan(stretchCount(0))
+    expect(tensionLabel({ ...stairs, tension: 0 })).toBe('4 steps')
+    expect(tensionLabel({ ...rising[0]!, tension: -0.25 })).toBe('bend -25%')
+    expect(tensionHandle(rising, 0)).toEqual({ time: s(1), value: 0.5 })
+    expect(tensionHandle(rising, 1)).toBeNull()
+  })
+
+  it('snaps to the beat grid where the clip sits (a 16th, a beat or a bar by zoom), or to frames', () => {
+    // The clip starts at 1 s on the timeline with its curve from 0.5 s: curve time 0.6 s is 1.1 s on the timeline.
+    const clip = { start: s(1), sourceIn: s(0.5) }
+    // At 120 BPM a 16th is 0.125 s: 1.1 s snaps to 1.125 s on the timeline, curve time 0.625 s.
+    expect(snapCurveTime(s(0.6), clip, GRID, 0.25, s(0.04))).toBe(s(0.625))
+    expect(snapCurveTime(s(0.6), clip, GRID, 1, s(0.04))).toBe(s(0.5))
+    expect(snapCurveTime(s(0.61), clip, null, 1, s(0.04))).toBe(s(0.62) - s(1) + s(1))
+    // Zoomed out, 16ths too close together: beats.
+    // At 120 BPM a beat is 0.5 s: at 80 px a second a 16th is 10 px; at 40, an 8th; at 20, a beat; at 10, a bar.
+    expect(snapStepBeats(GRID, 80 / s(1))).toBe(0.25)
+    expect(snapStepBeats(GRID, 40 / s(1))).toBe(0.5)
+    expect(snapStepBeats(GRID, 20 / s(1))).toBe(1)
+    expect(snapStepBeats(GRID, 10 / s(1))).toBe(4)
+    expect(SHAPE_LABELS['smooth-stairs']).toBe('Smooth stairs')
   })
 })

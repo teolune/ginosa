@@ -1,5 +1,14 @@
 # Changelog
 
+## The automation editor (W2.2, 20 Nov 2026)
+
+- **Double-click an automation clip** and the Automation Editor opens on its curve (decision 131): across the clip, 0–100% up, on the beat grid with bar numbers. It follows the automation clip selected on the timeline. Window › Automation Editor (⌥⇧6) too.
+- **FL Studio's way:** click empty space to add a point (and drag it straight away); drag points; drag a stretch's small round handle up or down for its tension (a curve bends the way you drag; stairs, pulse and wave get more steps or cycles, 1 to 16); right-click a point or a stretch for its shape (Single curve, Double curve, Hold, Stairs, Smooth stairs, Pulse, Wave), Straighten or Delete. ⌫ deletes the selected points, ⌘A selects them all. The Shape menu at the top changes the selected ones; the readout shows a point's value, time and its tension ("4 steps", "bend +60%").
+- **Snapping** to the beat grid: the finest of 16ths, 8ths, beats or bars that's at least 8 px apart at the window's size (frames with no tempo). Hold ⌥ while dragging to move freely; the Snap button turns it off. Each drag is one undo step.
+- **Beside the graph:** what the clip controls (× to let a value go), **+ Pick a value…** (every clip's effects, Motion and Opacity, and audio clips' Volume, with a search), and the clip's name to **drag onto a value** in Effect Controls.
+- **Measured** (`automationeditor`, `"verdict":"pass"`): a square's Opacity follows a clip of eight stretches in all seven shapes. The curve read back from the editor's pixels, column by column, matches the Opacity playback gives the square at that moment within 0.0063 (under a screen pixel of the graph; the tolerance is 1.5 px), in every stretch. The editor opened by double-clicking the clip; a click added a point snapped to 2.5 s and ⌫ deleted it; a drag landed on the 16th at 1.25 s in one undo step (with ⌥, at 1.29 s); dragging a handle up bent the curve more; the menu made a hold a wave; Scale picked, and Rotation linked by dragging the clip's name onto it and unlinked by its ×. Tests: 434 (4 new: the editor's edits, its snapping and its handles).
+- **Next:** tempo (W2.3): the tempo map and the Automate BPM button.
+
 ## The Channel Rack shows the song as it is, and a channel's window (20 Nov 2026)
 
 - **No more loops** (decision 130, your correction). Each section (A, B, C…) holds its own cubes for its whole length, 16 to a bar: an 8-bar section shows 128 cubes, grouped by beat, with a gap and a number at each bar. Nothing repeats; following the playhead shows the cubes under it. Click a bar number to move the playhead there.

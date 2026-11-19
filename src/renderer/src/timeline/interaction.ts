@@ -22,6 +22,7 @@ import {
 import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
 import { snapDelta, snapTargets, snapTime } from '@engine/timeline/snapping'
 import { EditContext, clipEnd, findTrack, gapAt, trackIndex, toFrame } from '@engine/timeline/timeline'
+import { automationUi } from '../automation/automation-ui'
 import { mediaController } from '../state/media-controller'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
@@ -440,6 +441,12 @@ export class TimelineInteraction {
   doubleClick(x: number, y: number): void {
     const hit = hitTest(x, y)
     if (hit.kind !== 'clip') return
+    if (hit.clip.kind === 'automation') {
+      // W2.2: its curve in the automation editor.
+      tl.select([hit.clip.id], 'replace')
+      automationUi.open(hit.clip.id)
+      return
+    }
     if (hit.clip.adjustment) {
       // An adjustment layer has no source: show its effects instead.
       tl.select([hit.clip.id], 'replace')
