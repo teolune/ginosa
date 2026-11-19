@@ -285,7 +285,20 @@ function registerIpc(): void {
         const key = JSON.parse(await readFile(join(dir, file), 'utf8'))
         key.audio = resolve(process.cwd(), key.audio)
         await access(key.audio)
-        keys.push({ name: key.name ?? file, source: key.source ?? '', audio: key.audio, bpm: key.bpm ?? null, downbeat: key.downbeat ?? null, grid: key.grid ?? null, hits: key.hits ?? null })
+        // Your answers on doubtful cubes in this song (W4.6), from media/bench/answers.
+        const answers: Record<string, { kept: number; deleted: number }> = {}
+        const lines = await readFile(join(process.cwd(), 'media', 'bench', 'answers', `${basename(key.audio).replace(/[^\w.()-]+/g, '_')}.jsonl`), 'utf8').catch(() => '')
+        for (const line of lines.split('\n').filter(Boolean)) {
+          try {
+            const a = JSON.parse(line) as { kind: string; kept: boolean }
+            const n = (answers[a.kind] ??= { kept: 0, deleted: 0 })
+            if (a.kept) n.kept += 1
+            else n.deleted += 1
+          } catch {
+            // A damaged line is skipped.
+          }
+        }
+        keys.push({ name: key.name ?? file, source: key.source ?? '', audio: key.audio, bpm: key.bpm ?? null, downbeat: key.downbeat ?? null, grid: key.grid ?? null, hits: key.hits ?? null, answers: Object.keys(answers).length ? answers : null })
       } catch {
         // A key whose song isn't there (yet) is left out.
       }

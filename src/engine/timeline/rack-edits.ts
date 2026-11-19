@@ -198,6 +198,13 @@ export function removeRackCubes(refs: readonly CubeRef[]): TimelineCommand {
   })
 }
 
+/** Keep: these cubes lose their doubt mark (W4.6), so they stay as found. */
+export function keepRackCubes(refs: readonly CubeRef[]): TimelineCommand {
+  return timelineCommand(refs.length === 1 ? 'Keep Cube' : 'Keep Cubes', (draft) => {
+    for (const ref of refs) delete cubeAt(draft.sequence, ref).doubtful
+  })
+}
+
 function cubeAt(sequence: Sequence, ref: CubeRef): RackCube {
   const cube = section(sequence, ref.sectionId).cubes[ref.rowId]?.find((c) => c.step === ref.step)
   if (!cube) throw new CommandError('That cube is gone')
@@ -245,7 +252,11 @@ export function pasteCubeAmounts(refs: readonly CubeRef[], amounts: Record<strin
  * Automatic Detection's result: the sections and their cubes, replacing the rack's sections
  * (channels, their settings and links stay). `cubes` are by channel id.
  */
-export function replaceRackSections(sections: ReadonlyArray<{ bars: number; cubes: Record<string, number[]> }>, label = 'Detect Pattern', newId: IdFactory = defaultId): TimelineCommand {
+export function replaceRackSections(
+  sections: ReadonlyArray<{ bars: number; cubes: Record<string, number[]>; doubtful?: Record<string, number[]> }>,
+  label = 'Detect Pattern',
+  newId: IdFactory = defaultId
+): TimelineCommand {
   return timelineCommand(label, (draft) => {
     const limit = loopLimit(draft.sequence)
     const ids = new Set(draft.sequence.rack.rows.map((r) => r.id))
@@ -255,7 +266,14 @@ export function replaceRackSections(sections: ReadonlyArray<{ bars: number; cube
       cubes: Object.fromEntries(
         Object.entries(s.cubes)
           .filter(([id, steps]) => ids.has(id) && steps.length > 0)
-          .map(([id, steps]) => [id, [...new Set(steps)].filter((x) => Number.isInteger(x) && x >= 0 && x < limit).sort((a, b) => a - b).map((step) => ({ step, amounts: {} }))])
+          .map(([id, steps]) => {
+            const doubts = new Set(s.doubtful?.[id] ?? [])
+            const cubes: RackCube[] = [...new Set(steps)]
+              .filter((x) => Number.isInteger(x) && x >= 0 && x < limit)
+              .sort((a, b) => a - b)
+              .map((step) => (doubts.has(step) ? { step, amounts: {}, doubtful: true } : { step, amounts: {} }))
+            return [id, cubes]
+          })
       )
     }))
   })

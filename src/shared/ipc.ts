@@ -285,7 +285,9 @@ export interface GinosaBridge {
     beats(projectId: string, input: string, key: string): Promise<{ beats: number[]; downbeats: number[]; firstSound: number }>
     separate(projectId: string, input: string, key: string, separator: StemSeparator): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
     /** The drum transcriber's hits (seconds in the song file) in the drums stem separated under `key` (W4.3). */
-    drumHits(projectId: string, key: string): Promise<Partial<Record<'kick' | 'clap' | 'hihat' | 'toms' | 'cymbals', number[]>>>
+    drumHits(projectId: string, key: string): Promise<Partial<Record<'kick' | 'clap' | 'hihat' | 'toms' | 'cymbals', number[]>> & { oneCheck?: Partial<Record<'kick' | 'clap' | 'hihat', number[]>> }>
+    /** Your answer on a doubtful cube (W4.6): kept or deleted, at that moment of the song file; saved with the bench's answers. */
+    answer(entry: { song: string; fingerprint: string; kind: 'kick' | 'clap' | 'hihat' | 'bass'; seconds: number; kept: boolean }): Promise<void>
     pcm(path: string, rate: number): Promise<ArrayBuffer>
     onProgress(listener: (line: string) => void): () => void
     /** The detection models in .stems/ (decision 119): their parts and sizes, and whether separation works. */
@@ -357,6 +359,8 @@ export interface BenchKey {
   downbeat: number | null
   /** The true grid when known but left for detection to find (W4.5): your DAW's tempo, bar 1 in seconds. */
   grid: { bpm: number; downbeat: number; note: string } | null
+  /** Your answers on this song's doubtful cubes (W4.6), by channel: how many you kept and deleted. */
+  answers?: Partial<Record<'kick' | 'clap' | 'hihat' | 'bass', { kept: number; deleted: number }>> | null
   hits: Partial<Record<'kick' | 'clap' | 'hihat' | 'bass', number[]>> | null
 }
 

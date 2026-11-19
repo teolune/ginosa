@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { PROJECT_EXTENSION } from '../../shared/ipc'
 import { parseCube } from '../../engine/colour/cube'
@@ -111,6 +111,16 @@ export async function registerMediaIpc(getWindow: () => BrowserWindow | null, op
     if (!/^[0-9a-f]{16}$/.test(key)) throw new Error('bad stems key')
     const dir = join(await cache.categoryDir(projectId, 'stems'), key)
     return drumHits(app.getAppPath(), dir, (line) => event.sender.send('stems:progress', line))
+  })
+  // Your answers on doubtful cubes (W4.6), one line each, in media/bench/answers (the bench's folder,
+  // ignored by git): which song (by name and fingerprint), which channel, when in the file, kept or not.
+  ipcMain.handle('stems:answer', async (_event, entry: { song: string; fingerprint: string; kind: string; seconds: number; kept: boolean }) => {
+    if (!['kick', 'clap', 'hihat', 'bass'].includes(entry.kind) || !Number.isFinite(entry.seconds)) throw new Error('bad answer')
+    const dir = join(app.getAppPath(), 'media', 'bench', 'answers')
+    await mkdir(dir, { recursive: true })
+    const name = basename(entry.song).replace(/[^\w.()-]+/g, '_')
+    const line = JSON.stringify({ song: entry.song, fingerprint: entry.fingerprint, kind: entry.kind, seconds: Math.round(entry.seconds * 10000) / 10000, kept: Boolean(entry.kept), at: new Date().toISOString() })
+    await appendFile(join(dir, `${name}.jsonl`), `${line}\n`)
   })
   // The bass ear (W4.4) on stems separated before under `key`.
   ipcMain.handle('stems:bassHits', async (_event, projectId: string, key: string) => {

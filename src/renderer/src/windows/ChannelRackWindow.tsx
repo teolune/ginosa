@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { beatAt, beatTime } from '@engine/audio/beat-grid'
 import { DEFAULT_GRID } from '@engine/modulation/curve'
 import { MAX_SECTION_BARS, STEPS_PER_BEAT, type RackCube, type RackRow, type Sequence } from '@engine/project/model'
@@ -26,6 +26,7 @@ import { Icon } from '../app/Icon'
 import { modulationController } from '../audio/modulation-controller'
 import { modulationUi } from '../audio/modulation-ui'
 import { CubeWindow } from '../rack/CubeWindow'
+import { DoubtPopover } from '../rack/DoubtPopover'
 import { detector } from '../rack/detect'
 import { MiniKnob } from '../rack/MiniKnob'
 import { CHANNEL_DRAG_TYPE, rackUi } from '../rack/rack-ui'
@@ -61,6 +62,9 @@ export function ChannelRackWindow() {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null)
   const [prompt, setPrompt] = useState<PromptRequest | null>(null)
   const [editingBars, setEditingBars] = useState<string | null>(null)
+  // A doubtful cube's pop-up (W4.6): which cube, and where on screen.
+  const [doubt, setDoubt] = useState<{ sectionId: string; rowId: string; step: number; x: number; y: number } | null>(null)
+  const closeDoubt = useCallback(() => setDoubt(null), [])
   const stroke = useRef<{ id: string; mode: 'paint' | 'select'; rowId: string; sectionId: string; anchor: number } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -424,9 +428,9 @@ export function ChannelRackWindow() {
                     return (
                       <button
                         key={step}
-                        className={`rack-cube ${Math.floor(step / STEPS_PER_BEAT) % 2 ? 'odd' : ''} ${cube ? 'on' : ''} ${pushes ? 'down' : ''} ${selected ? 'sel' : ''} ${step === playColumn ? 'playing' : ''} ${outside ? 'outside' : ''}`}
+                        className={`rack-cube ${Math.floor(step / STEPS_PER_BEAT) % 2 ? 'odd' : ''} ${cube ? 'on' : ''} ${pushes ? 'down' : ''} ${selected ? 'sel' : ''} ${step === playColumn ? 'playing' : ''} ${outside ? 'outside' : ''} ${cube?.doubtful ? 'doubtful' : ''}`}
                         aria-pressed={Boolean(cube)}
-                        aria-label={`${row.name}, bar ${Math.floor(step / perBar) + 1}, 16th ${(step % perBar) + 1}${cube ? '' : ', empty'}`}
+                        aria-label={`${row.name}, bar ${Math.floor(step / perBar) + 1}, 16th ${(step % perBar) + 1}${cube ? (cube.doubtful ? ', doubtful' : '') : ', empty'}`}
                         disabled={outside}
                         onPointerDown={(e) => onCubeDown(e, row, step)}
                         onPointerEnter={() => onCubeEnter(row, step)}
@@ -453,7 +457,23 @@ export function ChannelRackWindow() {
                             ]
                           })
                         }}
-                      />
+                      >
+                        {cube?.doubtful && (
+                          <span
+                            className="rack-doubt"
+                            role="button"
+                            aria-label={`Doubtful: listen, keep or delete`}
+                            title="Only one of Detect’s two checks heard this: click to listen, then keep or delete it"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const r = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
+                              if (shown) setDoubt({ sectionId: shown.section.id, rowId: row.id, step, x: r.left + r.width / 2, y: r.top })
+                            }}
+                          />
+                        )}
+                      </button>
                     )
                   })}
                 </div>
@@ -474,6 +494,9 @@ export function ChannelRackWindow() {
         </div>
       )}
       {rackUi.cubeWindow && <CubeWindow />}
+      {doubt && shown && shown.section.id === doubt.sectionId && sequence.rack.rows.some((r) => r.id === doubt.rowId) && (
+        <DoubtPopover placed={shown} row={sequence.rack.rows.find((r) => r.id === doubt.rowId)!} step={doubt.step} x={doubt.x} y={doubt.y} onClose={closeDoubt} />
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {prompt && <PromptDialog request={prompt} />}
     </div>

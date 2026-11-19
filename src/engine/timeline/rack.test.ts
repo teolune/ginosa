@@ -9,6 +9,7 @@ import { channelHits, placeSections, sectionName, sectionsFromHits } from './rac
 import {
   addRackRows,
   addRackSection,
+  keepRackCubes,
   pasteCubeAmounts,
   pasteRackCubes,
   removeRackCubes,
@@ -182,6 +183,31 @@ describe('Channel Rack sections', () => {
     expect(shortEnd[1]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
     // A section that's only a short stretch takes what's there.
     expect(sectionsFromHits({ kick: [0, 4, 8] }, GRID, 10)[0]!.cubes['kick']).toEqual([0, 4, 8])
+  })
+
+  it('mark a cube doubtful when most of the stretches that hit it heard it by one check only (W4.6)', () => {
+    // 8 bars, a clap on 4 and 12 of each bar; the claps on 12 were heard by one check in 3 of the 4
+    // stretches, those on 4 in 1 of 4; and a clap on 30 in 2 of the 4 stretches (enough for a cube), both by one check.
+    const claps = Array.from({ length: 8 }, (_, bar) => [bar * 16 + 4, bar * 16 + 12]).flat()
+    const unsure = [12, 32 + 12, 64 + 12, 4, 30, 64 + 30]
+    const [section] = sectionsFromHits({ clap: [...claps, 30, 64 + 30] }, GRID, 128, 8, { clap: unsure })
+    expect(section!.cubes['clap']).toEqual([4, 12, 20, 28, 30])
+    expect(section!.doubtful['clap']).toEqual([12, 30])
+    expect(sectionsFromHits({ clap: claps }, GRID, 128)[0]!.doubtful).toEqual({})
+  })
+
+  it('keep a doubtful cube (its mark goes, undoably) and save the mark with the project', () => {
+    const { history, run, rows, sections } = setup()
+    run(addRackRows([STARTER_ROWS[1]!], ids))
+    const id = rows()[0]!.id
+    run(replaceRackSections([{ bars: 8, cubes: { [id]: [4, 12] }, doubtful: { [id]: [12] } }], 'Detect Pattern', ids))
+    const sec = sections()[0]!.id
+    expect(sections()[0]!.cubes[id]).toEqual([{ step: 4, amounts: {} }, { step: 12, amounts: {}, doubtful: true }])
+    expect(parseProject(serializeProject(history.state)).sequence.rack.sections[0]!.cubes[id]![1]!.doubtful).toBe(true)
+    run(keepRackCubes([{ sectionId: sec, rowId: id, step: 12 }]))
+    expect(sections()[0]!.cubes[id]![1]).toEqual({ step: 12, amounts: {} })
+    history.undo()
+    expect(sections()[0]!.cubes[id]![1]!.doubtful).toBe(true)
   })
 })
 

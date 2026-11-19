@@ -1,5 +1,13 @@
 # Changelog
 
+## Doubtful cubes (W4.6, 19 Nov 2026)
+
+- **A pink dot marks a doubtful cube** (decision 126). Only one of its channel's two checks heard most of its hits: the drums' DrumSep without ADTOF, or one of the bass's two ears. Click the dot and a small pop-up opens above the cube, no window. **▶ Listen** plays that moment of the channel's own stem, the drums or the bass on its own. **Keep** takes the dot away, and **Delete** removes the cube; both undo. Clicking elsewhere or Esc closes it.
+- **Your answers build answer keys.** Each Keep and Delete is saved in `media/bench/answers/` (one file per song), and the detection bench lists them for that song (`yourAnswers`). That's how your own songs start to get scores without exporting anything.
+- **Detect counts its stages**: *Step 1 of 3: Separating the song…*, *Step 2 of 3: Transcribing the drums hit by hit…*, and so on.
+- On the test drums, Detect dots 14 Bass cubes (their "bass" is the kick's low thump, which only one ear calls a note) and no drum cubes. Listen plays 0.62 s of the drums stem at a Kick cube, and the sound is there. The interface test marks two cubes, keeps one, deletes the other through the pop-up, and undoes it all.
+- **Detection (W4) is complete:** separation (W4.2), drums hit by hit (W4.3), bass notes (W4.4), the grid (W4.5) and these marks (W4.6). What's left is your songs' answers: the dots and the MIDI from your DAW whenever you can.
+
 ## Bass notes (W4.4, 19 Nov 2026)
 
 - **The Bass channel hears notes** once detection is set up (decision 125). Two ears listen to the bass stem: where it gets louder, and Basic Pitch, Spotify's note transcriber. A note both hear counts; one only one of them hears counts when it's strong. So a slide or a new note without a fresh attack is caught, and a wobble in level isn't counted as a note. The rack's top bar says *Hearing the bass note by note…*; it takes 2–3 s a song, once.

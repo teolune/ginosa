@@ -1,7 +1,7 @@
 import { ANALYSIS_RATE, ANALYSIS_SAMPLE_RATE, strongHits, unpackBand } from '@engine/audio/analysis'
 import { beatAt } from '@engine/audio/beat-grid'
 import { hashText } from '@engine/audio/sources'
-import type { Clip, RackDetect } from '@engine/project/model'
+import { DEFAULT_SECTION_BARS, type Clip, type RackDetect } from '@engine/project/model'
 import { ticksToSeconds } from '@engine/time'
 import { addAudioSource } from '@engine/timeline/audio-edits'
 import { DETECT_LISTEN, sectionsFromHits } from '@engine/timeline/rack'
@@ -124,6 +124,8 @@ class Detector extends Observable {
     const grid = project.sequence.beatGrid!
     const rows = project.sequence.rack.rows.filter((r) => r.detect)
     const hits = new Map<string, number[]>(rows.map((r) => [r.id, []]))
+    // The hits only one of a channel's two checks heard (W4.6: their cubes are marked as doubtful).
+    const unsure = new Map<string, number[]>(rows.map((r) => [r.id, []]))
     const transcribed = (row: (typeof rows)[number]) => (drums === 'transcriber' && DETECT_LISTEN[row.detect!].stem === 'drums') || (bass === 'notes' && row.detect === 'bass')
     let phase = 'Separating the song into drums, bass and vocals…'
     const off = window.ginosa.stems.onProgress((line) => {
@@ -131,35 +133,47 @@ class Detector extends Observable {
       if (percent) this.set(true, `${phase} ${percent}%`)
     })
     try {
-      for (const clip of clips) {
-        const item = project.media.find((m) => m.id === clip.mediaId)
-        if (!item) continue
-        phase = 'Separating the song into drums, bass and vocals…'
-        this.set(true, phase)
-        const key = hashText(JSON.stringify(['stems', separator, item.fingerprint]))
-        const paths = await window.ginosa.stems.separate(projectId, item.path, key, separator)
+      const songs = clips.filter((c) => project.media.some((m) => m.id === c.mediaId))
+      for (const [index, clip] of songs.entries()) {
+        const item = project.media.find((m) => m.id === clip.mediaId)!
         // A song sampled below 32 kHz has nothing above 16 kHz and often nothing above 8: ADTOF then
         // hears no hi-hats at all (BabySlakh's 16 kHz songs), so its hi-hats come from their band.
         const narrow = (item.info.audio?.sampleRate ?? 48_000) < 32_000
         const byModel = (r: (typeof rows)[number]) => transcribed(r) && !(narrow && r.detect === 'hihat')
         const drumRows = rows.filter((r) => byModel(r) && r.detect !== 'bass')
-        if (drumRows.length) {
-          phase = 'Transcribing the drums hit by hit…'
-          this.set(true, phase)
-          const found = await window.ginosa.stems.drumHits(projectId, key)
-          for (const row of drumRows) hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, found[row.detect as 'kick' | 'clap' | 'hihat'] ?? []))
-        }
         const bassRows = rows.filter((r) => byModel(r) && r.detect === 'bass')
-        if (bassRows.length) {
-          phase = 'Hearing the bass note by note…'
+        const bandStems = (['drums', 'bass'] as const).filter((stem) => rows.some((r) => DETECT_LISTEN[r.detect!].stem === stem && !byModel(r)))
+        // Each stage says where it is: "Step 2 of 4", and which song when A1 has more than one.
+        const stages = 1 + (drumRows.length ? 1 : 0) + (bassRows.length ? 1 : 0) + bandStems.length
+        let stage = 0
+        const begin = (text: string) => {
+          stage += 1
+          phase = `${songs.length > 1 ? `Song ${index + 1} of ${songs.length}, step` : 'Step'} ${stage} of ${stages}: ${text}`
           this.set(true, phase)
-          const found = await window.ginosa.stems.bassHits(projectId, key)
-          for (const row of bassRows) hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, found.bass))
         }
-        for (const stem of ['drums', 'bass'] as const) {
+        begin('Separating the song into drums, bass and vocals…')
+        const key = hashText(JSON.stringify(['stems', separator, item.fingerprint]))
+        const paths = await window.ginosa.stems.separate(projectId, item.path, key, separator)
+        if (drumRows.length) {
+          begin('Transcribing the drums hit by hit…')
+          const found = await window.ginosa.stems.drumHits(projectId, key)
+          for (const row of drumRows) {
+            const kind = row.detect as 'kick' | 'clap' | 'hihat'
+            hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, found[kind] ?? []))
+            unsure.get(row.id)!.push(...mediaTimesOnTimeline(clip, found.oneCheck?.[kind] ?? []))
+          }
+        }
+        if (bassRows.length) {
+          begin('Hearing the bass note by note…')
+          const found = await window.ginosa.stems.bassHits(projectId, key)
+          for (const row of bassRows) {
+            hits.get(row.id)!.push(...mediaTimesOnTimeline(clip, found.bass))
+            unsure.get(row.id)!.push(...mediaTimesOnTimeline(clip, found.oneCheck))
+          }
+        }
+        for (const stem of bandStems) {
           const wanted = rows.filter((r) => DETECT_LISTEN[r.detect!].stem === stem && !byModel(r))
-          if (wanted.length === 0) continue
-          this.set(true, `Finding ${wanted.map((r) => r.name.toLowerCase()).join(', ')} in the ${stem}…`)
+          begin(`Finding ${wanted.map((r) => r.name.toLowerCase()).join(', ')} in the ${stem}…`)
           const pcm = new Float32Array(await window.ginosa.stems.pcm(paths[stem], ANALYSIS_SAMPLE_RATE))
           const bands = wanted.map((r) => ({ low: DETECT_LISTEN[r.detect!].low, high: DETECT_LISTEN[r.detect!].high }))
           const reply = await runWorker({ pcm, full: false, bands }, () => undefined)
@@ -176,9 +190,17 @@ class Detector extends Observable {
     const sequence = projectController.project!.sequence
     const [from, to] = songSteps(sequence)
     const steps: Record<string, number[]> = {}
-    for (const row of rows) steps[row.id] = stepsFromHits(hits.get(row.id)!, (t) => beatAt(grid, t), from, to)
+    const doubtful: Record<string, number[]> = {}
+    for (const row of rows) {
+      const at = (t: number) => beatAt(grid, t)
+      steps[row.id] = stepsFromHits(hits.get(row.id)!, at, from, to)
+      // A 16th is doubtful when its only hits are ones a single check heard.
+      const single = new Set(unsure.get(row.id)!)
+      const sure = new Set(stepsFromHits(hits.get(row.id)!.filter((t) => !single.has(t)), at, from, to))
+      doubtful[row.id] = stepsFromHits([...single], at, from, to).filter((s) => !sure.has(s))
+    }
     this.last = { method: 'stems', separator, drums, bass, hits: Object.fromEntries(Object.entries(steps).map(([id, s]) => [id, s.length])), times: this.timesByKind(hits) }
-    if (!projectController.dispatch(replaceRackSections(sectionsFromHits(steps, grid, to), 'Detect Pattern'))) return false
+    if (!projectController.dispatch(replaceRackSections(sectionsFromHits(steps, grid, to, DEFAULT_SECTION_BARS, doubtful), 'Detect Pattern'))) return false
     const heard = `the drums${drums === 'transcriber' ? ' (hit by hit)' : ''} and bass${bass === 'notes' ? ' (note by note)' : ''} separated from the song`
     projectController.showMessage(how.suggestSetup ? `${this.summary(heard)} For hit-by-hit drums and bass notes, set up detection again in the Cache window.` : this.summary(heard))
     return true

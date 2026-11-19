@@ -5,11 +5,12 @@ import { applyBuiltinPreset } from '@engine/timeline/builtin-presets'
 import { placeMedia, trimClips } from '@engine/timeline/edits'
 import { addEffect, setEffectValues } from '@engine/timeline/effect-edits'
 import { POSTERIZE_RATES } from '@engine/timeline/posterize'
-import { addRackRows, setCubeAmount, STARTER_ROWS } from '@engine/timeline/rack-edits'
+import { addRackRows, replaceRackSections, setCubeAmount, STARTER_ROWS } from '@engine/timeline/rack-edits'
 import { linksTo } from '@engine/timeline/modulation-edits'
 import { channelModulatorIds, hitBeat, placeSections } from '@engine/timeline/rack'
 import { beatTime } from '@engine/audio/beat-grid'
 import { frameTicks } from '@engine/timeline/timeline'
+import { listenBack } from './listen-back'
 import { rackUi } from './rack-ui'
 import { analysisController } from '../audio/analysis-controller'
 import { modulationController } from '../audio/modulation-controller'
@@ -146,6 +147,56 @@ async function uiChecks(clipId: string): Promise<Record<string, unknown>> {
   document.querySelector<HTMLElement>('.channel-rack')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }))
   await pause(150)
   out['backspaceDeletes'] = !cubes().includes(1)
-  out['pass'] = out['socketLinks'] === 1 && out['socketUnlinks'] === 0 && out['contrastLinkedToKick'] === true && out['dragLinksClap'] === true && out['clickMakesCube'] === true && out['backspaceDeletes'] === true
+  Object.assign(out, await doubtChecks(kick!.id))
+  out['pass'] =
+    out['socketLinks'] === 1 &&
+    out['socketUnlinks'] === 0 &&
+    out['contrastLinkedToKick'] === true &&
+    out['dragLinksClap'] === true &&
+    out['clickMakesCube'] === true &&
+    out['backspaceDeletes'] === true &&
+    out['doubtDots'] === 2 &&
+    out['doubtKeeps'] === true &&
+    out['doubtDeletes'] === true &&
+    out['doubtUndone'] === true
+  return out
+}
+
+/**
+ * W4.6's doubtful cubes through the DOM: two Kick cubes marked doubtful show a dot each; the
+ * first's pop-up Keep takes its mark away, the second's Delete removes it; then everything is
+ * undone (the rack is as before, for the screenshot). No answers are saved from the test.
+ */
+async function doubtChecks(kickId: string): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {}
+  const sequence = () => projectController.project!.sequence
+  const before = JSON.stringify(sequence().rack.sections.map((s) => [s.bars, s.cubes]))
+  const sections = sequence().rack.sections.map((s) => ({ bars: s.bars, cubes: Object.fromEntries(Object.entries(s.cubes).map(([id, cubes]) => [id, cubes.map((c) => c.step)])) }))
+  const marked = (sections[0]?.cubes[kickId] ?? []).slice(0, 2)
+  listenBack.recording = false
+  projectController.dispatch(replaceRackSections(sections.map((s, i) => (i === 0 ? { ...s, doubtful: { [kickId]: marked } } : s)), 'Mark Doubtful (test)'))
+  await pause(200)
+  const kickRow = () => document.querySelectorAll('.rack-row')[0]
+  const dots = () => [...(kickRow()?.querySelectorAll<HTMLElement>('.rack-doubt') ?? [])]
+  out['doubtDots'] = dots().length
+  const cube = (step: number) => sequence().rack.sections[0]!.cubes[kickId]?.find((c) => c.step === step)
+  const press = async (label: string) => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('.rack-doubt-popover button')].find((b) => b.textContent?.trim() === label)
+    button?.click()
+    await pause(150)
+  }
+  dots()[0]?.click()
+  await pause(150)
+  out['doubtPopover'] = document.querySelector('.rack-doubt-popover') !== null
+  await press('Keep')
+  out['doubtKeeps'] = cube(marked[0]!) !== undefined && cube(marked[0]!)!.doubtful === undefined && document.querySelector('.rack-doubt-popover') === null
+  dots()[0]?.click()
+  await pause(150)
+  await press('Delete')
+  out['doubtDeletes'] = cube(marked[1]!) === undefined
+  for (let i = 0; i < 3; i++) projectController.undo()
+  await pause(150)
+  out['doubtUndone'] = JSON.stringify(sequence().rack.sections.map((s) => [s.bars, s.cubes])) === before
+  listenBack.recording = true
   return out
 }

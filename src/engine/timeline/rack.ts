@@ -176,33 +176,46 @@ export function sectionsFromHits(
   steps: Record<string, readonly number[]>,
   grid: BeatGrid,
   endStep: number,
-  bars = DEFAULT_SECTION_BARS
-): Array<{ bars: number; cubes: Record<string, number[]> }> {
+  bars = DEFAULT_SECTION_BARS,
+  doubtful: Record<string, readonly number[]> = {}
+): Array<{ bars: number; cubes: Record<string, number[]>; doubtful: Record<string, number[]> }> {
   const perBar = stepsPerBar(grid)
   const loop = LOOP_BARS * perBar
   const origin = barOneStep(grid)
   const totalBars = Math.max(0, Math.ceil((endStep - origin) / perBar))
   const ids = Object.keys(steps)
-  const sections: Array<{ bars: number; cubes: Record<string, number[]> }> = []
+  const sections: Array<{ bars: number; cubes: Record<string, number[]>; doubtful: Record<string, number[]> }> = []
+  const doubts = new Map(ids.map((id) => [id, new Set(doubtful[id] ?? [])]))
   for (let first = 0; first < totalBars; first += bars) {
     const length = Math.min(bars, totalBars - first)
     // Its two-bar stretches; `whole`: all of it is in the song.
-    const stretches: Array<{ whole: boolean; cubes: Map<string, Set<number>> }> = []
+    const stretches: Array<{ whole: boolean; cubes: Map<string, Set<number>>; unsure: Map<string, Set<number>> }> = []
     for (let bar = first; bar < first + length; bar += LOOP_BARS) {
       const from = origin + bar * perBar
       const span = Math.min(Math.min(LOOP_BARS, first + length - bar) * perBar, endStep - from)
       const cubes = new Map<string, Set<number>>()
-      for (const id of ids) cubes.set(id, new Set(steps[id]!.filter((s) => s >= from && s < from + span).map((s) => s - from)))
-      stretches.push({ whole: span >= loop, cubes })
+      const unsure = new Map<string, Set<number>>()
+      for (const id of ids) {
+        const here = steps[id]!.filter((s) => s >= from && s < from + span)
+        cubes.set(id, new Set(here.map((s) => s - from)))
+        unsure.set(id, new Set(here.filter((s) => doubts.get(id)!.has(s)).map((s) => s - from)))
+      }
+      stretches.push({ whole: span >= loop, cubes, unsure })
     }
     const voters = stretches.some((s) => s.whole) ? stretches.filter((s) => s.whole) : stretches
     const cubes: Record<string, number[]> = {}
+    const unsureCubes: Record<string, number[]> = {}
     for (const id of ids) {
       const counts = new Map<number, number>()
+      const unsure = new Map<number, number>()
       for (const v of voters) for (const s of v.cubes.get(id)!) counts.set(s, (counts.get(s) ?? 0) + 1)
+      for (const v of voters) for (const s of v.unsure.get(id)!) unsure.set(s, (unsure.get(s) ?? 0) + 1)
       cubes[id] = [...counts].filter(([, n]) => n * 2 >= voters.length).map(([s]) => s).sort((x, y) => x - y)
+      // Doubtful: more than half of the stretches that hit it heard it by one check only.
+      const marked = cubes[id]!.filter((s) => (unsure.get(s) ?? 0) * 2 > counts.get(s)!)
+      if (marked.length) unsureCubes[id] = marked
     }
-    sections.push({ bars: length, cubes })
+    sections.push({ bars: length, cubes, doubtful: unsureCubes })
   }
   return sections
 }

@@ -16,10 +16,11 @@ npm run snapshot -- --scenario rackdetect
 cat renders/ui/rackdetect.json
 ```
 
-- [ ] `npm run check` ends with **Tests 413 passed (413)**. New tests: sections, cubes and their amounts, saving and moving old racks over, each link's own curve from the cubes, the hit gates (a snare found among hi-hats, a quiet intro keeping its hits) and a song that ends mid-loop.
+- [ ] `npm run check` ends with **Tests 415 passed (415)**. New tests: sections, cubes and their amounts, saving and moving old racks over, each link's own curve from the cubes, the hit gates (a snare found among hi-hats, a quiet intro keeping its hits) and a song that ends mid-loop.
 - [ ] `rackui`: `"ui"` ends with `"pass":true` (link mode's socket links and unlinks Contrast, dragging Clap onto Brightness links it, clicking an empty cube makes one, Backspace deletes it), and `pushes` is `[1,-0.5]` (a +100% cube and a −50% cube on Kick Flash's link).
+- [ ] `rackui` also shows the doubtful cubes working (W4.6): `"doubtDots":2`, `"doubtPopover":true`, `"doubtKeeps":true`, `"doubtDeletes":true`, `"doubtUndone":true`.
 - [ ] `rackui.png`: the Channel Rack with even, raised cubes, the beats in alternating shades of four; Kick on every beat, Clap on 2 and 4, Hi-hat on every 8th; one pink cube (it pushes its value down).
-- [ ] `rackdetect`: `"verdict":"pass"`. Once detection is set up (below), with `"method":"stems"` and `"drums":"transcriber"`, sections `[8,3]`; before, `"method":"bands"`. Either way Kick `[0,4,8,…,28]`, Clap `[4,12,20,28]`, Hi-hat every even 16th.
+- [ ] `rackdetect`: `"verdict":"pass"`. Once detection is set up (below), with `"method":"stems"` and `"drums":"transcriber"`, sections `[8,3]`; before, `"method":"bands"`. Either way Kick `[0,4,8,…,28]`, Clap `[4,12,20,28]`, Hi-hat every even 16th. With detection set up it also says `"bass":"notes"`, `"listen":{"seconds":0.62,…}` (a Kick cube's moment played from the drums stem) and how many cubes it marked as doubtful in each channel.
 
 ### Stem separation (once)
 
@@ -49,7 +50,10 @@ npm start
 - [ ] Set the tempo with the Control Panel's sparkles (or type it on the knob). With detection set up they listen to the song on A1 with Beat This!: `dpackdist` should come out at about **167** and `entrust` about **162**, with bar 1 at the start of the song (the ruler's 1 lines up with the first kick or the first sound). A song with silence at the start gets bar 1 where the music starts.
 - [ ] Open the **Channel Rack** (Control Panel). Press its sparkles (**Detect**). The rack's top bar says what it's doing; with stems: *Separating the song into drums, bass and vocals…*, then *Transcribing the drums hit by hit…* (with a percentage) and *Hearing the bass note by note…*. The Bass channel should now catch 808 slides and notes that change pitch without a new hit. The first time takes a while; the stems are kept in the project's cache, so detecting again is quick.
 - [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into 8-bar sections (A, B, C…; the last one is what's left). Undo brings back what was there.
-- [ ] Tell me how it did: which channels are right, which miss hits or catch the wrong sound, and whether the sections fall where the song changes.
+- [ ] The top bar counts the stages: *Step 1 of 3: Separating the song…*, *Step 2 of 3: Transcribing the drums hit by hit…*, *Step 3 of 3: Hearing the bass note by note…* (a fourth when a channel still listens to a band).
+- [ ] Some cubes have a **pink dot** in their top-right corner: only one of Detect's two checks heard most of their hits (DrumSep without ADTOF, or one of the bass's two ears). Click a dot: a small pop-up opens above the cube (no window). **▶ Listen** plays that moment of the channel's own stem (the drums or the bass, on its own, from just before the cube to half a second after). **Keep** takes the dot away; **Delete** removes the cube. Clicking elsewhere or Esc closes it. Undo works for both.
+- [ ] Your Keep and Delete answers are saved in `media/bench/answers/` (one file per song). The next `npm run snapshot -- --scenario detectbench` lists them under `"yourAnswers"` for that song.
+- [ ] Tell me how it did: which channels are right, which miss hits or catch the wrong sound, whether the dotted cubes were mostly right or wrong, and whether the sections fall where the song changes.
 
 ## Cubes
 

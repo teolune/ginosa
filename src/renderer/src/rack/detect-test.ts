@@ -5,7 +5,9 @@ import { detectTempo } from '../control-panel/actions'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
+import { placeSections } from '@engine/timeline/rack'
 import { detector } from './detect'
+import { listenBack } from './listen-back'
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -64,6 +66,20 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
   check(kick.length >= 6 && kick.every((s) => s % 4 === 0), `kicks not on the beats: ${kick.join(' ')}`)
   check(clap.length >= 3 && clap.every((s) => s % 8 === 4), `claps not on 2 and 4: ${clap.join(' ')}`)
   check(hat.length >= 12 && hat.every((s) => s % 2 === 0), `hi-hats not on the 8ths: ${hat.join(' ')}`)
+  // W4.6: a Kick cube's moment, played from the drums stem (the doubtful cubes' Listen), and the marks Detect made.
+  let listen: Record<string, unknown> = { skipped: 'no stems' }
+  const kickRow = sequence.rack.rows.find((r) => r.name === 'Kick')
+  const placedA = placeSections(sequence.rack, sequence.beatGrid!)[0]
+  if (stems.ready && kickRow && placedA && kick.length) {
+    try {
+      const played = await listenBack.play(placedA, kickRow, kick[0]!)
+      listen = { seconds: Math.round(played.seconds * 100) / 100, peak: Math.round(played.peak * 1000) / 1000 }
+      check(Math.abs(played.seconds - 0.62) < 0.02 && played.peak > 0.01, `Listen played ${played.seconds} s, peak ${played.peak}`)
+    } catch (error) {
+      check(false, `Listen failed: ${(error as Error).message}`)
+    }
+  }
+  const doubtful = Object.fromEntries(sequence.rack.rows.map((r) => [r.name, sections.reduce((n, s) => n + (s.cubes[r.id] ?? []).filter((c) => c.doubtful).length, 0)]))
   timelineController.zoomToFit()
   timelineController.setPlayhead(secondsToTicks(2.2))
   await pause(800)
@@ -72,6 +88,8 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
     reasons,
     method: detector.last?.method ?? null,
     drums: detector.last?.drums ?? null,
+    listen,
+    doubtful,
     bass: detector.last?.bass ?? null,
     stems: stems.ready ? 'ready' : stems.detail,
     seconds,

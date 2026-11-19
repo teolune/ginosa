@@ -516,7 +516,7 @@ function parseRack(value: unknown, grid: BeatGrid | null): Rack {
         if (!isObject(c) || typeof c['step'] !== 'number' || !Number.isInteger(c['step']) || c['step'] < 0 || c['step'] >= limit) continue
         const amounts: Record<string, number> = {}
         if (isObject(c['amounts'])) for (const [link, v] of Object.entries(c['amounts'])) if (typeof v === 'number' && Number.isFinite(v)) amounts[link] = Math.round(Math.min(100, Math.max(-100, v)))
-        byStep.set(c['step'], { step: c['step'], amounts })
+        byStep.set(c['step'], c['doubtful'] === true ? { step: c['step'], amounts, doubtful: true } : { step: c['step'], amounts })
       }
       if (byStep.size) cubes[rowId] = [...byStep.values()].sort((x, y) => x.step - y.step)
     }

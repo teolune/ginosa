@@ -124,6 +124,7 @@ export async function detectBench(): Promise<Record<string, unknown>> {
       song['seconds'] = Math.round(seconds * 10) / 10
       song['tempo'] = tempo
       if (key.grid) song['trueGrid'] = key.grid
+      if (key.answers) song['yourAnswers'] = key.answers
       const grid = projectController.project!.sequence.beatGrid
       song['bpm'] = Math.round((grid?.bpm ?? 0) * 1000) / 1000
       song['downbeat'] = grid ? Math.round(ticksToSeconds(grid.downbeat) * 10000) / 10000 : null

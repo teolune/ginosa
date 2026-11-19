@@ -144,7 +144,10 @@ export async function separateStems(appRoot: string, input: string, dir: string,
 
 /** The drum transcriber's channels (listen.py): ADTOF's five classes, ginosa's names. */
 export const DRUM_KINDS = ['kick', 'clap', 'hihat', 'toms', 'cymbals'] as const
-export type DrumHits = Partial<Record<(typeof DRUM_KINDS)[number], number[]>>
+export type DrumHits = Partial<Record<(typeof DRUM_KINDS)[number], number[]>> & {
+  /** The hits only DrumSep's onsets found, not ADTOF (W4.6 marks their cubes as doubtful). */
+  oneCheck?: Partial<Record<'kick' | 'clap' | 'hihat', number[]>>
+}
 /** Raised when listen.py's method changes, so songs are transcribed again. */
 const TRANSCRIBER_VERSION = 3
 
@@ -160,10 +163,19 @@ export async function drumHits(appRoot: string, dir: string, onLine: (line: stri
     const text = await readFile(file, 'utf8').catch(() => null)
     if (text === null) return null
     const parsed = JSON.parse(text) as Record<string, unknown>
+    const times = (v: unknown) => (Array.isArray(v) ? v.filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t >= 0) : null)
     const hits: DrumHits = {}
     for (const kind of DRUM_KINDS) {
-      const times = parsed[kind]
-      if (Array.isArray(times)) hits[kind] = times.filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t >= 0)
+      const found = times(parsed[kind])
+      if (found) hits[kind] = found
+    }
+    const one = parsed['one_check']
+    if (one && typeof one === 'object') {
+      hits.oneCheck = {}
+      for (const kind of ['kick', 'clap', 'hihat'] as const) {
+        const found = times((one as Record<string, unknown>)[kind])
+        if (found) hits.oneCheck[kind] = found
+      }
     }
     return hits
   }

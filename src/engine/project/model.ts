@@ -205,6 +205,11 @@ export type RackDetect = 'kick' | 'clap' | 'hihat' | 'bass'
 export interface RackCube {
   step: number
   amounts: Record<string, number>
+  /**
+   * Automatic Detection's doubt (W4.6): most of the hits it stands for were heard by only one of
+   * the channel's two checks. The cube shows a mark until you keep or delete it.
+   */
+  doubtful?: true
 }
 
 /**
