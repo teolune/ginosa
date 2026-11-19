@@ -70,7 +70,7 @@ function createMainWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#111214',
     titleBarStyle: 'hiddenInset',
-    // Centred on the 44 px title bar (its logo is 40 px tall).
+    // Centred on the 44 px title bar (its clef is 40 px tall).
     trafficLightPosition: { x: 14, y: 15 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -98,6 +98,11 @@ function createMainWindow(): BrowserWindow {
     if (mainWindow === window) mainWindow = null
     allowClose = false
   })
+  // Full screen hides the window buttons, so the title bar's clef moves into their space (decision 128).
+  const sendFullScreen = () => window.webContents.send('app:full-screen', window.isFullScreen())
+  window.on('enter-full-screen', sendFullScreen)
+  window.on('leave-full-screen', sendFullScreen)
+  window.webContents.on('did-finish-load', sendFullScreen)
   if (snapshot) {
     window.webContents.on('console-message', (event) => console.log(`[renderer] ${event.message}`))
   }

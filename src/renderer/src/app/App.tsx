@@ -67,7 +67,7 @@ import { controlPanelTest } from '../control-panel/control-panel-test'
 import { ErrorToast, PromptDialog, RecoveryDialog, WarningDialog, type PromptRequest } from './Dialogs'
 import { confirmKeyframeRemoval, warnings } from './warnings'
 import { StartScreen } from './StartScreen'
-import { TitleBar } from './TitleBar'
+import { setFullScreenLook, TitleBar } from './TitleBar'
 
 function isEditingText(): boolean {
   const element = document.activeElement
@@ -171,7 +171,8 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       break
     }
     case 'tabs':
-    case 'tabshome': {
+    case 'tabshome':
+    case 'tabsfull': {
       // Decision 128: projects as tabs, and the clef as the Home button.
       try {
         await window.ginosa.snapshot.report(await tabsTest())
@@ -179,6 +180,8 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
       }
       if (scenario === 'tabshome') projectController.showHome()
+      // The title bar as in full screen, where the window buttons are hidden.
+      if (scenario === 'tabsfull') setFullScreenLook(true)
       break
     }
     case 'automation': {

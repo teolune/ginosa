@@ -16,12 +16,13 @@ npm start
 ```
 
 - [ ] `npm run check` ends with **Tests 426 passed (426)**. New tests: several projects open in the main process at once, each with its own lock and journal; opening one that's open already; closing one (its lock goes, nothing to recover when it opens again); Save As moving a tab; and two projects registering in the cache at once.
-- [ ] `tabs`: `"verdict":"pass"`, two tabs left (`Snapshot Project` shown, `Second Project`, both unsaved), `"recovered":[2,1]`, and the clef `"width":85.5,"height":30` at `"left":84`.
+- [ ] `tabs`: `"verdict":"pass"`, two tabs left (`Snapshot Project` shown, `Second Project`, both unsaved), `"recovered":[2,1]`, and the clef `"width":114,"height":40` at `"left":84` (`"fullScreenLeft":14`).
 - [ ] `tabs.png`: the clef on its side at the top left, then the two tabs, the shown one joined to the window below.
 
 ## In ginosa
 
-- [ ] The top left shows your clef alone, on its side (its curl to the left), sharp-edged, clear of the window buttons.
+- [ ] The top left shows your clef alone, on its side (its curl to the left), filling the bar's height, sharp-edged, clear of the window buttons.
+- [ ] Full screen (Control-⌘F, or the green button): the window buttons hide and the clef moves left into their space; leaving full screen moves it back.
 - [ ] Open a project, then click the clef: the home page shows, the clef is lit, and the project's tab is still there. Click the tab: the project comes back where you left it (playhead, zoom, scroll, selection).
 - [ ] From the home page, create or open a second project: a second tab. Click between them: each has its own timeline and its own undo (⌘Z undoes only the shown project's edits).
 - [ ] An edit puts a dot on its own tab only. Click that tab's ×: ginosa asks to save. Cancel keeps it open.

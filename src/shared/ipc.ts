@@ -227,6 +227,8 @@ export interface GinosaBridge {
     onCloseRequested(listener: () => void): () => void
     closeNow(): void
     closeCancelled(): void
+    /** The window entering or leaving full screen (and its state when the page loads). */
+    onFullScreen(listener: (fullScreen: boolean) => void): () => void
   }
   media: {
     chooseImport(): Promise<string[]>
