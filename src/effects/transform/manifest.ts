@@ -14,6 +14,7 @@ const transform: EffectManifest = {
   version: 1,
   colourSpace: 'display',
   time: 'per-frame',
+  mainParam: 'scale',
   params: [
     { id: 'position', label: 'Position', type: 'point', default: [0.5, 0.5] },
     { id: 'scale', label: 'Scale', type: 'number', default: 100, min: 0, max: 10000, unit: '%', decimals: 1 },

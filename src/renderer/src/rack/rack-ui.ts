@@ -16,6 +16,8 @@ class RackUi extends Observable {
   linking: string | null = null
   /** The cube window, for the selection. */
   cubeWindow = false
+  /** The channel window (decision 129): a channel's name and the effects linked to it. */
+  channelWindow: string | null = null
   copiedCubes: Array<{ rowId: string; step: number; amounts: Record<string, number> }> | null = null
   copiedAmounts: Record<string, number> | null = null
   private keyHandler: ((event: KeyboardEvent) => void) | null = null
@@ -54,6 +56,17 @@ class RackUi extends Observable {
 
   openCubeWindow(open: boolean): void {
     this.cubeWindow = open && this.selection.length > 0
+    if (this.cubeWindow) this.channelWindow = null
+    this.notify()
+  }
+
+  /** Double-click a channel's name: its window (the cube window closes); null closes it. */
+  openChannelWindow(rowId: string | null): void {
+    this.channelWindow = rowId
+    if (rowId) {
+      this.cubeWindow = false
+      this.channelId = rowId
+    }
     this.notify()
   }
 
@@ -89,6 +102,10 @@ class RackUi extends Observable {
     }
     if (this.channelId && !channelExists(this.channelId)) {
       this.channelId = null
+      changed = true
+    }
+    if (this.channelWindow && !channelExists(this.channelWindow)) {
+      this.channelWindow = null
       changed = true
     }
     if (this.linking && !channelExists(this.linking)) {

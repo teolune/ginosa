@@ -4,7 +4,7 @@ import { DEFAULT_SECTION_BARS, MAX_SECTION_BARS, defaultId, type IdFactory, type
 import { DEFAULT_GRID } from '../modulation/curve'
 import { timelineCommand, type TimelineCommand } from './edits'
 import { dropModulator, newModulator } from './modulation-edits'
-import { maxLoopSteps } from './rack'
+import { sectionSteps } from './rack'
 
 /**
  * The Channel Rack's commands (M12, redesigned in W3). A channel and its modulator are made
@@ -44,8 +44,9 @@ function modulatorOf(sequence: Sequence, rowId: string) {
   return id ? sequence.modulators.find((m) => m.id === id) : undefined
 }
 
-function loopLimit(sequence: Sequence): number {
-  return maxLoopSteps(sequence.beatGrid ?? DEFAULT_GRID)
+/** A section's cubes: steps 0 to its length in 16ths (decision 130). */
+function sectionLimit(sequence: Sequence, s: Pick<RackSection, 'bars'>): number {
+  return sectionSteps(s, sequence.beatGrid ?? DEFAULT_GRID)
 }
 
 function sortCubes(cubes: RackCube[]): RackCube[] {
@@ -168,11 +169,11 @@ export function setRackCubes(sectionId: string, rowId: string, steps: number[], 
   const command = timelineCommand(on ? 'Add Cubes' : 'Delete Cubes', (draft) => {
     const s = section(draft.sequence, sectionId)
     row(draft.sequence, rowId)
-    const limit = loopLimit(draft.sequence)
+    const limit = sectionLimit(draft.sequence, s)
     const cubes = s.cubes[rowId] ?? []
     const have = new Set(cubes.map((c) => c.step))
     for (const step of steps) {
-      if (!Number.isInteger(step) || step < 0 || step >= limit) throw new CommandError(`A cube sits on one of the loop's ${limit} 16ths`)
+      if (!Number.isInteger(step) || step < 0 || step >= limit) throw new CommandError(`A cube sits on one of the section's ${limit} 16ths`)
       if (on && !have.has(step)) {
         cubes.push({ step, amounts: {} })
         have.add(step)
@@ -230,7 +231,7 @@ export function setCubeAmount(refs: readonly CubeRef[], linkId: string, amount: 
 export function pasteRackCubes(sectionId: string, cubes: ReadonlyArray<{ rowId: string; step: number; amounts: Record<string, number> }>): TimelineCommand {
   return timelineCommand(cubes.length === 1 ? 'Paste Cube' : 'Paste Cubes', (draft) => {
     const s = section(draft.sequence, sectionId)
-    const limit = loopLimit(draft.sequence)
+    const limit = sectionLimit(draft.sequence, s)
     for (const c of cubes) {
       if (!draft.sequence.rack.rows.some((r) => r.id === c.rowId)) continue
       if (!Number.isInteger(c.step) || c.step < 0 || c.step >= limit) continue
@@ -249,6 +250,33 @@ export function pasteCubeAmounts(refs: readonly CubeRef[], amounts: Record<strin
 }
 
 /**
+ * The same channel's cubes after this one (decision 129): later in its section, and with
+ * `toEnd` also every one in the sections after it, to the end of the song.
+ */
+export function laterCubes(sequence: Sequence, ref: CubeRef, toEnd: boolean): CubeRef[] {
+  const sections = sequence.rack.sections
+  const at = sections.findIndex((s) => s.id === ref.sectionId)
+  if (at < 0) return []
+  const out: CubeRef[] = []
+  sections.forEach((s, i) => {
+    if (i < at || (i > at && !toEnd)) return
+    for (const cube of s.cubes[ref.rowId] ?? []) if (i > at || cube.step > ref.step) out.push({ sectionId: s.id, rowId: ref.rowId, step: cube.step })
+  })
+  return out
+}
+
+/** Right-click a cube › these amounts for the later cubes (this section, or to the end): one undo step. */
+export function giveLaterCubesAmounts(ref: CubeRef, toEnd: boolean): TimelineCommand {
+  return timelineCommand(toEnd ? 'Same Amounts to the End' : 'Same Amounts to the End of the Section', (draft, command) => {
+    const amounts = { ...cubeAt(draft.sequence, ref).amounts }
+    const later = laterCubes(draft.sequence, ref, toEnd)
+    if (later.length === 0) throw new CommandError(toEnd ? 'This channel has no cubes after this one' : 'This channel has no cubes after this one in this section')
+    for (const other of later) cubeAt(draft.sequence, other).amounts = { ...amounts }
+    command.notice = `${later.length} later cube${later.length === 1 ? '' : 's'} now push${later.length === 1 ? 'es' : ''} the same as this one`
+  })
+}
+
+/**
  * Automatic Detection's result: the sections and their cubes, replacing the rack's sections
  * (channels, their settings and links stay). `cubes` are by channel id.
  */
@@ -258,7 +286,6 @@ export function replaceRackSections(
   newId: IdFactory = defaultId
 ): TimelineCommand {
   return timelineCommand(label, (draft) => {
-    const limit = loopLimit(draft.sequence)
     const ids = new Set(draft.sequence.rack.rows.map((r) => r.id))
     draft.sequence.rack.sections = sections.map((s) => ({
       id: newId(),
@@ -269,7 +296,7 @@ export function replaceRackSections(
           .map(([id, steps]) => {
             const doubts = new Set(s.doubtful?.[id] ?? [])
             const cubes: RackCube[] = [...new Set(steps)]
-              .filter((x) => Number.isInteger(x) && x >= 0 && x < limit)
+              .filter((x) => Number.isInteger(x) && x >= 0 && x < sectionLimit(draft.sequence, { bars: checkBars(s.bars) }))
               .sort((a, b) => a - b)
               .map((step) => (doubts.has(step) ? { step, amounts: {}, doubtful: true } : { step, amounts: {} }))
             return [id, cubes]

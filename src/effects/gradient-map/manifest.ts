@@ -18,6 +18,7 @@ const gradientMap: EffectManifest = {
   version: 1,
   colourSpace: 'display',
   time: 'per-frame',
+  mainParam: 'offset',
   params: [
     { id: 'gradient', label: 'Gradient', type: 'gradient', default: DEFAULT_GRADIENT_TEXT, methodParam: 'method', help: 'Shadows take the colours on the left, highlights those on the right. Click to edit; the menu picks one from the library.' },
     { id: 'method', label: 'Method', type: 'choice', default: 'classic', options: GRADIENT_METHODS, help: 'How colours blend between stops. Classic is Photoshop’s original (and what older presets were made for); Perceptual and Smooth blend in OKLab; Linear in linear light.' },

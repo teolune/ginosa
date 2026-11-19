@@ -706,23 +706,35 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .rack-name-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rack-activity { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); flex: none; }
 .rack-link-count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent-deep); color: var(--accent); font-size: 10px; display: inline-flex; align-items: center; justify-content: center; }
-/* Cubes: evenly spaced keys raised out of the console, the beats told apart by shade (groups of 4). */
-.rack-cubes { display: grid; grid-template-columns: repeat(var(--columns, 32), minmax(0, 1fr)); gap: 5px; align-items: center; min-width: 0; padding: 2px 1px 4px; }
+/* Cubes: keys raised out of the console, a whole section of 16ths (decision 130): the beats told
+   apart by shade (groups of 4) and a little space, the bars by more. */
+/* At least 6 px a cube: a 16-bar section scrolls sideways in a narrow window rather than vanishing. */
+.rack-cubes { display: grid; grid-template-columns: repeat(var(--columns, 128), minmax(6px, 1fr)); gap: 1px; align-items: center; min-width: 0; padding: 2px 1px 4px; }
+.rack-cube.beat-start { margin-left: 3px; }
+.rack-cube.bar-start { margin-left: 9px; }
+.rack-bars-row { display: grid; grid-template-columns: 14px 22px 22px 112px minmax(0, 1fr); align-items: end; gap: 6px; margin-bottom: -6px; }
+.rack-bar-numbers { padding-bottom: 0; }
+.rack-bar-number {
+  justify-self: stretch; text-align: left; padding: 0 0 0 2px; border: none; border-left: 1px solid var(--border-strong); background: transparent;
+  color: var(--text-muted); font: 10.5px var(--mono); cursor: pointer; height: 14px; line-height: 14px;
+}
+.rack-bar-number.bar-start { margin-left: 9px; }
+.rack-bar-number:hover { color: var(--text); }
 .rack-cube {
   --lip: rgba(0, 0, 0, 0.34);
-  position: relative; height: 32px; min-width: 0; padding: 0; border: 0; border-radius: 6px; cursor: pointer;
+  position: relative; height: 32px; min-width: 0; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
   background: linear-gradient(180deg, #2f283b 0%, #251f30 52%, #1c1725 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -3px 0 var(--lip), 0 0 0 1px #08060c, 0 3px 4px rgba(0, 0, 0, 0.6);
   transition: transform 60ms ease-out, box-shadow 60ms ease-out, filter 90ms;
 }
 /* The slot near the top of each key. */
 .rack-cube::before {
-  content: ''; position: absolute; left: 24%; right: 24%; top: 6px; height: 3px; border-radius: 2px;
+  content: ''; position: absolute; left: 22%; right: 22%; top: 6px; height: 3px; border-radius: 1px;
   background: rgba(0, 0, 0, 0.55); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 /* A doubtful cube (W4.6): a pink dot in its top-right corner; click it to listen, keep or delete. */
 .rack-doubt {
-  position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; cursor: pointer;
+  position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; cursor: pointer; z-index: 1;
   background: #ff7ac8; box-shadow: 0 0 0 1.5px #1b0d18, 0 0 6px rgba(255, 122, 200, 0.75);
 }
 .rack-doubt:hover { transform: scale(1.25); }
@@ -755,13 +767,38 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -3px 0 var(--lip), 0 0 0 1px #08060c, 0 3px 4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(200, 121, 187, 0.32);
 }
 .rack-cube.on.down::before { background: rgba(84, 22, 72, 0.6); }
-.rack-cube.sel { outline: 2px solid #f3ecff; outline-offset: 2px; }
+.rack-cube.sel { outline: 2px solid #f3ecff; outline-offset: 1px; z-index: 1; }
 .rack-cube.playing { filter: brightness(1.55); }
 .rack-cube.outside { opacity: 0.16; cursor: default; box-shadow: 0 0 0 1px #08060c; }
 .cube-window {
   position: absolute; right: 12px; bottom: 12px; width: min(420px, calc(100% - 24px)); max-height: calc(100% - 60px); overflow: auto; z-index: 5;
   background: var(--panel-raised); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5); padding: 8px 12px 10px;
 }
+/* The channel window (decision 129): at the left, by the channels' names. */
+.channel-window { left: 12px; right: auto; width: min(460px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; }
+.channel-window-name { flex: 1; min-width: 0; font-weight: 600; }
+.channel-window-label { margin-top: 2px; }
+.channel-window-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.channel-effect { border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px 4px 8px; background: rgba(0, 0, 0, 0.16); }
+.channel-effect-head, .channel-value { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.channel-effect-name { border: none; background: transparent; color: var(--text); font: inherit; font-weight: 600; padding: 0; cursor: pointer; }
+.channel-effect-name:hover { color: var(--accent); }
+.channel-effect-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.channel-value { padding-left: 12px; font-size: 12px; }
+.channel-unlink { width: 20px; height: 20px; border: none; border-radius: 4px; background: transparent; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 0; }
+.channel-unlink:hover { background: var(--border-strong); color: var(--text); }
+.channel-picker { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding-right: 2px; }
+.channel-pick { display: flex; flex-direction: column; gap: 3px; }
+.channel-category { margin: 4px 0 1px; }
+.channel-pick-head {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.channel-pick-head:hover, .channel-pick-head.open { border-color: var(--border-strong); background: var(--panel-header); }
+.channel-effect-name-text { font-weight: 600; }
+.channel-pick-values { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 4px 10px; }
+.channel-params { padding-left: 0; }
+.channel-param { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px 2px 4px; border: 1px solid var(--border); border-radius: 6px; }
 .cube-window-head { display: flex; align-items: center; gap: 8px; height: 26px; }
 .cube-window-title { font-weight: 600; font-size: 12px; }
 .cube-group { padding: 4px 0; }

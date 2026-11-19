@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { automationTest } from '../automation/automation-test'
 import { tabsTest } from './tabs-test'
+import { channelWindowTest } from '../rack/channel-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
@@ -435,11 +436,15 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(2500)
       break
     }
-    case 'rackui': {
+    case 'rackui':
+    case 'rackchannel': {
       // M12: Auto-fill from the test drums, Kick Flash on the Kick row, Posterize Time, in the Channel Rack.
+      // rackchannel: then decisions 129 and 130 (the channel window, later cubes' amounts, whole sections).
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /testsrc_1080p24_h264\.mp4$|beat_128bpm\.wav$/.test(f)), null)
       await wait(2500)
-      await window.ginosa.snapshot.report(await buildRackUi().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      const built = await buildRackUi().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack }))
+      if (scenario === 'rackui') await window.ginosa.snapshot.report(built)
+      else await window.ginosa.snapshot.report(await channelWindowTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       await wait(2500)
       break
     }

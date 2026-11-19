@@ -1,5 +1,16 @@
 # Changelog
 
+## The Channel Rack shows the song as it is, and a channel's window (20 Nov 2026)
+
+- **No more loops** (decision 130, your correction). Each section (A, B, C…) holds its own cubes for its whole length, 16 to a bar: an 8-bar section shows 128 cubes, grouped by beat, with a gap and a number at each bar. Nothing repeats; following the playhead shows the cubes under it. Click a bar number to move the playhead there.
+- **Detect puts every hit where it is** (before, each section kept a two-bar loop voted from its stretches). A stray hit stays, with its pink doubt dot when only one check heard it.
+- **Your projects play exactly as before:** on opening, each section's old two-bar loop is written out through the section (project format 14).
+- **Double-click a channel's name** for its window (decision 129): rename it there, and see the effects linked to it, value by value, each with × to unlink (an effect's × unlinks all of it). Click an effect's name to show it in Effect Controls.
+  - **Link a value…** lists the effects already on your clips and adjustment layers (the selected first, with a search); pick a value and it follows the channel.
+  - **New effect…** lists the Effects Library. Pick one and choose which value follows the channel (its main one is chosen for you: Exposure for Basic Correction, Scale for Transform, else its first). It goes on the selected clips, or with nothing selected on a new adjustment layer over the whole song, above everything ("Kick: Mosaic").
+- **Right-click a cube › Same Amounts to the End of the Section / to the End of the Song**: the channel's later cubes take that cube's amounts, in one undo step.
+- **Measured** (`rackchannel` scenario, `"verdict":"pass"`): section A shows all its 80 cubes (5 bars) with bar numbers 1–5 and kicks through all of it; double-clicking Kick lists Kick Flash's Exposure; a value linked and unlinked from the window; Mosaic added on a new adjustment layer with Cell Size linked; the channel renamed; the menu gave the 14 later kicks a cube's −40%. `rackui` and `rackdetect` pass; the detection bench scores about as before (STAR with the transcriber: kicks 0.98–1, hi-hats 0.82–0.96). Tests: 430 (new: the channel's effects, linking, unlinking, a new effect on a clip or a new layer, later cubes' amounts, whole sections, and opening older projects).
+
 ## The clef and project tabs (19 Nov 2026)
 
 - **The logo at the top left is your clef alone, on its side** (turned −90°, its top to the left), filling the title bar: 30 points tall, three screen pixels a pixel, so every edge is sharp (decision 128).

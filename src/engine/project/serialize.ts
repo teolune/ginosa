@@ -1,9 +1,9 @@
 import { BANDS, type BandId } from '../audio/analysis'
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, AUTOMATION_SHAPES, type AutomationCurve, type AutomationPoint, type AutomationShape, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, defaultId } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, AUTOMATION_SHAPES, type AutomationCurve, type AutomationPoint, type AutomationShape, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, OLD_LOOP_BARS, STEPS_PER_BEAT, defaultId } from './model'
 import { DEFAULT_GRID } from '../modulation/curve'
-import { maxLoopSteps, sectionsFromSteps } from '../timeline/rack'
+import { sectionSteps, sectionsFromSteps } from '../timeline/rack'
 import { defaultMotion, sourceSize } from '../timeline/motion'
 import { syncLinkedRamps } from '../timeline/timeline'
 import { MAX_BPM, MIN_BPM } from '../audio/beat-grid'
@@ -153,6 +153,33 @@ function migrate(raw: Json): Json {
   }
   // 13 (W3): Channel Rack sections. Rows' steps become sections in parseRack, which knows the grid.
   if (version < 13) data = { ...data, schemaVersion: 13 }
+  // 14 (decision 130): a section's cubes were a two-bar loop repeated through it; they're written out through the section.
+  if (version < 14) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    const rack = sequence['rack']
+    if (isObject(rack) && Array.isArray(rack['sections'])) {
+      const grid = sequence['beatGrid']
+      const beatsPerBar = isObject(grid) && typeof grid['beatsPerBar'] === 'number' && grid['beatsPerBar'] >= 1 ? grid['beatsPerBar'] : DEFAULT_GRID.beatsPerBar
+      const perBar = beatsPerBar * STEPS_PER_BEAT
+      const sections = rack['sections'].map((raw) => {
+        if (!isObject(raw) || typeof raw['bars'] !== 'number' || !isObject(raw['cubes'])) return raw
+        const steps = raw['bars'] * perBar
+        const loop = Math.min(OLD_LOOP_BARS, raw['bars']) * perBar
+        const cubes = Object.fromEntries(
+          Object.entries(raw['cubes']).map(([rowId, list]) => {
+            if (!Array.isArray(list)) return [rowId, list]
+            const inLoop = list.filter((c) => isObject(c) && typeof c['step'] === 'number' && c['step'] >= 0 && c['step'] < loop) as Json[]
+            const out: Json[] = []
+            for (let start = 0; start < steps; start += loop) for (const c of inLoop) if (start + (c['step'] as number) < steps) out.push({ ...c, step: start + (c['step'] as number) })
+            return [rowId, out.sort((a, b) => (a['step'] as number) - (b['step'] as number))]
+          })
+        )
+        return { ...raw, cubes }
+      })
+      data = { ...data, sequence: { ...sequence, rack: { ...rack, sections } } }
+    }
+    data = { ...data, schemaVersion: 14 }
+  }
   return data
 }
 
@@ -518,7 +545,6 @@ function parseRack(value: unknown, grid: BeatGrid | null): Rack {
   if (new Set(out.map((r) => r.id)).size !== out.length) throw new ProjectFormatError('Two Channel Rack rows share the same id')
   const g = grid ?? DEFAULT_GRID
   if (!(isObject(value) && Array.isArray(value['sections']))) return { rows: out, sections: sectionsFromSteps(oldSteps, g, defaultId) }
-  const limit = maxLoopSteps(g)
   const rowIds = new Set(out.map((r) => r.id))
   const sections: RackSection[] = []
   const seen = new Set<string>()
@@ -530,6 +556,7 @@ function parseRack(value: unknown, grid: BeatGrid | null): Rack {
     seen.add(id)
     const bars = raw['bars']
     if (typeof bars !== 'number' || !Number.isInteger(bars) || bars < 1 || bars > MAX_SECTION_BARS) throw new ProjectFormatError(`${where}.bars should be 1 to ${MAX_SECTION_BARS}`)
+    const limit = sectionSteps({ bars }, g)
     const cubes: Record<string, RackCube[]> = {}
     const rawCubes = isObject(raw['cubes']) ? raw['cubes'] : {}
     for (const [rowId, list] of Object.entries(rawCubes)) {

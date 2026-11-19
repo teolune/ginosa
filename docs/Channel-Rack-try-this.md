@@ -14,12 +14,16 @@ cat renders/ui/rackui.json
 open renders/ui/rackui.png
 npm run snapshot -- --scenario rackdetect
 cat renders/ui/rackdetect.json
+npm run snapshot -- --scenario rackchannel
+cat renders/ui/rackchannel.json
+open renders/ui/rackchannel.png
 ```
 
-- [ ] `npm run check` ends with **Tests 415 passed (415)**. New tests: sections, cubes and their amounts, saving and moving old racks over, each link's own curve from the cubes, the hit gates (a snare found among hi-hats, a quiet intro keeping its hits) and a song that ends mid-loop.
+- [ ] `npm run check` ends with **Tests 430 passed (430)**. Since 19 Nov: a channel's effects (listing, linking, unlinking, a new effect on a clip or on a new adjustment layer), later cubes' amounts, whole sections (decision 130) and opening projects saved with loops.
 - [ ] `rackui`: `"ui"` ends with `"pass":true` (link mode's socket links and unlinks Contrast, dragging Clap onto Brightness links it, clicking an empty cube makes one, Backspace deletes it), and `pushes` is `[1,-0.5]` (a +100% cube and a −50% cube on Kick Flash's link).
 - [ ] `rackui` also shows the doubtful cubes working (W4.6): `"doubtDots":2`, `"doubtPopover":true`, `"doubtKeeps":true`, `"doubtDeletes":true`, `"doubtUndone":true`.
 - [ ] `rackui.png`: the Channel Rack with even, raised cubes, the beats in alternating shades of four; Kick on every beat, Clap on 2 and 4, Hi-hat on every 8th; one pink cube (it pushes its value down).
+- [ ] `rackchannel`: `"verdict":"pass"`, `"cubes":80` and `"barNumbers":["1","2","3","4","5"]` (all of section A, nothing repeated), kicks through to step 64, `"listed"` with Basic Correction's Exposure and Mosaic's Cell Size, and `"amounts"` ending in −40s. `rackchannel.png`: Kick 2's window open over the rack.
 - [ ] `rackdetect`: `"verdict":"pass"`. Once detection is set up (below), with `"method":"stems"` and `"drums":"transcriber"`, sections `[8,3]`; before, `"method":"bands"`. Either way Kick `[0,4,8,…,28]`, Clap `[4,12,20,28]`, Hi-hat every even 16th. With detection set up it also says `"bass":"notes"`, `"listen":{"seconds":0.62,…}` (a Kick cube's moment played from the drums stem) and how many cubes it marked as doubtful in each channel.
 
 ### Stem separation (once)
@@ -57,16 +61,21 @@ npm start
 
 ## Cubes
 
-- [ ] Each cube is a 16th. A channel's cubes in a section are a 2-bar loop (32 cubes) that repeats to the section's end. They're evenly spaced keys raised out of the console; each beat's four alternate dark and light.
+- [ ] Each cube is a 16th, and a section shows all of its bars as the song plays them (decision 130): an 8-bar section is 128 cubes, each beat's four alternating dark and light, a wider gap and a number at each bar. Nothing repeats. Click a bar number to move the playhead there.
+- [ ] Open a project you made before today: it plays exactly as it did (each section's old two-bar loop is now written out through it).
 - [ ] Click an empty cube: it lights up (purple) and is selected. Click a lit one to select it. Drag across cubes to paint. **Backspace** deletes the selection. Cmd+A selects every cube in the section; Cmd+C / Cmd+V copy and paste cubes (with their amounts).
 - [ ] **Double-click** a lit cube: the cube window lists every value linked to its channel (effect · clip), each with a slider from −100% to +100%: how far this hit moves that value, up or down. A cube that pushes a value down turns pink. Nothing else is set there.
 - [ ] **Cmd+Opt+C** copies a cube's amounts (its effects); select cubes, in this section or the next, and **Cmd+Opt+V** gives them the same.
+- [ ] Right-click a lit cube › **Same Amounts to the End of the Section** (or **to the End of the Song**): every later cube of that channel takes its amounts; a message says how many. One ⌘Z undoes it.
 
 ## Channels
 
 - [ ] The **light** turns a channel on or off (its cubes stay).
 - [ ] The **left/right knob** nudges its hits earlier or later, up to half a 16th. The **volume knob** is its strength, 0–150%, scaling everything it moves. Drag up or down, scroll, or use the arrow keys; double-click resets.
-- [ ] Right-click a channel's name: Link Values to It, Rename…, Swing, Show Its Modulator (its rise and fall), Move Up, Move Down, Delete Channel. **+ Channel** adds one.
+- [ ] Right-click a channel's name: Link Values to It, Name and Effects…, Swing, Show Its Modulator (its rise and fall), Move Up, Move Down, Delete Channel. **+ Channel** adds one.
+- [ ] **Double-click a channel's name** (decision 129): its window opens with the name ready to type (Enter renames) and the effects linked to it, value by value. × beside a value unlinks it; × beside an effect unlinks all of it. Click an effect's name to show it in Effect Controls. Esc closes.
+- [ ] **+ Link a value…**: the effects on your clips and adjustment layers (selected clips first; type to search). Open one, click a value: it's linked and listed.
+- [ ] **+ New effect…**: pick an effect, check which value follows the channel, then **Add**. With a clip selected in the timeline it goes on that clip; with nothing selected, on a new adjustment layer over the whole song, above everything, named "Kick: Mosaic" (say).
 
 ## Linking values to a channel
 

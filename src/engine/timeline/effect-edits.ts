@@ -2,7 +2,7 @@ import type { Draft } from 'immer'
 import { effectById } from '../../effects/registry'
 import { cloneEffect, defaultParams, sanitiseValue } from '../effects/params'
 import { rescaleEffects } from '../effects/presets'
-import type { EffectInstance, ImageSize, ParamValue } from '../effects/types'
+import type { EffectInstance, EffectManifest, ImageSize, ParamValue } from '../effects/types'
 import { CommandError } from '../project/commands'
 import type { MediaItem } from '../project/media'
 import { defaultId, type BlendMode, type Clip, type IdFactory, type Project, type Sequence } from '../project/model'
@@ -37,6 +37,22 @@ function effectOn(clip: Clip, effectId: string): EffectInstance {
 }
 
 /** Apply an effect to clips (from the Effects Library): at the bottom of each stack, or at `index`. */
+/** A new instance of an effect at its defaults, for an image this size. */
+export function newEffectInstance(manifest: EffectManifest, size: ImageSize, newId: IdFactory): EffectInstance {
+  return {
+    id: newId(),
+    effectId: manifest.id,
+    version: manifest.version,
+    enabled: true,
+    mix: 100,
+    blendMode: 'normal',
+    params: defaultParams(manifest, size),
+    keyframes: {},
+    modulation: {},
+    mask: null
+  }
+}
+
 export function addEffect(clipIds: string[], effectId: string, index: number | null = null, newId: IdFactory = defaultId): TimelineCommand {
   const manifest = effectById(effectId)
   return timelineCommand(`Apply ${manifest?.name ?? 'Effect'}`, (draft) => {
@@ -46,18 +62,7 @@ export function addEffect(clipIds: string[], effectId: string, index: number | n
     if (clips.length === 0) throw new CommandError('Select a video clip or adjustment layer to apply an effect to')
     for (const clip of clips) {
       assertUnlocked(findTrack(sequence, clip.trackId))
-      const instance: EffectInstance = {
-        id: newId(),
-        effectId,
-        version: manifest.version,
-        enabled: true,
-        mix: 100,
-        blendMode: 'normal',
-        params: defaultParams(manifest, effectImageSize(clip, draft.media, sequence)),
-        keyframes: {},
-        modulation: {},
-        mask: null
-      }
+      const instance = newEffectInstance(manifest, effectImageSize(clip, draft.media, sequence), newId)
       const at = index === null ? clip.effects.length : Math.max(0, Math.min(clip.effects.length, index))
       clip.effects.splice(at, 0, instance)
     }
@@ -173,30 +178,35 @@ export function addAdjustmentLayer(request: AdjustmentRequest, newId: IdFactory 
     const start = Math.max(0, toFrame(request.start, frame))
     const duration = Math.max(frame, toFrame(request.duration, frame))
     clearRange(sequence, track.id, start, start + duration, new EditContext(newId))
-    sequence.clips.push({
-      id: newId(),
-      trackId: track.id,
-      mediaId: '',
-      kind: 'video',
-      name: 'Adjustment Layer',
-      start,
-      duration,
-      sourceIn: 0,
-      linkId: null,
-      motion: { positionX: sequence.settings.width / 2, positionY: sequence.settings.height / 2, scale: 100, scaleWidth: 100, rotation: 0, anchorX: sequence.settings.width / 2, anchorY: sequence.settings.height / 2 },
-      opacity: 100,
-      blendMode: 'normal',
-      volume: 0,
-      speed: 1,
-      reverse: false,
-      transitionIn: null,
-      transitionOut: null,
-      effects: [],
-      adjustment: true,
-      keyframes: {},
-      modulation: {},
-      mask: null
-    })
+    sequence.clips.push(adjustmentLayerClip(sequence, track.id, start, duration, newId()))
     command.notice = undefined
   })
+}
+
+/** An empty adjustment layer (whole frames: `start` and `duration` are already on frames). */
+export function adjustmentLayerClip(sequence: Sequence, trackId: string, start: Ticks, duration: Ticks, id: string): Clip {
+  return {
+    id,
+    trackId,
+    mediaId: '',
+    kind: 'video',
+    name: 'Adjustment Layer',
+    start,
+    duration,
+    sourceIn: 0,
+    linkId: null,
+    motion: { positionX: sequence.settings.width / 2, positionY: sequence.settings.height / 2, scale: 100, scaleWidth: 100, rotation: 0, anchorX: sequence.settings.width / 2, anchorY: sequence.settings.height / 2 },
+    opacity: 100,
+    blendMode: 'normal',
+    volume: 0,
+    speed: 1,
+    reverse: false,
+    transitionIn: null,
+    transitionOut: null,
+    effects: [],
+    adjustment: true,
+    keyframes: {},
+    modulation: {},
+    mask: null
+  }
 }

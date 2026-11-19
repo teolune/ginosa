@@ -17,6 +17,7 @@ const basicCorrection: EffectManifest = {
   version: 2,
   colourSpace: 'linear',
   time: 'per-frame',
+  mainParam: 'exposure',
   params: [
     { id: 'temperature', label: 'Temperature', type: 'number', default: 0, min: -100, max: 100, decimals: 1, group: 'White Balance', help: 'Warmer (+) or cooler (−), along the colour of real light: +100 is a full orange (CTO) gel, about 3,500 K; −100 a full blue (CTB) gel. Brightness stays the same.' },
     { id: 'tint', label: 'Tint', type: 'number', default: 0, min: -100, max: 100, decimals: 1, group: 'White Balance', help: 'Towards magenta (+) or green (−): ±100 is one stop of green, a full minus-green or plus-green gel. Brightness stays the same.' },

@@ -167,6 +167,11 @@ export interface EffectManifest {
    * The render plan works it out, and it has no GPU pass of its own.
    */
   holdsTime?: boolean
+  /**
+   * The value a Channel Rack channel moves when this effect is added from its window (decision
+   * 129). Without it, the first number that can be modulated.
+   */
+  mainParam?: string
   /** What a parameter's value means right now, shown next to it (Posterize Time: "1/16 · 8.53 fps"). */
   readout?(param: string, params: Record<string, ParamValue>, context: { beatGrid: BeatGrid | null }): string | null
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>

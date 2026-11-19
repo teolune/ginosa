@@ -22,6 +22,8 @@ import {
   setRackRow,
   setRackSectionBars,
   STARTER_ROWS,
+  giveLaterCubesAmounts,
+  laterCubes,
   stepsFromHits
 } from './rack-edits'
 import type { TimelineCommand } from './edits'
@@ -89,7 +91,9 @@ describe('Channel Rack channels', () => {
     history.redo()
     run(removeRackCubes([{ sectionId: sec, rowId: id, step: 4 }, { sectionId: sec, rowId: id, step: 12 }]))
     expect(sections()[0]!.cubes[id]!.map((c) => c.step)).toEqual([0, 8])
-    expect(() => history.dispatch(setRackCubes(sec, id, [32], true))).toThrow(/16ths/)
+    // An 8-bar section has 128 16ths (decision 130).
+    run(setRackCubes(sec, id, [127], true))
+    expect(() => history.dispatch(setRackCubes(sec, id, [128], true))).toThrow(/128 16ths/)
   })
 
   it('sets how far each cube pushes a linked value, and copies cubes and amounts', () => {
@@ -110,6 +114,31 @@ describe('Channel Rack channels', () => {
     const next = run(addRackSection(sec, 8, ids))
     run(pasteRackCubes(next.sectionId, [{ rowId: id, step: 2, amounts: { 'link-1': 50 } }]))
     expect(sections()[1]!.cubes[id]).toEqual([{ step: 2, amounts: { 'link-1': 50 } }])
+  })
+
+  it('gives the later cubes of a channel one cube’s amounts: to the end of its section, or of the song (decision 129)', () => {
+    const { history, run, rows, sections } = setup()
+    run(addRackRows([STARTER_ROWS[0]!, STARTER_ROWS[1]!], ids))
+    const [kick, clap] = [rows()[0]!.id, rows()[1]!.id]
+    const a = sections()[0]!.id
+    const b = run(addRackSection(a, 8, ids)).sectionId
+    run(setRackCubes(a, kick, [0, 4, 100], true))
+    run(setRackCubes(b, kick, [2, 60], true))
+    run(setRackCubes(a, clap, [8], true))
+    const at = { sectionId: a, rowId: kick, step: 4 }
+    run(setCubeAmount([at], 'link-1', -50))
+    expect(laterCubes(history.state.sequence, at, false)).toEqual([{ sectionId: a, rowId: kick, step: 100 }])
+    expect(laterCubes(history.state.sequence, at, true).map((r) => r.step)).toEqual([100, 2, 60])
+    const amounts = () => sections().map((s) => (s.cubes[kick] ?? []).map((c) => c.amounts['link-1'] ?? 100))
+    const section = run(giveLaterCubesAmounts(at, false))
+    expect(section.notice).toBe('1 later cube now pushes the same as this one')
+    expect(amounts()).toEqual([[100, -50, -50], [100, 100]])
+    history.undo()
+    run(giveLaterCubesAmounts(at, true))
+    expect(amounts()).toEqual([[100, -50, -50], [-50, -50]])
+    // Other channels and earlier cubes are left alone; the last cube has nothing after it.
+    expect(sections()[0]!.cubes[clap]![0]!.amounts).toEqual({})
+    expect(() => history.dispatch(giveLaterCubesAmounts({ sectionId: b, rowId: kick, step: 60 }, true))).toThrow(/no cubes after this one/)
   })
 
   it('removes a channel with its cubes, its modulator and the values it moved', () => {
@@ -145,54 +174,48 @@ describe('Channel Rack sections', () => {
     expect(() => history.dispatch(setRackSectionBars(a, 17))).toThrow(/1 to 16 bars/)
     expect(() => history.dispatch(setRackSectionBars(a, 1.5))).toThrow(/1 to 16 bars/)
     const placed = placeSections(history.state.sequence.rack, GRID)
-    expect(placed.map((p) => [p.startBar, p.firstStep, p.steps, p.loop])).toEqual([
-      [0, 0, 32, 32],
-      [2, 32, 128, 32],
-      [10, 160, 64, 32]
+    expect(placed.map((p) => [p.startBar, p.firstStep, p.steps])).toEqual([
+      [0, 0, 32],
+      [2, 32, 128],
+      [10, 160, 64]
     ])
     run(removeRackSection(b.sectionId))
     expect(sections()).toHaveLength(2)
     expect([0, 25, 26, 27, 701].map(sectionName)).toEqual(['A', 'Z', 'AA', 'AB', 'ZZ'])
   })
 
-  it('repeat each loop to the section end; a 1-bar section uses the first bar; bar 1 follows the grid', () => {
-    const rack = rackOf([[8, [0, 20]], [1, [4, 20]], [3, [0]]])
-    expect(channelHits(rack, 'r', GRID).map((h) => h.step)).toEqual([0, 20, 32, 52, 64, 84, 96, 116, 132, 144, 176])
+  it('fire each cube once, where it is (nothing repeats, decision 130); a cube past a shortened section’s end is kept but silent; bar 1 follows the grid', () => {
+    const rack = rackOf([[8, [0, 20, 127]], [1, [4, 20]], [3, [0]]])
+    expect(channelHits(rack, 'r', GRID).map((h) => h.step)).toEqual([0, 20, 127, 132, 144])
     // Downbeat 1.25 s at 120 BPM: beat −2.5 is the start, so bar 1 is the first downbeat at or after it (beat 0, step 0 from the downbeat).
     expect(channelHits(rackOf([[1, [0]]]), 'r', { ...GRID, downbeat: secondsToTicks(1.25) }).map((h) => h.step)).toEqual([0])
     // Downbeat 3 s: the start is beat −6, so bar 1 starts a bar before the downbeat.
     expect(channelHits(rackOf([[1, [0]]]), 'r', { ...GRID, downbeat: secondsToTicks(3) }).map((h) => h.step)).toEqual([-16])
   })
 
-  it('split a song into 8-bar sections, each loop voted by its 2-bar stretches, ignoring stray and missed hits', () => {
+  it('split a song into 8-bar sections, each with every hit where it is (decision 130)', () => {
     const fourOnFloor = (bars: number, from = 0) => Array.from({ length: bars * 4 }, (_, i) => from + i * 4)
-    // 8 bars of four-on-the-floor, then 4 of half time; a stray kick at 37 and one missed at 72.
+    // 8 bars of four-on-the-floor, then 4 of half time; a kick at 37 and none at 72: the song as it is.
     const kick = [...fourOnFloor(8), ...fourOnFloor(4, 128).filter((s) => s % 8 === 0)].filter((s) => s !== 72).concat([37])
     const sections = sectionsFromHits({ kick, clap: [] }, GRID, 192)
     expect(sections.map((s) => s.bars)).toEqual([8, 4])
-    expect(sections[0]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
+    expect(sections[0]!.cubes['kick']).toEqual([...fourOnFloor(8).filter((s) => s !== 72), 37].sort((a, b) => a - b))
     expect(sections[0]!.cubes['clap']).toEqual([])
-    expect(sections[1]!.cubes['kick']).toEqual([0, 8, 16, 24])
-    // Always 8 bars, even where the pattern changes every 2 bars (detection's noise) or never.
+    expect(sections[1]!.cubes['kick']).toEqual([0, 8, 16, 24, 32, 40, 48, 56])
+    // Always 8 bars, the last one what's left: a song that ends two-thirds into its 11th bar.
     expect(sectionsFromHits({ kick: fourOnFloor(40) }, GRID, 640).map((s) => s.bars)).toEqual([8, 8, 8, 8, 8])
-    const restless = [0, 4, 8, 12, 16, 20, 24, 28].map((s, i) => s + 32 * (i % 4))
-    expect(sectionsFromHits({ kick: restless }, GRID, 256).map((s) => s.bars)).toEqual([8, 8])
-    // A song that ends two-thirds into its 11th bar: the last section is 3 bars, its short stretch doesn't vote.
     const shortEnd = sectionsFromHits({ kick: fourOnFloor(10).concat([160, 164, 168]) }, GRID, 170)
     expect(shortEnd.map((s) => s.bars)).toEqual([8, 3])
-    expect(shortEnd[1]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28])
-    // A section that's only a short stretch takes what's there.
+    expect(shortEnd[1]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40])
     expect(sectionsFromHits({ kick: [0, 4, 8] }, GRID, 10)[0]!.cubes['kick']).toEqual([0, 4, 8])
   })
 
-  it('mark a cube doubtful when most of the stretches that hit it heard it by one check only (W4.6)', () => {
-    // 8 bars, a clap on 4 and 12 of each bar; the claps on 12 were heard by one check in 3 of the 4
-    // stretches, those on 4 in 1 of 4; and a clap on 30 in 2 of the 4 stretches (enough for a cube), both by one check.
+  it('mark the cubes only one check heard as doubtful (W4.6)', () => {
     const claps = Array.from({ length: 8 }, (_, bar) => [bar * 16 + 4, bar * 16 + 12]).flat()
     const unsure = [12, 32 + 12, 64 + 12, 4, 30, 64 + 30]
     const [section] = sectionsFromHits({ clap: [...claps, 30, 64 + 30] }, GRID, 128, 8, { clap: unsure })
-    expect(section!.cubes['clap']).toEqual([4, 12, 20, 28, 30])
-    expect(section!.doubtful['clap']).toEqual([12, 30])
+    expect(section!.cubes['clap']).toEqual([...claps, 30, 94].sort((a, b) => a - b))
+    expect(section!.doubtful['clap']).toEqual([4, 12, 30, 44, 76, 94])
     expect(sectionsFromHits({ clap: claps }, GRID, 128)[0]!.doubtful).toEqual({})
   })
 
@@ -262,16 +285,26 @@ describe('Channel Rack as a modulation source', () => {
     run(setRackRow(rows()[2]!.id, { strength: 140 }))
     const reopened = parseProject(serializeProject(history.state))
     expect(reopened.sequence.rack).toEqual(history.state.sequence.rack)
-    // Format 12: steps along the song. Two-bar chunks, joined while they repeat: bars 1–4 the same, bars 5–6 different.
+    // Format 12: steps along the song. Sections of 8 bars from bar 1, the steps where they are (the one before bar 1 dropped).
     const old = JSON.parse(serializeProject(history.state))
     old.schemaVersion = 12
     old.sequence.rack = { rows: old.sequence.rack.rows.map((r: Record<string, unknown>, i: number) => ({ id: r['id'], name: r['name'], enabled: true, swing: 0, band: 'bass', modulatorId: r['modulatorId'], steps: i === 0 ? [-4, 0, 16, 32, 48, 64, 70] : [] })) }
     const migrated = parseProject(JSON.stringify(old)).sequence.rack
     expect(migrated.rows[0]).toMatchObject({ strength: 100, nudge: 0, detect: null })
-    expect(migrated.sections.map((s) => [s.bars, s.cubes[rows()[0]!.id]?.map((c) => c.step)])).toEqual([
-      [4, [0, 16]],
-      [2, [0, 6]]
-    ])
+    expect(migrated.sections.map((s) => [s.bars, s.cubes[rows()[0]!.id]?.map((c) => c.step)])).toEqual([[5, [0, 16, 32, 48, 64, 70]]])
+    // Format 13: a section's two-bar loop is written out through it, amounts and marks kept (decision 130).
+    const looped = JSON.parse(serializeProject(history.state))
+    looped.schemaVersion = 13
+    const kick = rows()[0]!.id
+    looped.sequence.rack.sections = [
+      { id: 'a', bars: 5, cubes: { [kick]: [{ step: 0, amounts: { x: -50 } }, { step: 20, amounts: {}, doubtful: true }, { step: 40, amounts: {} }] } },
+      { id: 'b', bars: 1, cubes: { [kick]: [{ step: 4, amounts: {} }] } }
+    ]
+    const written = parseProject(JSON.stringify(looped)).sequence.rack.sections
+    expect(written[0]!.cubes[kick]!.map((c) => c.step)).toEqual([0, 20, 32, 52, 64])
+    expect(written[0]!.cubes[kick]![2]).toEqual({ step: 32, amounts: { x: -50 } })
+    expect(written[0]!.cubes[kick]![3]).toEqual({ step: 52, amounts: {}, doubtful: true })
+    expect(written[1]!.cubes[kick]!.map((c) => c.step)).toEqual([4])
     const older = JSON.parse(serializeProject(history.state))
     older.schemaVersion = 11
     delete older.sequence.rack
@@ -287,9 +320,11 @@ describe('Channel Rack as a modulation source', () => {
     run(addRackRows([STARTER_ROWS[0]!], ids))
     run(replaceRackSections([{ bars: 4, cubes: { [rows()[0]!.id]: [8, 0, 0, 40] } }, { bars: 2, cubes: { gone: [1] } }], 'Detect Pattern', ids))
     expect(sections().map((s) => [s.bars, s.cubes])).toEqual([
-      [4, { [rows()[0]!.id]: [{ step: 0, amounts: {} }, { step: 8, amounts: {} }] }],
+      [4, { [rows()[0]!.id]: [{ step: 0, amounts: {} }, { step: 8, amounts: {} }, { step: 40, amounts: {} }] }],
       [2, {}]
     ])
+    // A cube past the section's end is refused.
+    expect(() => run(setRackCubes(sections()[1]!.id, rows()[0]!.id, [32], true))).toThrow(/32 16ths/)
   })
 })
 

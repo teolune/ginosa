@@ -49,9 +49,10 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
   const message = projectController.lastError
   const sequence = projectController.project!.sequence
   const sections = sequence.rack.sections
+  // Section A as the song plays it (decision 130): a stray hit stays, marked doubtful, so the pattern is judged on the sure cubes.
   const stepsOf = (name: string) => {
     const row = sequence.rack.rows.find((r) => r.name === name)
-    return row ? (sections[0]?.cubes[row.id] ?? []).map((c) => c.step) : []
+    return row ? (sections[0]?.cubes[row.id] ?? []).filter((c) => !c.doubtful).map((c) => c.step) : []
   }
   const kick = stepsOf('Kick')
   const clap = stepsOf('Clap')

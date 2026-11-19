@@ -12,7 +12,7 @@ import type { Mask, MaskRef } from '../masks/types'
  */
 
 /** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. */
-export const PROJECT_SCHEMA_VERSION = 13
+export const PROJECT_SCHEMA_VERSION = 14
 
 export type TrackKind = 'video' | 'audio' | 'automation'
 
@@ -238,8 +238,8 @@ export interface RackCube {
 
 /**
  * A stretch of the song in whole bars (W3, decision 107). Sections run on from bar 1, one after
- * another; each holds a loop of cubes per channel (two bars of 16ths, decision 105) that
- * repeats through it.
+ * another; each holds its channels' cubes for its whole length, 16 to a bar, so it shows the song
+ * as it plays (decision 130; until 20 Nov a two-bar loop repeated through it).
  */
 export interface RackSection {
   id: string
@@ -256,8 +256,8 @@ export interface Rack {
 
 export const MAX_SECTION_BARS = 16
 export const DEFAULT_SECTION_BARS = 8
-/** A channel's cubes are a loop this many bars long (or the section, if shorter). */
-export const LOOP_BARS = 2
+/** Until project format 14, a section's cubes were a loop this many bars long (or the section, if shorter) that repeated through it. */
+export const OLD_LOOP_BARS = 2
 
 /** 16th notes to a beat. */
 export const STEPS_PER_BEAT = 4

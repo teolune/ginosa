@@ -2,17 +2,17 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Keyb
 import { beatAt, beatTime } from '@engine/audio/beat-grid'
 import { DEFAULT_GRID } from '@engine/modulation/curve'
 import { MAX_SECTION_BARS, STEPS_PER_BEAT, type RackCube, type RackRow, type Sequence } from '@engine/project/model'
-import { channelModulatorIds, maxLoopSteps, placeSections, sectionAtStep, sectionName, stepsPerBar, type PlacedSection } from '@engine/timeline/rack'
+import { channelModulatorIds, placeSections, sectionAtStep, sectionName, stepsPerBar, type PlacedSection } from '@engine/timeline/rack'
 import {
   addRackRows,
   addRackSection,
+  giveLaterCubesAmounts,
   moveRackRow,
   pasteCubeAmounts,
   pasteRackCubes,
   removeRackCubes,
   removeRackRow,
   removeRackSection,
-  renameRackRow,
   setRackCubes,
   setRackRow,
   setRackSectionBars,
@@ -25,6 +25,7 @@ import { PromptDialog, type PromptRequest } from '../app/Dialogs'
 import { Icon } from '../app/Icon'
 import { modulationController } from '../audio/modulation-controller'
 import { modulationUi } from '../audio/modulation-ui'
+import { ChannelWindow } from '../rack/ChannelWindow'
 import { CubeWindow } from '../rack/CubeWindow'
 import { DoubtPopover } from '../rack/DoubtPopover'
 import { detector } from '../rack/detect'
@@ -36,11 +37,12 @@ import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 
 /**
- * The Channel Rack (M12, redesigned in W3, decisions 105–109). Sections run on from bar 1
- * (A, B, C…, 1–16 bars each); each shows one loop of cubes per channel, two bars of 16ths,
- * which repeats through it. Click an empty cube to make one, a cube to select it; Backspace
- * deletes; double-click opens the cube window (how far it pushes each linked value). A
- * channel's light, nudge and strength sit at its left; click its name, then R, to link values.
+ * The Channel Rack (M12, redesigned in W3, decisions 105–109 and 130). Sections run on from bar 1
+ * (A, B, C…, 1–16 bars each); each shows its cubes for its whole length, 16 to a bar, as the
+ * song plays them (nothing repeats). Click an empty cube to make one, a cube to select it;
+ * Backspace deletes; double-click opens the cube window (how far it pushes each linked value).
+ * A channel's light, nudge and strength sit at its left; double-click its name for its window
+ * (name and linked effects, decision 129), or click it, then R, to link values.
  */
 
 const dispatch = (command: Parameters<typeof projectController.dispatch>[0]) => projectController.dispatch(command)
@@ -87,15 +89,16 @@ export function ChannelRackWindow() {
   const rows = rack.rows
   const grid = gridOf(sequence)
   const perBar = stepsPerBar(grid)
-  const columns = maxLoopSteps(grid)
   const placed = placeSections(rack, grid)
   const playhead = timelineController.playhead
   const playStep = beatAt(grid, playhead) * 4
   const playing = sectionAtStep(rack, grid, playStep)
   const chosen = placed.find((p) => p.section.id === rackUi.sectionId) ?? null
   const shown = rackUi.follow ? (playing ?? chosen ?? placed[0] ?? null) : (chosen ?? placed[0] ?? null)
-  const playColumn = shown && playing && playing.section.id === shown.section.id ? Math.floor(playStep - shown.firstStep) % shown.loop : -1
-  const loop = shown?.loop ?? columns
+  // The whole section, 16 to a bar (decision 130).
+  const columns = shown?.steps ?? 8 * perBar
+  const playColumn = shown && playing && playing.section.id === shown.section.id ? Math.floor(playStep - shown.firstStep) : -1
+  const loop = columns
 
   const ref = (rowId: string, step: number): CubeRef | null => (shown ? { sectionId: shown.section.id, rowId, step } : null)
 
@@ -199,7 +202,8 @@ export function ChannelRackWindow() {
       else rackUi.toggleLinking(channel)
     } else if (event.key === 'Escape') {
       handled()
-      if (rackUi.cubeWindow) rackUi.openCubeWindow(false)
+      if (rackUi.channelWindow) rackUi.openChannelWindow(null)
+      else if (rackUi.cubeWindow) rackUi.openCubeWindow(false)
       else rackUi.select([])
     } else if (event.key === 'Enter' && rackUi.selection.length) {
       handled()
@@ -213,7 +217,7 @@ export function ChannelRackWindow() {
     const items: MenuEntry[] = [
       { label: rackUi.linking === row.id ? 'Stop Linking' : 'Link Values to It', shortcut: 'R', onSelect: () => rackUi.toggleLinking(row.id) },
       'separator',
-      { label: 'Rename…', onSelect: () => rename(row) },
+      { label: 'Name and Effects…', shortcut: 'double-click', onSelect: () => rackUi.openChannelWindow(row.id) },
       {
         label: `Swing… (${row.swing}%)`,
         onSelect: () =>
@@ -237,17 +241,6 @@ export function ChannelRackWindow() {
     ]
     setMenu({ x, y, items })
   }
-  const rename = (row: RackRow) =>
-    setPrompt({
-      title: 'Rename Channel',
-      label: 'Name',
-      initial: row.name,
-      confirm: 'Rename',
-      resolve: (name) => {
-        setPrompt(null)
-        if (name) dispatch(renameRackRow(row.id, name))
-      }
-    })
   const addMenu = (x: number, y: number) => {
     const has = new Set(rows.map((r) => r.name.toLowerCase()))
     setMenu({
@@ -375,6 +368,28 @@ export function ChannelRackWindow() {
         </div>
       ) : (
         <div className="rack-rows">
+          {shown && (
+            <div className="rack-bars-row" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <div className="rack-cubes rack-bar-numbers" style={{ '--columns': columns } as CSSProperties}>
+                {Array.from({ length: shown.section.bars }, (_, bar) => (
+                  <button
+                    key={bar}
+                    className={`rack-bar-number ${bar > 0 ? 'bar-start' : ''}`}
+                    style={{ gridColumn: `span ${perBar}` }}
+                    title={`Bar ${shown.startBar + bar + 1}: click to move the playhead there`}
+                    tabIndex={-1}
+                    onClick={() => timelineController.movePlayhead(Math.max(0, beatTime(grid, (shown.firstStep + bar * perBar) / 4)))}
+                  >
+                    {shown.startBar + bar + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {rows.map((row) => {
             const level = row.modulatorId ? Math.min(1, Math.abs(modulationController.valueAt(row.modulatorId, playhead) ?? 0)) : 0
             const cubes = cubesOf(shown, row.id)
@@ -404,14 +419,14 @@ export function ChannelRackWindow() {
                 />
                 <button
                   className={`rack-name ${rackUi.channelId === row.id ? 'picked' : ''} ${rackUi.linking === row.id ? 'linking' : ''}`}
-                  title={`${row.name}: click to pick it, then R to link values (or drag it onto a value in Effect Controls). Right-click for more.`}
+                  title={`${row.name}: double-click for its name and effects; click to pick it, then R to link values (or drag it onto a value in Effect Controls). Right-click for more.`}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData(CHANNEL_DRAG_TYPE, row.id)
                     e.dataTransfer.effectAllowed = 'link'
                   }}
                   onClick={() => rackUi.pickChannel(row.id)}
-                  onDoubleClick={() => rename(row)}
+                  onDoubleClick={() => rackUi.openChannelWindow(row.id)}
                   onContextMenu={(e) => (e.preventDefault(), channelMenu(row, e.clientX, e.clientY))}
                 >
                   <span className="rack-activity" style={{ opacity: 0.15 + 0.85 * level }} />
@@ -428,7 +443,7 @@ export function ChannelRackWindow() {
                     return (
                       <button
                         key={step}
-                        className={`rack-cube ${Math.floor(step / STEPS_PER_BEAT) % 2 ? 'odd' : ''} ${cube ? 'on' : ''} ${pushes ? 'down' : ''} ${selected ? 'sel' : ''} ${step === playColumn ? 'playing' : ''} ${outside ? 'outside' : ''} ${cube?.doubtful ? 'doubtful' : ''}`}
+                        className={`rack-cube ${Math.floor(step / STEPS_PER_BEAT) % 2 ? 'odd' : ''} ${step > 0 && step % perBar === 0 ? 'bar-start' : step > 0 && step % STEPS_PER_BEAT === 0 ? 'beat-start' : ''} ${cube ? 'on' : ''} ${pushes ? 'down' : ''} ${selected ? 'sel' : ''} ${step === playColumn ? 'playing' : ''} ${outside ? 'outside' : ''} ${cube?.doubtful ? 'doubtful' : ''}`}
                         aria-pressed={Boolean(cube)}
                         aria-label={`${row.name}, bar ${Math.floor(step / perBar) + 1}, 16th ${(step % perBar) + 1}${cube ? (cube.doubtful ? ', doubtful' : '') : ', empty'}`}
                         disabled={outside}
@@ -452,6 +467,10 @@ export function ChannelRackWindow() {
                               { label: 'Paste', shortcut: '⌘V', onSelect: pasteCubes, disabled: !rackUi.copiedCubes },
                               { label: 'Copy Amounts', shortcut: '⌥⌘C', onSelect: copyAmounts, disabled: !cube },
                               { label: 'Paste Amounts', shortcut: '⌥⌘V', onSelect: pasteAmounts, disabled: !rackUi.copiedAmounts || rackUi.selection.length === 0 },
+                              'separator',
+                              // Decision 129: this cube's amounts for the channel's cubes after it.
+                              { label: 'Same Amounts to the End of the Section', onSelect: () => here && dispatch(giveLaterCubesAmounts(here, false)), disabled: !cube },
+                              { label: 'Same Amounts to the End of the Song', onSelect: () => here && dispatch(giveLaterCubesAmounts(here, true)), disabled: !cube },
                               'separator',
                               { label: 'Delete', shortcut: '⌫', danger: true, onSelect: () => (dispatch(removeRackCubes(rackUi.selection)), rackUi.select([])), disabled: rackUi.selection.length === 0 }
                             ]
@@ -487,13 +506,13 @@ export function ChannelRackWindow() {
             {shown && (
               <span className="muted small rack-where">
                 Section {sectionName(shown.index)}: bars {shown.startBar + 1}–{shown.startBar + shown.section.bars}
-                {shown.section.bars > 2 ? `, this loop ×${(shown.section.bars / Math.min(2, shown.section.bars)).toFixed(shown.section.bars % 2 ? 1 : 0)}` : ''}
               </span>
             )}
           </div>
         </div>
       )}
       {rackUi.cubeWindow && <CubeWindow />}
+      {rackUi.channelWindow && <ChannelWindow key={rackUi.channelWindow} />}
       {doubt && shown && shown.section.id === doubt.sectionId && sequence.rack.rows.some((r) => r.id === doubt.rowId) && (
         <DoubtPopover placed={shown} row={sequence.rack.rows.find((r) => r.id === doubt.rowId)!} step={doubt.step} x={doubt.x} y={doubt.y} onClose={closeDoubt} />
       )}

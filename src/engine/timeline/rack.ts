@@ -1,11 +1,11 @@
 import { beatAt } from '../audio/beat-grid'
-import { DEFAULT_SECTION_BARS, LOOP_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type BeatGrid, type IdFactory, type Rack, type RackCube, type RackDetect, type RackRow, type RackSection, type Sequence } from '../project/model'
+import { DEFAULT_SECTION_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type BeatGrid, type IdFactory, type Rack, type RackCube, type RackDetect, type RackRow, type RackSection, type Sequence } from '../project/model'
 import type { ModLink } from '../modulation/types'
 
 /**
- * The Channel Rack's maths (W3, decisions 105–107): sections run on from bar 1, each a whole
- * number of bars; a channel's cubes in a section are a loop of 16ths (two bars, or the section
- * if it's shorter) that repeats to the section's end. Steps here are 16ths counted from the
+ * The Channel Rack's maths (W3, decisions 105–107 and 130): sections run on from bar 1, each a
+ * whole number of bars, and each holds its channels' cubes for its whole length, 16 to a bar, so
+ * the rack shows the song as it plays (nothing repeats). Steps here are 16ths counted from the
  * beat grid's downbeat, as M12's were, so sections follow the grid.
  */
 
@@ -30,14 +30,9 @@ export function stepsPerBar(grid: BeatGrid): number {
   return grid.beatsPerBar * STEPS_PER_BEAT
 }
 
-/** The loop's length in 16ths: two bars, or the section if it's shorter. */
-export function loopSteps(section: Pick<RackSection, 'bars'>, grid: BeatGrid): number {
-  return Math.min(LOOP_BARS, section.bars) * stepsPerBar(grid)
-}
-
-/** The most cubes a channel can have in a section (a two-bar loop). */
-export function maxLoopSteps(grid: BeatGrid): number {
-  return LOOP_BARS * stepsPerBar(grid)
+/** A section's length in 16ths: the cubes a channel can have in it (decision 130). */
+export function sectionSteps(section: Pick<RackSection, 'bars'>, grid: BeatGrid): number {
+  return section.bars * stepsPerBar(grid)
 }
 
 /** Bar 1's first 16th from the downbeat: the first downbeat at or after the sequence start, as on the ruler. */
@@ -52,10 +47,8 @@ export interface PlacedSection {
   startBar: number
   /** Its first 16th, from the downbeat. */
   firstStep: number
-  /** Its length in 16ths. */
+  /** Its length in 16ths: its cubes are steps 0 to this. */
   steps: number
-  /** Its loop's length in 16ths. */
-  loop: number
 }
 
 export function placeSections(rack: Rack, grid: BeatGrid): PlacedSection[] {
@@ -63,7 +56,7 @@ export function placeSections(rack: Rack, grid: BeatGrid): PlacedSection[] {
   let bar = 0
   const origin = barOneStep(grid)
   return rack.sections.map((section, index) => {
-    const placed = { section, index, startBar: bar, firstStep: origin + bar * perBar, steps: section.bars * perBar, loop: loopSteps(section, grid) }
+    const placed = { section, index, startBar: bar, firstStep: origin + bar * perBar, steps: section.bars * perBar }
     bar += section.bars
     return placed
   })
@@ -92,15 +85,11 @@ export interface RackHit {
   sectionId: string
 }
 
-/** Every hit of a channel through the song, in time order: each section's loop repeated to its end. */
+/** Every hit of a channel through the song, in time order: each cube once, where it is (decision 130). */
 export function channelHits(rack: Rack, rowId: string, grid: BeatGrid): RackHit[] {
   const out: RackHit[] = []
-  for (const placed of placeSections(rack, grid)) {
-    const cubes = (placed.section.cubes[rowId] ?? []).filter((c) => c.step < placed.loop)
-    if (cubes.length === 0) continue
-    for (let start = 0; start < placed.steps; start += placed.loop)
-      for (const cube of cubes) if (start + cube.step < placed.steps) out.push({ step: placed.firstStep + start + cube.step, cube, sectionId: placed.section.id })
-  }
+  for (const placed of placeSections(rack, grid))
+    for (const cube of placed.section.cubes[rowId] ?? []) if (cube.step < placed.steps) out.push({ step: placed.firstStep + cube.step, cube, sectionId: placed.section.id })
   return out
 }
 
@@ -131,46 +120,28 @@ export function allLinksTo(sequence: Sequence, modulatorId: string): ModLink[] {
 }
 
 /**
- * Project format 13: M12's rows kept their steps along the whole song. They become sections:
- * two bars at a time from bar 1 (exact, since a loop is two bars), joined where the next two
- * bars repeat them, up to 16 bars. Steps before bar 1 are dropped.
+ * Project format 13: M12's rows kept their steps along the whole song. They become sections of
+ * 8 bars from bar 1 (the last one what's left), each with its steps where they are. Steps before
+ * bar 1 are dropped.
  */
 export function sectionsFromSteps(rows: ReadonlyArray<{ id: string; steps: readonly number[] }>, grid: BeatGrid, newId: IdFactory): RackSection[] {
   const perBar = stepsPerBar(grid)
-  const loop = LOOP_BARS * perBar
   const origin = barOneStep(grid)
   let last = -1
   for (const r of rows) for (const s of r.steps) if (s >= origin) last = Math.max(last, s - origin)
   if (last < 0) return []
-  const chunks = Math.floor(last / loop) + 1
-  const pattern = (k: number): Record<string, number[]> =>
-    Object.fromEntries(rows.map((r) => [r.id, r.steps.filter((s) => s - origin >= k * loop && s - origin < (k + 1) * loop).map((s) => s - origin - k * loop)]))
-  const sections: RackSection[] = []
-  let current: { bars: number; key: string; cubes: Record<string, number[]> } | null = null
-  const flush = () => {
-    if (!current) return
-    sections.push({ id: newId(), bars: current.bars, cubes: Object.fromEntries(Object.entries(current.cubes).filter(([, s]) => s.length > 0).map(([id, s]) => [id, s.map((step) => ({ step, amounts: {} }))])) })
-  }
-  for (let k = 0; k < chunks; k++) {
-    const cubes = pattern(k)
-    const key = JSON.stringify(cubes)
-    if (current && current.key === key && current.bars + LOOP_BARS <= 16) current.bars += LOOP_BARS
-    else {
-      flush()
-      current = { bars: LOOP_BARS, key, cubes }
-    }
-  }
-  flush()
-  return sections
+  return sectionsFromHits(Object.fromEntries(rows.map((r) => [r.id, r.steps])), grid, origin + (Math.floor(last / perBar) + 1) * perBar).map((s) => ({
+    id: newId(),
+    bars: s.bars,
+    cubes: Object.fromEntries(Object.entries(s.cubes).filter(([, steps]) => steps.length > 0).map(([id, steps]) => [id, steps.map((step) => ({ step, amounts: {} }))]))
+  }))
 }
 
 /**
- * Sections from hits along the song (Automatic Detection): the song from bar 1 up to `endStep`
- * in sections of `bars` (8 by default, like a new section; the last one is what's left). Each
- * section's loop keeps the cubes hit in at least half of its two-bar stretches, so one stray or
- * missed hit doesn't change it; a stretch the song ends partway through doesn't vote unless it's
- * all the section has. Steps are 16ths from the downbeat; the result's cubes are loop steps, by
- * channel id.
+ * Sections from hits along the song (Automatic Detection, decision 130): the song from bar 1 up
+ * to `endStep` in sections of `bars` (8 by default, like a new section; the last one is what's
+ * left), each with every hit where it is. Steps are 16ths from the downbeat; the result's cubes
+ * are steps in their section, by channel id, and `doubtful` the ones only one check heard.
  */
 export function sectionsFromHits(
   steps: Record<string, readonly number[]>,
@@ -180,42 +151,24 @@ export function sectionsFromHits(
   doubtful: Record<string, readonly number[]> = {}
 ): Array<{ bars: number; cubes: Record<string, number[]>; doubtful: Record<string, number[]> }> {
   const perBar = stepsPerBar(grid)
-  const loop = LOOP_BARS * perBar
   const origin = barOneStep(grid)
   const totalBars = Math.max(0, Math.ceil((endStep - origin) / perBar))
   const ids = Object.keys(steps)
   const sections: Array<{ bars: number; cubes: Record<string, number[]>; doubtful: Record<string, number[]> }> = []
-  const doubts = new Map(ids.map((id) => [id, new Set(doubtful[id] ?? [])]))
   for (let first = 0; first < totalBars; first += bars) {
     const length = Math.min(bars, totalBars - first)
-    // Its two-bar stretches; `whole`: all of it is in the song.
-    const stretches: Array<{ whole: boolean; cubes: Map<string, Set<number>>; unsure: Map<string, Set<number>> }> = []
-    for (let bar = first; bar < first + length; bar += LOOP_BARS) {
-      const from = origin + bar * perBar
-      const span = Math.min(Math.min(LOOP_BARS, first + length - bar) * perBar, endStep - from)
-      const cubes = new Map<string, Set<number>>()
-      const unsure = new Map<string, Set<number>>()
-      for (const id of ids) {
-        const here = steps[id]!.filter((s) => s >= from && s < from + span)
-        cubes.set(id, new Set(here.map((s) => s - from)))
-        unsure.set(id, new Set(here.filter((s) => doubts.get(id)!.has(s)).map((s) => s - from)))
-      }
-      stretches.push({ whole: span >= loop, cubes, unsure })
-    }
-    const voters = stretches.some((s) => s.whole) ? stretches.filter((s) => s.whole) : stretches
+    const from = origin + first * perBar
+    const to = Math.min(from + length * perBar, endStep)
     const cubes: Record<string, number[]> = {}
-    const unsureCubes: Record<string, number[]> = {}
+    const unsure: Record<string, number[]> = {}
     for (const id of ids) {
-      const counts = new Map<number, number>()
-      const unsure = new Map<number, number>()
-      for (const v of voters) for (const s of v.cubes.get(id)!) counts.set(s, (counts.get(s) ?? 0) + 1)
-      for (const v of voters) for (const s of v.unsure.get(id)!) unsure.set(s, (unsure.get(s) ?? 0) + 1)
-      cubes[id] = [...counts].filter(([, n]) => n * 2 >= voters.length).map(([s]) => s).sort((x, y) => x - y)
-      // Doubtful: more than half of the stretches that hit it heard it by one check only.
-      const marked = cubes[id]!.filter((s) => (unsure.get(s) ?? 0) * 2 > counts.get(s)!)
-      if (marked.length) unsureCubes[id] = marked
+      const doubts = new Set(doubtful[id] ?? [])
+      const here = [...new Set(steps[id]!.filter((s) => s >= from && s < to))].sort((x, y) => x - y)
+      cubes[id] = here.map((s) => s - from)
+      const marked = here.filter((s) => doubts.has(s)).map((s) => s - from)
+      if (marked.length) unsure[id] = marked
     }
-    sections.push({ bars: length, cubes, doubtful: unsureCubes })
+    sections.push({ bars: length, cubes, doubtful: unsure })
   }
   return sections
 }
