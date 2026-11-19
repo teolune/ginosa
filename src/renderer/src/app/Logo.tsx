@@ -1,4 +1,4 @@
-import { BAR_LETTERS_PATH, BAR_SIZE, CLEF_PATH, CLEF_SIZE, TITLE_PATH, TITLE_SIZE } from './logo-path'
+import { CLEF_PATH, CLEF_SIZE, TITLE_PATH, TITLE_SIZE } from './logo-path'
 
 /**
  * The ginosa mark (decision 113): your 8-bit treble clef, pixel for pixel (20 × 57), in your
@@ -52,23 +52,26 @@ export function TitleMark({ className }: { className?: string }) {
 }
 
 /**
- * The title bar's logo (decision 121): your GINOSA logo at 40 points, the smallest size whose
- * letters stay sharp (one screen pixel each on a Retina display). The clef, at 1.4 screen pixels
- * a pixel to keep your proportions, is smoothed rather than snapped, so its steps stay even.
+ * The title bar's logo (decision 128): your clef alone, turned −90° (on its side, its top to the
+ * left), as the Home button. Three screen pixels a pixel on a Retina display (1.5 points): 30
+ * points tall in the 44-point bar and 85.5 wide, every edge on a whole screen pixel.
  */
-export function BarMark({ className }: { className?: string }) {
-  const crisp = (window.devicePixelRatio || 1) >= 2
+export const CLEF_BAR_SCALE = 1.5
+
+export function ClefBarMark({ className }: { className?: string }) {
+  const crisp = Number.isInteger(CLEF_BAR_SCALE * (window.devicePixelRatio || 1))
+  const { width, height } = CLEF_SIZE
   return (
     <svg
-      className={`logo bar-mark ${className ?? ''}`}
-      width={BAR_SIZE.width / 2}
-      height={BAR_SIZE.height / 2}
-      viewBox={`0 0 ${BAR_SIZE.width} ${BAR_SIZE.height}`}
-      role="img"
-      aria-label="ginosa"
+      className={`logo clef-bar-mark ${className ?? ''}`}
+      width={height * CLEF_BAR_SCALE}
+      height={width * CLEF_BAR_SCALE}
+      viewBox={`0 0 ${height} ${width}`}
+      shapeRendering={crisp ? 'crispEdges' : 'auto'}
+      aria-hidden="true"
     >
-      <path className="logo-clef" fillRule="evenodd" d={CLEF_PATH} transform={`scale(${BAR_SIZE.clefScale})`} />
-      <path className="logo-clef" fillRule="evenodd" d={BAR_LETTERS_PATH} shapeRendering={crisp ? 'crispEdges' : 'auto'} />
+      {/* rotate(−90) takes (x, y) to (y, −x); moving down by the clef's width brings it back into view. */}
+      <path className="logo-clef" fillRule="evenodd" d={CLEF_PATH} transform={`translate(0 ${width}) rotate(-90)`} />
     </svg>
   )
 }

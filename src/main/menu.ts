@@ -5,6 +5,7 @@ import type { MenuCommand, MenuState } from '@shared/ipc'
 
 const EMPTY_STATE: MenuState = {
   hasProject: false,
+  tabCount: 0,
   dirty: false,
   undoLabel: null,
   redoLabel: null,
@@ -69,7 +70,8 @@ export class AppMenu {
           { label: 'Export…', accelerator: 'CmdOrCtrl+M', enabled: s.hasProject, click: () => this.send({ type: 'export' }) },
           { type: 'separator' },
           { label: 'Show Project in Finder', enabled: s.hasProject, click: () => this.send({ type: 'reveal-project' }) },
-          { label: 'Close Project', enabled: s.hasProject, click: () => this.send({ type: 'close-project' }) }
+          // Closes the shown tab, as ⌘W does in Chrome (asking to save first if needed).
+          { label: 'Close Project', accelerator: 'CmdOrCtrl+W', enabled: s.hasProject, click: () => this.send({ type: 'close-project' }) }
         ]
       },
       {
@@ -136,6 +138,11 @@ export class AppMenu {
               { label: 'Reset Current Workspace', click: () => this.send({ type: 'workspace-reset' }) }
             ]
           },
+          { type: 'separator' },
+          // The project tabs (decision 128), with Chrome's shortcuts. Control-Tab reaches the page, which handles it.
+          { label: 'Home', accelerator: 'Shift+CmdOrCtrl+H', click: () => this.send({ type: 'show-home' }) },
+          { label: 'Next Tab', accelerator: 'Ctrl+Tab', registerAccelerator: false, enabled: s.tabCount > 0, click: () => this.send({ type: 'cycle-tab', step: 1 }) },
+          { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', registerAccelerator: false, enabled: s.tabCount > 0, click: () => this.send({ type: 'cycle-tab', step: -1 }) },
           { type: 'separator' },
           // ⌘M is Export, as in Premiere; Minimize keeps its menu item without the shortcut.
           { label: 'Minimize', click: () => BrowserWindow.getFocusedWindow()?.minimize() },

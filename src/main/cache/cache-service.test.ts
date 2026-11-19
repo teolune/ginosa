@@ -22,6 +22,17 @@ afterEach(async () => {
 })
 
 describe('CacheService', () => {
+  it('registers several projects at once without losing one (tabs, decision 128)', async () => {
+    const other = '1c6a8d2f-3e4b-4c6d-9eaf-1a2b3c4d5e6f'
+    await mkdir(await cache.categoryDir(PROJECT, 'thumbnails'), { recursive: true })
+    await mkdir(await cache.categoryDir(other, 'thumbnails'), { recursive: true })
+    await Promise.all([
+      cache.registerProject(PROJECT, 'Night shoot', join(base, 'Night shoot.ginosa')),
+      cache.registerProject(other, 'Day shoot', join(base, 'Day shoot.ginosa'))
+    ])
+    expect((await cache.usage()).map((u) => u.name).sort()).toEqual(['Day shoot', 'Night shoot'])
+  })
+
   it('measures each category and clears one without touching the others', async () => {
     const thumbs = await cache.categoryDir(PROJECT, 'thumbnails')
     const optimised = await cache.categoryDir(PROJECT, 'optimised')

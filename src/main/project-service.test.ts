@@ -6,7 +6,7 @@ import { History, replayPatches, type Patch } from '../engine/history'
 import { addTrack, renameProject, setSequenceSettings } from '../engine/project/commands'
 import { createProject } from '../engine/project/model'
 import { parseProject, serializeProject } from '../engine/project/serialize'
-import { normaliseProjectPath, ProjectService, readCreatedAt, RecentProjects } from './project-service'
+import { normaliseProjectPath, OpenProjects, ProjectService, readCreatedAt, RecentProjects } from './project-service'
 
 let dir: string
 let path: string
@@ -172,5 +172,61 @@ describe('recent projects', () => {
     const [item] = await recent.add(path)
     expect(item).toMatchObject({ name: 'Test', createdAt: '2026-03-04T05:06:07.000Z' })
     expect((await recent.list())[0]?.createdAt).toBe('2026-03-04T05:06:07.000Z')
+  })
+})
+
+describe('open projects (tabs, decision 128)', () => {
+  const entry = (seq: number) => ({ seq, at: new Date().toISOString(), kind: 'do' as const, label: 'Add Track', patches: [{ op: 'add', path: ['x'], value: seq }] })
+
+  it('keeps several projects open, each with its own lock and journal', async () => {
+    const open = new OpenProjects()
+    const other = join(dir, 'Other.ginosa')
+    await open.create(path, serializeProject(createProject({ name: 'Test' })))
+    await open.create(other, serializeProject(createProject({ name: 'Other' })))
+    expect(open.paths).toEqual([path, other])
+    await open.appendJournal(path, entry(1))
+    await open.appendJournal(path, entry(2))
+    await open.appendJournal(other, entry(1))
+    expect((await readFile(join(path, 'journal.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(2)
+    expect((await readFile(join(other, 'journal.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(1)
+    expect(await readdir(path)).toContain('session.lock')
+    expect(await readdir(other)).toContain('session.lock')
+    await open.closeAll()
+  })
+
+  it('shows the tab of a project that is open already instead of opening it twice', async () => {
+    const open = new OpenProjects()
+    await open.create(path, serializeProject(createProject({ name: 'Test' })))
+    expect(await open.open(path)).toEqual({ path, json: '', recovery: null, alreadyOpen: true })
+    await expect(open.create(path, '{}')).rejects.toThrow(/open in a tab/)
+    await open.closeAll()
+  })
+
+  it('closing a tab releases its lock and clears its journal; later entries for it are dropped', async () => {
+    const open = new OpenProjects()
+    await open.create(path, serializeProject(createProject({ name: 'Test' })))
+    await open.appendJournal(path, entry(1))
+    await open.close(path)
+    expect(open.has(path)).toBe(false)
+    expect(await readdir(path)).not.toContain('session.lock')
+    await open.appendJournal(path, entry(2))
+    expect(await readFile(join(path, 'journal.jsonl'), 'utf8')).toBe('')
+    // Opened again: nothing to recover.
+    expect((await open.open(path)).recovery).toBeNull()
+    await open.closeAll()
+  })
+
+  it('Save As moves a tab to its new folder, and refuses a folder open in another tab', async () => {
+    const open = new OpenProjects()
+    const other = join(dir, 'Other.ginosa')
+    const moved = join(dir, 'Moved.ginosa')
+    await open.create(path, serializeProject(createProject({ name: 'Test' })))
+    await open.create(other, serializeProject(createProject({ name: 'Other' })))
+    await expect(open.saveAs(path, other, '{}')).rejects.toThrow(/open in another tab/)
+    await open.saveAs(path, moved, serializeProject(createProject({ name: 'Test' })))
+    expect(open.paths.sort()).toEqual([moved, other].sort())
+    expect(await readdir(path)).not.toContain('session.lock')
+    expect(await readdir(moved)).toContain('session.lock')
+    await open.closeAll()
   })
 })

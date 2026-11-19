@@ -96,6 +96,9 @@ class TimelineController extends Observable {
   /** The render cache (M9): Enter renders previews, Escape stops it. */
   previews: { renderSection(): Promise<number>; cancel(): void; rendering: unknown } | null = null
   private projectId: string | null = null
+  /** Which tab the state above belongs to (decision 128), and what each other open tab left. */
+  private tabKey: number | null = null
+  private tabViews = new Map<number, { playhead: Ticks; selection: string[]; view: View; scrollY: number }>()
 
   constructor() {
     super()
@@ -112,15 +115,25 @@ class TimelineController extends Observable {
 
   private onProjectChange(): void {
     const project = projectController.project
-    if ((project?.id ?? null) !== this.projectId) {
+    const key = projectController.activeKey
+    if ((project?.id ?? null) !== this.projectId || key !== this.tabKey) {
+      // Another tab (or home): keep this tab's playhead, selection, zoom and scroll for when it comes back.
+      if (this.tabKey !== null) this.tabViews.set(this.tabKey, { playhead: this.playhead, selection: [...this.selection], view: this.view, scrollY: this.scrollY })
+      for (const old of [...this.tabViews.keys()]) if (!projectController.tabs.some((tab) => tab.key === old)) this.tabViews.delete(old)
+      const back = key !== null ? this.tabViews.get(key) : undefined
+      const live = new Set(project?.sequence.clips.map((c) => c.id) ?? [])
       this.projectId = project?.id ?? null
-      this.playhead = 0
-      this.selection.clear()
+      this.tabKey = key
+      this.playhead = back?.playhead ?? 0
+      this.selection = new Set((back?.selection ?? []).filter((id) => live.has(id)))
+      this.transition = null
       this.gap = null
-      this.view = { pps: 40, scroll: 0 }
-      this.scrollY = 0
+      this.view = back?.view ?? { pps: 40, scroll: 0 }
+      this.scrollY = back?.scrollY ?? 0
       this.preview = null
       this.notify()
+      this.notify('view')
+      this.notify('playhead')
       return
     }
     if (!project) return

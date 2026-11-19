@@ -57,6 +57,9 @@ async function folderSize(path: string): Promise<number> {
 }
 
 export class CacheService {
+  /** Index updates, one at a time: with tabs (decision 128) several projects register at once. */
+  private indexQueue: Promise<unknown> = Promise.resolve()
+
   constructor(private root: string) {}
 
   get rootPath(): string {
@@ -95,12 +98,17 @@ export class CacheService {
   /** Remembers which project a cache folder belongs to, for the Cache Manager. */
   async registerProject(projectId: string, name: string, projectPath: string): Promise<void> {
     if (!isProjectId(projectId)) return
-    await mkdir(this.root, { recursive: true })
-    const index = await this.readIndex()
-    index[projectId] = { name, path: projectPath, lastUsed: new Date().toISOString() }
-    const temp = `${this.indexPath}.tmp-${process.pid}`
-    await writeFile(temp, JSON.stringify(index, null, 2))
-    await rename(temp, this.indexPath)
+    const update = async () => {
+      await mkdir(this.root, { recursive: true })
+      const index = await this.readIndex()
+      index[projectId] = { name, path: projectPath, lastUsed: new Date().toISOString() }
+      const temp = `${this.indexPath}.tmp-${process.pid}`
+      await writeFile(temp, JSON.stringify(index, null, 2))
+      await rename(temp, this.indexPath)
+    }
+    const run = this.indexQueue.then(update, update)
+    this.indexQueue = run.catch(() => undefined)
+    return run
   }
 
   async usage(): Promise<CacheProjectUsage[]> {

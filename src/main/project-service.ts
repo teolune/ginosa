@@ -56,6 +56,75 @@ export function normaliseProjectPath(path: string): string {
   return path.endsWith(PROJECT_EXTENSION) ? path : `${path}${PROJECT_EXTENSION}`
 }
 
+/**
+ * The open projects, one per tab in the title bar (decision 128): each its own ProjectService,
+ * so each keeps its own lock, journal and autosaves. Found by the project folder's path.
+ */
+export class OpenProjects {
+  private services = new Map<string, ProjectService>()
+
+  has(path: string): boolean {
+    return this.services.has(path)
+  }
+
+  get paths(): string[] {
+    return [...this.services.keys()]
+  }
+
+  get(path: string): ProjectService {
+    const service = this.services.get(path)
+    if (!service) throw new ProjectError('That project isn’t open')
+    return service
+  }
+
+  async create(path: string, json: string): Promise<void> {
+    if (this.services.has(path)) throw new ProjectError(`"${basename(path)}" is open in a tab. Close it first, or choose another name.`)
+    const service = new ProjectService()
+    await service.create(path, json)
+    this.services.set(path, service)
+  }
+
+  /** Opens a project in a new tab; one that's already open isn't read again (`alreadyOpen`). */
+  async open(path: string): Promise<OpenedProject> {
+    if (this.services.has(path)) return { path, json: '', recovery: null, alreadyOpen: true }
+    const service = new ProjectService()
+    const opened = await service.open(path)
+    this.services.set(opened.path, service)
+    return opened
+  }
+
+  /** Save As: the tab's project moves to `target`. */
+  async saveAs(path: string, target: string, json: string): Promise<void> {
+    if (target !== path && this.services.has(target)) throw new ProjectError(`"${basename(target)}" is open in another tab. Close it first.`)
+    const service = this.get(path)
+    await service.saveAs(target, json)
+    this.services.delete(path)
+    this.services.set(target, service)
+  }
+
+  /** Journal entries for a tab that has just closed are dropped. */
+  appendJournal(path: string, entry: JournalEntry): Promise<void> {
+    return this.services.get(path)?.appendJournal(entry) ?? Promise.resolve()
+  }
+
+  async close(path: string): Promise<void> {
+    const service = this.services.get(path)
+    if (!service) return
+    this.services.delete(path)
+    await service.close()
+  }
+
+  async closeAll(): Promise<void> {
+    for (const path of this.paths) await this.close(path).catch(() => undefined)
+  }
+
+  /** Snapshot tests only: every tab "crashes" (see ProjectService.simulateCrash). */
+  async simulateCrash(): Promise<void> {
+    for (const service of this.services.values()) await service.simulateCrash()
+    this.services.clear()
+  }
+}
+
 export class ProjectService {
   private currentPath: string | null = null
   private queue: Promise<unknown> = Promise.resolve()

@@ -10,7 +10,7 @@ import { analyseExport } from './export/analyse'
 import { registerExportIpc } from './export/export-service'
 import { registerMediaIpc } from './media/media-ipc'
 import { AppMenu } from './menu'
-import { normaliseProjectPath, ProjectService, RecentProjects } from './project-service'
+import { normaliseProjectPath, OpenProjects, RecentProjects } from './project-service'
 import { JsonFile } from './settings-store'
 import { isSnapshotRun, parseSnapshotArgs, type SnapshotOptions } from './snapshot'
 import { renderSymbols } from './symbols'
@@ -42,7 +42,8 @@ if (snapshotMode) {
 }
 
 const HARNESS_TIMEOUT_MS = 120_000
-const projects = new ProjectService()
+/** The open projects, one per tab (decision 128). */
+const projects = new OpenProjects()
 const recent = new RecentProjects(join(app.getPath('userData'), 'recent-projects.json'))
 const workspaces = new JsonFile(join(app.getPath('userData'), 'workspaces.json'))
 let mainWindow: BrowserWindow | null = null
@@ -187,38 +188,39 @@ function registerIpc(): void {
       if (result.canceled || !result.filePaths[0]) return null
       target = normaliseProjectPath(result.filePaths[0])
     }
+    // Already open in a tab: the renderer switches to it.
     const opened = await projects.open(target)
     await recent.add(opened.path)
     return opened
   })
 
-  ipcMain.handle('project:save', (_event, json: string) => projects.save(json))
+  ipcMain.handle('project:save', (_event, path: string, json: string) => projects.get(path).save(json))
 
-  ipcMain.handle('project:saveAs', async (event, json: string) => {
+  ipcMain.handle('project:saveAs', async (event, path: string, json: string) => {
     const options: Electron.SaveDialogOptions = {
       title: 'Save Project As',
-      defaultPath: projects.path ?? join(defaultProjectsFolder(), `Untitled${PROJECT_EXTENSION}`),
+      defaultPath: path ?? join(defaultProjectsFolder(), `Untitled${PROJECT_EXTENSION}`),
       properties: ['createDirectory', 'showOverwriteConfirmation']
     }
     const owner = ownerOf(event.sender)
     const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return null
     const target = normaliseProjectPath(result.filePath)
-    await projects.saveAs(target, json)
+    await projects.saveAs(path, target, json)
     await recent.add(target)
     return target
   })
 
-  ipcMain.handle('project:autosave', (_event, json: string) => projects.autosave(json))
-  ipcMain.handle('project:deleteAutosaves', () => projects.deleteAutosaves())
-  ipcMain.on('project:journal', (_event, entry: JournalEntry) => {
-    void projects.appendJournal(entry).catch((error: Error) => console.error(`[project] journal: ${error.message}`))
+  ipcMain.handle('project:autosave', (_event, path: string, json: string) => projects.get(path).autosave(json))
+  ipcMain.handle('project:deleteAutosaves', (_event, path: string) => projects.get(path).deleteAutosaves())
+  ipcMain.on('project:journal', (_event, path: string, entry: JournalEntry) => {
+    void projects.appendJournal(path, entry).catch((error: Error) => console.error(`[project] journal: ${error.message}`))
   })
-  ipcMain.handle('project:discardRecovery', () => projects.discardRecovery())
-  ipcMain.handle('project:close', () => projects.close())
+  ipcMain.handle('project:discardRecovery', (_event, path: string) => projects.get(path).discardRecovery())
+  ipcMain.handle('project:close', (_event, path: string) => projects.close(path))
   ipcMain.handle('project:recent', () => recent.list())
-  ipcMain.handle('project:reveal', () => {
-    if (projects.path) shell.showItemInFolder(projects.path)
+  ipcMain.handle('project:reveal', (_event, path: string) => {
+    if (projects.has(path)) shell.showItemInFolder(path)
   })
 
   ipcMain.handle('project:askUnsaved', async (event, projectName: string): Promise<UnsavedChoice> => {
@@ -410,7 +412,7 @@ function registerIpc(): void {
     await mkdir(dirname(snapshot.out), { recursive: true })
     await writeFile(snapshot.out, image.toPNG())
     console.log(`[snapshot] ${snapshot.scenario} -> ${snapshot.out} (${image.getSize().width}×${image.getSize().height})`)
-    await projects.close().catch(() => undefined)
+    await projects.closeAll()
     setTimeout(() => app.exit(0), 50)
   })
 

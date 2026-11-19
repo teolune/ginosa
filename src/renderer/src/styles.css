@@ -49,13 +49,37 @@ button { font: inherit; color: inherit; }
 /* ---- Title bar ---- */
 .titlebar {
   height: 44px; flex: none; display: flex; align-items: center; gap: 12px;
-  padding: 0 14px 0 84px; border-bottom: 1px solid var(--border); background: var(--panel);
+  padding: 0 14px 0 78px; border-bottom: 1px solid var(--border); background: var(--panel);
   -webkit-app-region: drag;
 }
+/* Decision 128: the clef on its side is the Home button (its left edge at 84 points, past the window
+   buttons); open projects are tabs, as in Chrome, the shown one joined to the window below. */
+.home-button {
+  flex: none; display: flex; align-items: center; padding: 4px 6px; border: none; border-radius: var(--radius);
+  background: transparent; cursor: default;
+}
+.home-button:hover { background: var(--panel-raised); }
+.home-button.active { background: var(--accent-soft); }
+.home-button:focus-visible { outline: 1px solid var(--accent); }
+.project-tabs { flex: 0 1 auto; min-width: 0; align-self: stretch; display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
+.project-tab {
+  flex: 0 1 220px; width: 220px; min-width: 72px; height: 32px; margin-bottom: -1px; display: flex; align-items: center; gap: 6px;
+  padding: 0 6px 0 12px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0;
+  color: var(--text-muted); font-size: 12.5px; -webkit-app-region: no-drag; user-select: none;
+}
+.project-tab:hover { background: var(--panel-raised); color: var(--text); }
+.project-tab.active { background: var(--bg); border-color: var(--border); color: var(--text); }
+.project-tab-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.project-tab .dirty-dot { flex: none; }
+.project-tab-close {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center; padding: 0; border: none; border-radius: 4px;
+  background: transparent; color: var(--text-muted); font-size: 14px; line-height: 1; opacity: 0;
+}
+.project-tab:hover .project-tab-close, .project-tab.active .project-tab-close { opacity: 1; }
+.project-tab-close:hover { background: var(--border-strong); color: var(--text); }
 .titlebar button, .titlebar input { -webkit-app-region: no-drag; }
 .wordmark { font-weight: 600; letter-spacing: 0.02em; }
 .wordmark.large { font-size: 34px; margin: 0; }
-.titlebar-project { display: flex; align-items: center; gap: 6px; padding-left: 12px; border-left: 1px solid var(--border); }
 .dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 .save-status { font-size: 11.5px; }
 .milestone { padding-left: 12px; border-left: 1px solid var(--border); font-size: 11.5px; }
@@ -136,7 +160,6 @@ select.input { padding-right: 4px; }
 .recent-foot { display: flex; justify-content: flex-end; padding-top: 12px; }
 .titlebar .logo { flex: none; }
 .logo-clef { fill: #ada4ff; fill: color(display-p3 0.671 0.642 1); }
-.wordmark-group { display: inline-flex; align-items: center; gap: 7px; }
 
 /* ---- Control Panel ---- */
 .control-panel {

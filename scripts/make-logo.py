@@ -7,7 +7,7 @@ your file's 20 x 57 pixel grid. Writes:
   assets/logo/ginosa-logo.svg              the mark as a vector, pixel for pixel
   assets/logo/ginosa-icon.png              the Dock icon (1024 px) after your Icon Composer file
   assets/logo/Ginosa.icon/                 an Icon Composer file with the mark as its layer
-  src/renderer/src/app/logo-path.ts        the outlines for the interface's Logo and TitleMark
+  src/renderer/src/app/logo-path.ts        the outlines for the interface's Logo, TitleMark and title-bar clef
   assets/logo/ginosa-title.svg             the title screen's logo: the clef and "inosa"
 
 The title screen's logo (decision 121) is your GINOSA logo (Reference Materials/GINOSA(blacklogo).png):
@@ -56,12 +56,6 @@ def read_letters():
         name, x = head.split()
         letters.append((name, float(x), np.array([[ch == '#' for ch in row] for row in rows])))
     return letters
-
-
-# In the title bar the letters are one screen pixel each (the smallest they stay sharp) and the
-# clef 1.4, in your file's proportion: 40 points tall.
-BAR_CLEF_PX = 1.4
-BAR_LETTER_PX = 1
 
 
 def letters_path(clef_px, letter_px):
@@ -257,8 +251,6 @@ def main():
         )
 
     title_d, title_w, title_h = title_mark(grid)
-    bar_d, bar_w = letters_path(BAR_CLEF_PX, BAR_LETTER_PX)
-    bar_h = round(gh * BAR_CLEF_PX)
     with open(os.path.join(LOGO, 'ginosa-title.svg'), 'w') as f:
         f.write(
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" shape-rendering="crispEdges">\n'
@@ -285,16 +277,7 @@ def main():
             'export const TITLE_PATH =\n'
             "  '%s'\n"
             '\n'
-            'export const TITLE_SIZE = { width: %d, height: %d }\n'
-            '\n'
-            '/**\n'
-            ' * The title bar\'s logo: the letters at one screen pixel a pixel (Retina), beside the clef drawn\n'
-            ' * from CLEF_PATH at %s screen pixels a pixel, as in your file.\n'
-            ' */\n'
-            'export const BAR_LETTERS_PATH =\n'
-            "  '%s'\n"
-            '\n'
-            'export const BAR_SIZE = { width: %d, height: %d, clefScale: %s }\n' % (d, gw, gh, title_d, title_w, title_h, BAR_CLEF_PX, bar_d, bar_w, bar_h, BAR_CLEF_PX)
+            'export const TITLE_SIZE = { width: %d, height: %d }\n' % (d, gw, gh, title_d, title_w, title_h)
         )
 
     # Icon Composer: your settings, with the mark as an SVG layer where your image had the clef.

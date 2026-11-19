@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { automationTest } from '../automation/automation-test'
+import { tabsTest } from './tabs-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
@@ -77,6 +78,7 @@ function menuState(): MenuState {
   const history = projectController.historyView
   return {
     hasProject: projectController.project !== null,
+    tabCount: projectController.tabs.length,
     dirty: projectController.isDirty,
     undoLabel: history?.undoLabel ?? null,
     redoLabel: history?.redoLabel ?? null,
@@ -166,6 +168,17 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.zoomToFit()
       timelineController.setPlayhead(secondsToTicks(5))
       await wait(1500)
+      break
+    }
+    case 'tabs':
+    case 'tabshome': {
+      // Decision 128: projects as tabs, and the clef as the Home button.
+      try {
+        await window.ginosa.snapshot.report(await tabsTest())
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      if (scenario === 'tabshome') projectController.showHome()
       break
     }
     case 'automation': {
@@ -816,8 +829,8 @@ export function App() {
         await runSnapshotScenario(scenario)
         return
       }
-      const interrupted = projectController.recent.find((item) => item.interrupted)
-      if (interrupted) await projectController.open(interrupted.path)
+      // Every project a crash interrupted comes back in its own tab.
+      for (const item of projectController.recent.filter((entry) => entry.interrupted)) await projectController.open(item.path)
     })()
   }, [])
 
@@ -849,6 +862,17 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Control-Tab and Control-Shift-Tab: the next and previous project tab, as in Chrome (also on the home page).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !event.ctrlKey || event.metaKey || event.altKey || document.querySelector('.modal-backdrop')) return
+      event.preventDefault()
+      projectController.cycle(event.shiftKey ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   // Menu commands.
@@ -889,6 +913,10 @@ export function App() {
           return projectController.saveAs()
         case 'close-project':
           return projectController.close()
+        case 'show-home':
+          return projectController.showHome()
+        case 'cycle-tab':
+          return projectController.cycle(command.step)
         case 'reveal-project':
           return projectController.reveal()
         case 'undo':

@@ -128,6 +128,8 @@ export interface OpenedProject {
   path: string
   json: string
   recovery: RecoveryInfo | null
+  /** It's already open in a tab (nothing was read): switch to it. */
+  alreadyOpen?: boolean
 }
 
 export interface JournalEntry {
@@ -151,6 +153,8 @@ export type MenuCommand =
   | { type: 'save-as' }
   | { type: 'close-project' }
   | { type: 'reveal-project' }
+  | { type: 'show-home' }
+  | { type: 'cycle-tab'; step: 1 | -1 }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'toggle-window'; id: string }
@@ -165,6 +169,8 @@ export type MenuCommand =
 /** What the renderer tells the main process so the native menu can reflect it. */
 export interface MenuState {
   hasProject: boolean
+  /** Open projects (tabs, decision 128). */
+  tabCount: number
   dirty: boolean
   undoLabel: string | null
   redoLabel: string | null
@@ -195,16 +201,17 @@ export interface GinosaBridge {
     create(path: string, json: string): Promise<void>
     /** Shows the open dialog when no path is given. */
     open(path?: string): Promise<OpenedProject | null>
-    save(json: string): Promise<void>
-    saveAs(json: string): Promise<string | null>
-    autosave(json: string): Promise<void>
-    /** Deletes the open project's autosave snapshots; returns how many. */
-    deleteAutosaves(): Promise<number>
-    journal(entry: JournalEntry): void
-    discardRecovery(): Promise<void>
-    close(): Promise<void>
+    /** The rest act on the open project (tab) at `path`. */
+    save(path: string, json: string): Promise<void>
+    saveAs(path: string, json: string): Promise<string | null>
+    autosave(path: string, json: string): Promise<void>
+    /** Deletes the project's autosave snapshots; returns how many. */
+    deleteAutosaves(path: string): Promise<number>
+    journal(path: string, entry: JournalEntry): void
+    discardRecovery(path: string): Promise<void>
+    close(path: string): Promise<void>
     recent(): Promise<RecentProject[]>
-    reveal(): Promise<void>
+    reveal(path: string): Promise<void>
     askUnsaved(projectName: string): Promise<UnsavedChoice>
     showError(title: string, detail: string): Promise<void>
   }

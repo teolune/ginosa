@@ -1,6 +1,6 @@
-import { projectController, type SaveStatus } from '../state/project-controller'
+import { projectController, type ProjectTab, type SaveStatus } from '../state/project-controller'
 import { useObservable } from '../state/observable'
-import { BarMark } from './Logo'
+import { ClefBarMark } from './Logo'
 
 function describe(status: SaveStatus, dirty: boolean): string {
   switch (status.kind) {
@@ -18,28 +18,63 @@ function describe(status: SaveStatus, dirty: boolean): string {
   }
 }
 
+/** One open project, as a tab in Chrome (decision 128): click to show it, × or a middle click to close it. */
+function Tab({ tab, active }: { tab: ProjectTab; active: boolean }) {
+  const name = tab.project.name
+  const close = () => void projectController.closeTab(tab)
+  return (
+    <div
+      className={`project-tab${active ? ' active' : ''}`}
+      role="tab"
+      aria-selected={active}
+      title={tab.path}
+      onClick={() => projectController.switchTo(tab)}
+      onMouseDown={(event) => {
+        if (event.button === 1) event.preventDefault()
+      }}
+      onAuxClick={(event) => {
+        if (event.button === 1) close()
+      }}
+    >
+      <span className="project-tab-name">{name}</span>
+      {tab.isDirty && <span className="dirty-dot" title="Unsaved changes" />}
+      <button
+        className="project-tab-close"
+        aria-label={`Close ${name}`}
+        title={`Close ${name}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          close()
+        }}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
 export function TitleBar() {
   useObservable(projectController)
-  const project = projectController.project
-  const dirty = projectController.isDirty
+  const active = projectController.active
   return (
     <header className="titlebar">
-      <span className="wordmark-group">
-        <BarMark />
-      </span>
-      {project && (
-        <>
-          <span className="titlebar-project">
-            {project.name}
-            {dirty && <span className="dirty-dot" title="Unsaved changes" />}
-          </span>
-          <span className="spacer" />
-          <span className={`save-status ${projectController.status.kind === 'error' ? 'error-text' : 'muted'}`}>
-            {describe(projectController.status, dirty)}
-          </span>
-        </>
+      <button
+        className={`home-button${active ? '' : ' active'}`}
+        aria-label="Home"
+        title="Home: your projects (⇧⌘H)"
+        onClick={() => projectController.showHome()}
+      >
+        <ClefBarMark />
+      </button>
+      <div className="project-tabs" role="tablist">
+        {projectController.tabs.map((tab) => (
+          <Tab key={tab.key} tab={tab} active={tab === active} />
+        ))}
+      </div>
+      <span className="spacer" />
+      {active && (
+        <span className={`save-status ${active.status.kind === 'error' ? 'error-text' : 'muted'}`}>{describe(active.status, active.isDirty)}</span>
       )}
-      {!project && <span className="spacer" />}
       <span className="milestone muted">M14</span>
     </header>
   )
