@@ -2,7 +2,6 @@ import { addTrack } from '@engine/project/commands'
 import { secondsToTicks } from '@engine/time'
 import { projectController, type ProjectTab } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
-import { setFullScreenLook } from './TitleBar'
 
 /**
  * Decision 128's "done when", run by `npm run snapshot -- --scenario tabs`: projects open as tabs,
@@ -95,24 +94,19 @@ export async function tabsTest(): Promise<Record<string, unknown>> {
   await projectController.resolveRecovery(true)
   await wait(300)
 
-  // The clef in the title bar: on its side, 114 × 40 points (filling the 44-point bar), its left edge
-  // at 84 past the window buttons, or at 14 in full screen, where they're hidden; on whole screen pixels.
-  const dpr = window.devicePixelRatio || 1
-  const onPixels = (box: DOMRect) => [box.left, box.top, box.width, box.height].every((v) => Math.abs(v * dpr - Math.round(v * dpr)) < 0.01)
-  setFullScreenLook(true)
-  const full = document.querySelector('.clef-bar-mark')?.getBoundingClientRect()
-  setFullScreenLook(false)
+  // The clef in the title bar: on its side, 85.5 × 30 points, its left edge at 84, on whole screen pixels.
   const clef = document.querySelector('.clef-bar-mark')?.getBoundingClientRect()
-  check(!!clef && Math.abs(clef.width - 114) < 0.01 && Math.abs(clef.height - 40) < 0.01, 'the clef lies on its side at 114 × 40 points')
+  const dpr = window.devicePixelRatio || 1
+  const onPixels = !!clef && [clef.left, clef.top, clef.width, clef.height].every((v) => Math.abs(v * dpr - Math.round(v * dpr)) < 0.01)
+  check(!!clef && Math.abs(clef.width - 85.5) < 0.01 && Math.abs(clef.height - 30) < 0.01, 'the clef lies on its side at 85.5 × 30 points')
   check(!!clef && Math.abs(clef.left - 84) < 0.01, 'the clef starts past the window buttons, at 84 points')
-  check(!!full && Math.abs(full.left - 14) < 0.01, 'in full screen the clef moves into the window buttons’ space, at 14 points')
-  check(!!clef && !!full && onPixels(clef) && onPixels(full), 'the clef’s edges are on whole screen pixels')
+  check(onPixels, 'the clef’s edges are on whole screen pixels')
 
   return {
     verdict: reasons.length === 0 ? 'pass' : 'fail',
     reasons,
     tabs: projectController.tabs.map((tab) => ({ name: tab.project.name, dirty: tab.isDirty, shown: tab === projectController.active })),
-    clef: clef ? { left: clef.left, top: clef.top, width: clef.width, height: clef.height, fullScreenLeft: full?.left ?? null, devicePixelRatio: dpr } : null,
+    clef: clef ? { left: clef.left, top: clef.top, width: clef.width, height: clef.height, devicePixelRatio: dpr } : null,
     recovered: counts
   }
 }

@@ -53,11 +53,10 @@ export function TitleMark({ className }: { className?: string }) {
 
 /**
  * The title bar's logo (decision 128): your clef alone, turned −90° (on its side, its top to the
- * left), as the Home button, filling the bar (your request): four screen pixels a pixel on a Retina
- * display (2 points), 40 points tall in the 44-point bar and 114 wide, every edge on a whole
- * screen pixel.
+ * left), as the Home button. Three screen pixels a pixel on a Retina display (1.5 points): 30
+ * points tall in the 44-point bar and 85.5 wide, every edge on a whole screen pixel.
  */
-export const CLEF_BAR_SCALE = 2
+export const CLEF_BAR_SCALE = 1.5
 
 export function ClefBarMark({ className }: { className?: string }) {
   const crisp = Number.isInteger(CLEF_BAR_SCALE * (window.devicePixelRatio || 1))

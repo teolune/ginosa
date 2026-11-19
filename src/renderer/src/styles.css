@@ -52,12 +52,10 @@ button { font: inherit; color: inherit; }
   padding: 0 14px 0 78px; border-bottom: 1px solid var(--border); background: var(--panel);
   -webkit-app-region: drag;
 }
-/* Decision 128: the clef on its side is the Home button, filling the bar's height (its left edge at 84
-   points, past the window buttons; at 14 in full screen, where they're hidden); open projects are
-   tabs, as in Chrome, the shown one joined to the window below. */
-.full-screen .titlebar { padding-left: 8px; }
+/* Decision 128: the clef on its side is the Home button (its left edge at 84 points, past the window
+   buttons); open projects are tabs, as in Chrome, the shown one joined to the window below. */
 .home-button {
-  flex: none; display: flex; align-items: center; padding: 1px 6px; border: none; border-radius: var(--radius);
+  flex: none; display: flex; align-items: center; padding: 4px 6px; border: none; border-radius: var(--radius);
   background: transparent; cursor: default;
 }
 .home-button:hover { background: var(--panel-raised); }

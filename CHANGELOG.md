@@ -2,12 +2,12 @@
 
 ## The clef and project tabs (19 Nov 2026)
 
-- **The logo at the top left is your clef alone, on its side** (turned −90°, its top to the left), filling the title bar: 40 points tall in the 44-point bar, four screen pixels a pixel, so every edge is sharp (decision 128). In full screen, where the window buttons are hidden, it moves left into their space.
+- **The logo at the top left is your clef alone, on its side** (turned −90°, its top to the left), filling the title bar: 30 points tall, three screen pixels a pixel, so every edge is sharp (decision 128).
 - **The clef is the Home button.** Click it for the home page (New Project, Recent); your open projects stay open. ⇧⌘H does the same (Window › Home).
 - **Projects are tabs, as in Chrome.** Each open project is a tab beside the clef: click to show it, × or a middle click closes it (asking to save first if it has unsaved changes), ⌘W closes the one shown. Creating or opening a project adds a tab; opening one that's open already shows its tab. Control-Tab and Control-Shift-Tab move along (Window › Next Tab, Previous Tab). Closing the shown tab shows the one to its right, else its left, else home.
 - **Each tab keeps its own** undo, autosave and crash journal, and its playhead, selection, zoom and scroll for when you come back. Switching stops playback; the project's analysis and previews load again from the cache. Quitting asks about each tab with unsaved changes, showing it first. After a crash every interrupted project comes back in its own tab.
 - **Fixed on the way:** two projects registering in the cache at once lost one (and showed an error); they now take turns.
-- **Measured** (`tabs` scenario, `"verdict":"pass"`): three projects opened, switched by click, menu and Control-Tab, shown from home and closed by ×; an edit marked only its own tab; each tab got its playhead and undo back; after a simulated crash each tab offered back its own changes (2 and 1); the clef 114 × 40 points at 84 points from the left (14 in full screen), on whole screen pixels. Tests: 426 (5 new: open projects in the main process, and the cache index).
+- **Measured** (`tabs` scenario, `"verdict":"pass"`): three projects opened, switched by click, menu and Control-Tab, shown from home and closed by ×; an edit marked only its own tab; each tab got its playhead and undo back; after a simulated crash each tab offered back its own changes (2 and 1); the clef 85.5 × 30 points at 84 points from the left, on whole screen pixels. Tests: 426 (5 new: open projects in the main process, and the cache index).
 
 ## Automation clips, first step (W2.1, 19 Nov 2026)
 

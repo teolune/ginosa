@@ -54,8 +54,7 @@ const bridge: GinosaBridge = {
   app: {
     onCloseRequested: (listener: () => void) => listen('app:close-requested', () => listener()),
     closeNow: () => ipcRenderer.send('app:closeNow'),
-    closeCancelled: () => ipcRenderer.send('app:closeCancelled'),
-    onFullScreen: (listener: (fullScreen: boolean) => void) => listen<boolean>('app:full-screen', listener)
+    closeCancelled: () => ipcRenderer.send('app:closeCancelled')
   },
   media: {
     chooseImport: () => ipcRenderer.invoke('media:chooseImport'),

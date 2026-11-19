@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { projectController, type ProjectTab, type SaveStatus } from '../state/project-controller'
 import { useObservable } from '../state/observable'
 import { ClefBarMark } from './Logo'
@@ -54,14 +53,8 @@ function Tab({ tab, active }: { tab: ProjectTab; active: boolean }) {
   )
 }
 
-/** Full screen hides the window buttons: the clef moves into their space (decision 128). */
-export function setFullScreenLook(fullScreen: boolean): void {
-  document.documentElement.classList.toggle('full-screen', fullScreen)
-}
-
 export function TitleBar() {
   useObservable(projectController)
-  useEffect(() => window.ginosa.app.onFullScreen(setFullScreenLook), [])
   const active = projectController.active
   return (
     <header className="titlebar">
