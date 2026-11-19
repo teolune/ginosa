@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { AutomationSummary } from '../automation/AutomationSummary'
 import { BLEND_MENU, BLEND_MODES, type BlendMode, type Clip, type Motion } from '@engine/project/model'
 import type { CurveParam, EffectInstance, EffectManifest, GradientParam, ParamSpec, ParamValue } from '@engine/effects/types'
 import { BLACK_WHITE, GRADIENT_METHODS, parseGradient, type GradientMethod } from '@engine/gradients/gradient'
@@ -274,6 +275,8 @@ function PropertyRow({
     { label: 'Show in Keyframe Editor', onSelect: showInEditor, shortcut: '⌥0' },
     'separator',
     { label: 'Link to Audio…', onSelect: () => modulationUi.openLinkToAudio(ref), disabled: locked || !canModulate },
+    // Automation clips (W2, decision 127): a new one at the playhead, linked to this value from where it is.
+    { label: 'Create Automation Clip', onSelect: () => timelineController.newAutomationClip(ref), disabled: locked || !canModulate },
     // The Channel Rack's channels (decision 109): this value moves on that channel's cubes.
     ...(projectController.project?.sequence.rack.rows ?? [])
       .filter((r) => r.modulatorId)
@@ -924,8 +927,10 @@ export function EffectControlsWindow() {
   const video = selected.find((c) => c.kind === 'video')
   const adjustment = video?.adjustment ? video : null
   const audio = selected.find((c) => c.kind === 'audio')
+  const automation = selected.find((c) => c.kind === 'automation')
   const locked = (clip: Clip) => project.sequence.tracks.find((t) => t.id === clip.trackId)?.locked ?? false
 
+  if (!video && !audio && automation) return <AutomationSummary clip={automation} />
   if (!video && !audio) {
     return (
       <div className="empty-state">

@@ -60,8 +60,9 @@ export function clipsOnTrack(sequence: Sequence, trackId: string): Clip[] {
   return sequence.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start)
 }
 
+/** Where the last picture or sound ends (automation clips past it don't make the sequence longer). */
 export function sequenceEnd(sequence: Sequence): Ticks {
-  return sequence.clips.reduce((end, clip) => Math.max(end, clipEnd(clip)), 0)
+  return sequence.clips.reduce((end, clip) => (clip.kind === 'automation' ? end : Math.max(end, clipEnd(clip))), 0)
 }
 
 export function assertUnlocked(track: Track): void {
@@ -124,7 +125,8 @@ export function cloneClip(clip: Clip): Clip {
     effects: clip.effects.map((e) => cloneEffect(e)),
     keyframes: cloneKeyframeMap(clip.keyframes),
     modulation: cloneModulationMap(clip.modulation),
-    mask: clip.mask ? { ...clip.mask } : null
+    mask: clip.mask ? { ...clip.mask } : null,
+    ...(clip.automation ? { automation: { modulatorId: clip.automation.modulatorId, points: clip.automation.points.map((p) => ({ ...p })) } } : {})
   }
 }
 

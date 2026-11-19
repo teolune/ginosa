@@ -10,7 +10,8 @@ export function applyLinks(value: number[], links: readonly ModLink[], ctx: Modu
   for (const link of links) {
     let m = ctx.linkValue ? ctx.linkValue(link, time) : null
     if (m === null) m = ctx.value(link.modulatorId, time)
-    if (m === null) continue
+    // Nothing yet: waiting for analysis, or before an automation clip (decision 127).
+    if (m === null || Number.isNaN(m)) continue
     if (link.invert) m = 1 - m
     const amount = Math.min(1, Math.max(0, link.amount / 100))
     out = out.map((v, c) => {

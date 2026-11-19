@@ -56,6 +56,8 @@ export const CLIP_PROPERTIES: Record<ClipProperty, PropertySpec> = {
 
 /** The clip properties a clip has, in Effect Controls order. */
 export function clipProperties(clip: Clip): ClipProperty[] {
+  // An automation clip has no properties of its own: its curve is what it is (W2).
+  if (clip.kind === 'automation') return []
   if (clip.kind === 'audio') return ['volume']
   if (clip.adjustment) return ['opacity']
   return ['position', 'scale', 'scaleWidth', 'rotation', 'anchor', 'opacity', 'speed']

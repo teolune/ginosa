@@ -39,6 +39,8 @@ export type ModSource =
   | { kind: 'random'; seed: number; rate: number }
   /** A Channel Rack row (M12): fires on its steps. */
   | { kind: 'pattern'; rowId: string }
+  /** Automation clips (W2): the curves of the clips that carry this modulator, as they play. */
+  | { kind: 'automation' }
 
 export type ResponseCurve = 'linear' | 'exponential' | 'logarithmic' | 's-curve' | 'custom'
 

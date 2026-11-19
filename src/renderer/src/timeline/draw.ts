@@ -4,6 +4,7 @@ import { secondsToTicks, ticksToSeconds, type Ticks } from '@engine/time'
 import { transitionSpans, type TransitionSpan } from '@engine/timeline/render-plan'
 import { clipEnd, sourceTimeAt, speedRamp } from '@engine/timeline/timeline'
 import { barNumber, beatLength, beatsBetween } from '@engine/audio/beat-grid'
+import { automationValue } from '@engine/automation/curve'
 import type { MediaRuntime } from '../state/media-controller'
 import { levelFor, peakRange } from '@shared/waveform'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
@@ -63,6 +64,11 @@ const COLOURS = {
   transition: 'rgba(214,220,235,0.82)',
   adjustment: '#8e4a86',
   adjustmentSelected: '#c879bb',
+  // Automation clips (W2): amber until your colour list arrives.
+  automation: '#8a6420',
+  automationSelected: '#c99536',
+  automationCurve: 'rgba(255, 236, 200, 0.92)',
+  automationFill: 'rgba(255, 220, 160, 0.18)',
   fxBadge: '#d3b6ff',
   transitionSelected: '#ffffff',
   transitionText: '#1b1d22',
@@ -306,8 +312,12 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
   const item = scene.media.get(clip.mediaId)
   const runtime = scene.runtime(clip.mediaId)
   const selected = scene.selection.has(clip.id)
-  const offline = !clip.adjustment && (!item || runtime.status === 'offline')
-  const base = clip.adjustment
+  const offline = !clip.adjustment && !clip.automation && (!item || runtime.status === 'offline')
+  const base = clip.automation
+    ? selected
+      ? COLOURS.automationSelected
+      : COLOURS.automation
+    : clip.adjustment
     ? selected
       ? COLOURS.adjustmentSelected
       : COLOURS.adjustment
@@ -339,6 +349,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
   }
   // Reversed and held sound is silent for now, so it gets no waveform.
   if (clip.kind === 'audio' && clip.speed > 0 && !clip.reverse) drawWaveform(ctx, scene, clip, x, y + 12, w, h - 12)
+  if (clip.automation) drawAutomationCurve(ctx, scene, clip, x, y + 14, w, h - 16)
 
   if (w > 24) {
     ctx.fillStyle = COLOURS.clipText
@@ -389,6 +400,40 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
   ctx.lineWidth = scene.dropTarget === clip.id ? 2.5 : selected ? 1.5 : 1
   roundRect(ctx, x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3)
   ctx.stroke()
+}
+
+/** An automation clip's curve across it (its source time: a trimmed start hides the curve's beginning), filled beneath. */
+function drawAutomationCurve(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, x: number, y: number, w: number, h: number): void {
+  if (h < 4 || !clip.automation) return
+  const from = Math.max(x, 0)
+  const to = Math.min(x + w, scene.width)
+  if (to <= from) return
+  const step = 2
+  const yAt = (px: number) => {
+    const t = clip.sourceIn + secondsToTicks((px - x) / scene.view.pps)
+    return y + h - automationValue(clip.automation!.points, t) * h
+  }
+  ctx.beginPath()
+  ctx.moveTo(from, yAt(from))
+  for (let px = from + step; px < to; px += step) ctx.lineTo(px, yAt(px))
+  ctx.lineTo(to, yAt(to))
+  ctx.strokeStyle = COLOURS.automationCurve
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.lineTo(to, y + h)
+  ctx.lineTo(from, y + h)
+  ctx.closePath()
+  ctx.fillStyle = COLOURS.automationFill
+  ctx.fill()
+  // Its points, where they're inside the clip.
+  ctx.fillStyle = COLOURS.automationCurve
+  for (const p of clip.automation.points) {
+    const px = x + ticksToSeconds(p.time - clip.sourceIn) * scene.view.pps
+    if (px < from - 3 || px > to + 3) continue
+    ctx.beginPath()
+    ctx.arc(px, y + h - p.value * h, 2.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
 }
 
 function drawTransition(ctx: CanvasRenderingContext2D, scene: Scene, span: TransitionSpan, top: number, height: number): void {

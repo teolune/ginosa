@@ -1,5 +1,15 @@
 # Changelog
 
+## Automation clips, first step (W2.1, 19 Nov 2026)
+
+- **Automation clips** (decision 127): clips on their own **automation tracks**, under the video tracks. Each holds a curve that sets the values it's linked to while it plays, and after it ends they hold its last point (FL's way). Before a clip, a value keeps its own.
+- **Make one** by right-clicking any value in Effect Controls › **Create Automation Clip**: a clip at the playhead, linked to that value and starting from where it is. Or use the Control Panel's **New automation clip** button, now working. A second clip over the same time gets a track of its own.
+- **On the timeline** they're amber, with the curve drawn across them, until your colours arrive. They move, trim, split, copy and delete like any clip. Split halves and copies control the same values, and deleting the last one lets its values go. Muting the track stops its clips.
+- **Effect Controls** for an automation clip lists what it controls, each with × to let it go.
+- **How it works:** each automation clip carries a modulator, so playback and export already agree. A link from it sets the value from the bottom of its range to the top. Scale's 0–10,000% range is swept from 0 to twice the value as it is. Channels and audio modulation still add on top.
+- **Measured** (`automation` scenario): a square's Opacity and Scale follow one clip's curve (up, four stairs, a hold, up). The exported square matches the curve within 0.13 px and 0.0006 of brightness, and playback matches the export within 0.0012.
+- **Next:** the editor (W2.2: FL's point shapes, tension, snapping, the clip's targets, and dragging the clip's name onto a value), then tempo (W2.3).
+
 ## Doubtful cubes (W4.6, 19 Nov 2026)
 
 - **A pink dot marks a doubtful cube** (decision 126). Only one of its channel's two checks heard most of its hits: the drums' DrumSep without ADTOF, or one of the bass's two ears. Click the dot and a small pop-up opens above the cube, no window. **▶ Listen** plays that moment of the channel's own stem, the drums or the bass on its own. **Keep** takes the dot away, and **Delete** removes the cube; both undo. Clicking elsewhere or Esc closes it.

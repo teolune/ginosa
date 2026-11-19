@@ -463,6 +463,11 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .effect-controls { padding: 6px 0 12px; font-size: 12px; }
 .fx-clip { display: flex; flex-direction: column; gap: 2px; padding: 4px 12px 8px; border-bottom: 1px solid var(--border); }
 .fx-clip-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An automation clip in Effect Controls (W2): what it controls. */
+.fx-automation > p { padding: 8px 12px 0; margin: 0; }
+.fx-automation-targets { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+.fx-automation-target { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; background: var(--panel-raised); }
+.fx-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
 .fx-section { border-bottom: 1px solid var(--border); }
 .fx-section-head { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px 0 6px; }
 .fx-title { font-weight: 600; }

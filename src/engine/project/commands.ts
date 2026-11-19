@@ -76,7 +76,7 @@ export function setFrameRate(frameRate: FrameRateName): Command {
 
 export function addTrack(kind: TrackKind, createId: IdFactory = defaultId): Command {
   return {
-    label: `Add ${kind === 'video' ? 'Video' : 'Audio'} Track`,
+    label: `Add ${kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'Automation'} Track`,
     apply(draft) {
       const count = draft.sequence.tracks.filter((t) => t.kind === kind).length
       if (count >= 99) throw new CommandError('A sequence can have at most 99 tracks of each kind')
@@ -91,7 +91,8 @@ export function removeTrack(id: string): Command {
     apply(draft) {
       const track = findTrack(draft, id)
       const sameKind = draft.sequence.tracks.filter((t) => t.kind === track.kind)
-      if (sameKind.length <= 1) throw new CommandError(`A sequence needs at least one ${track.kind} track`)
+      // Automation tracks come and go as they're needed; a sequence keeps one video and one audio track.
+      if (track.kind !== 'automation' && sameKind.length <= 1) throw new CommandError(`A sequence needs at least one ${track.kind} track`)
       draft.sequence.tracks = draft.sequence.tracks.filter((t) => t.id !== id)
       draft.sequence.clips = draft.sequence.clips.filter((c) => c.trackId !== id)
     }

@@ -14,7 +14,7 @@ import type { Mask, MaskRef } from '../masks/types'
 /** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. */
 export const PROJECT_SCHEMA_VERSION = 13
 
-export type TrackKind = 'video' | 'audio'
+export type TrackKind = 'video' | 'audio' | 'automation'
 
 export interface Track {
   id: string
@@ -132,6 +132,30 @@ export interface Clip {
   modulation: ModulationMap
   /** Video clips' own mask (M9): where an adjustment layer applies, or where a clip shows (outside it, the clip is transparent). Always null on audio clips. */
   mask: MaskRef | null
+  /** An automation clip's curve (W2, decision 127): only on automation tracks, which hold nothing else. */
+  automation?: AutomationCurve
+}
+
+/** How an automation curve travels from a point to the next (FL Studio's point modes, W2). */
+export const AUTOMATION_SHAPES = ['single', 'double', 'hold', 'stairs', 'smooth-stairs', 'pulse', 'wave'] as const
+export type AutomationShape = (typeof AUTOMATION_SHAPES)[number]
+
+export interface AutomationPoint {
+  /** Ticks into the clip's curve (its source time: trimming the clip's start hides the curve's beginning, as with footage). */
+  time: Ticks
+  /** 0–1: from the bottom to the top of each linked value's range. */
+  value: number
+  /** The stretch from this point to the next. */
+  shape: AutomationShape
+  /** −1 to 1: how the stretch bends (single and double curves) or how many steps or cycles it makes (stairs, pulse, wave). */
+  tension: number
+}
+
+export interface AutomationCurve {
+  /** The modulator carrying the curve to the values linked to it. Clips split or copied from one share it, and so its links. */
+  modulatorId: string
+  /** At least one, in time order. */
+  points: AutomationPoint[]
 }
 
 export interface Transition {
@@ -290,7 +314,7 @@ export function createTrack(kind: TrackKind, index: number, createId: IdFactory 
   return {
     id: createId(),
     kind,
-    name: `${kind === 'video' ? 'V' : 'A'}${index + 1}`,
+    name: kind === 'automation' ? `Auto ${index + 1}` : `${kind === 'video' ? 'V' : 'A'}${index + 1}`,
     muted: false,
     locked: false,
     visible: true,

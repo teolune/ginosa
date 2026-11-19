@@ -23,10 +23,10 @@ import { modulationController } from './modulation-controller'
 
 const s = secondsToTicks
 const FRAME = ticksPerFrame(FRAME_RATES['25'])
-const XS = Array.from({ length: 960 }, (_, i) => i * 2)
-const ROW_Y = 538
+export const XS = Array.from({ length: 960 }, (_, i) => i * 2)
+export const ROW_Y = 538
 
-function halfToFloat(h: number): number {
+export function halfToFloat(h: number): number {
   const sign = h & 0x8000 ? -1 : 1
   const exponent = (h >> 10) & 0x1f
   const fraction = h & 0x3ff
@@ -35,7 +35,7 @@ function halfToFloat(h: number): number {
   return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024)
 }
 
-function edges(row: number[][]): { left: number; right: number; level: number } | null {
+export function edges(row: number[][]): { left: number; right: number; level: number } | null {
   const g = row.map((rgb) => rgb[1]!)
   const level = Math.max(...g)
   if (!(level > 0.1)) return null

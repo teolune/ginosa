@@ -1,7 +1,7 @@
 import { BANDS, type BandId } from '../audio/analysis'
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, defaultId } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, AUTOMATION_SHAPES, type AutomationCurve, type AutomationPoint, type AutomationShape, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, defaultId } from './model'
 import { DEFAULT_GRID } from '../modulation/curve'
 import { maxLoopSteps, sectionsFromSteps } from '../timeline/rack'
 import { defaultMotion, sourceSize } from '../timeline/motion'
@@ -281,7 +281,7 @@ function parseTrack(value: unknown, index: number): Track {
   const where = `sequence.tracks[${index}]`
   if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
   const kind = value['kind']
-  if (kind !== 'video' && kind !== 'audio') throw new ProjectFormatError(`${where}.kind should be "video" or "audio"`)
+  if (kind !== 'video' && kind !== 'audio' && kind !== 'automation') throw new ProjectFormatError(`${where}.kind should be "video", "audio" or "automation"`)
   return {
     id: expectString(value, 'id', where),
     kind,
@@ -326,13 +326,36 @@ function parseBlendMode(value: unknown, where: string): BlendMode {
   return value as BlendMode
 }
 
+/** An automation clip's curve (W2): its modulator and points, in time order, values 0–1. */
+function parseAutomation(value: unknown, where: string): AutomationCurve {
+  if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
+  const raw = value['points']
+  if (!Array.isArray(raw) || raw.length === 0) throw new ProjectFormatError(`${where}.points should be a list of at least one point`)
+  const points: AutomationPoint[] = raw.map((p, i) => {
+    const at = `${where}.points[${i}]`
+    if (!isObject(p)) throw new ProjectFormatError(`${at} should be an object`)
+    const shape = p['shape']
+    if (!(AUTOMATION_SHAPES as readonly unknown[]).includes(shape)) throw new ProjectFormatError(`${at}.shape is not an automation shape`)
+    return {
+      time: expectInteger(p, 'time', at, 0, MAX_TICKS),
+      value: Math.min(1, Math.max(0, expectNumber(p, 'value', at))),
+      shape: shape as AutomationShape,
+      tension: Math.min(1, Math.max(-1, expectNumber(p, 'tension', at)))
+    }
+  })
+  points.sort((a, b) => a.time - b.time)
+  return { modulatorId: expectString(value, 'modulatorId', where), points }
+}
+
 function parseClip(value: unknown, index: number): Clip {
   const where = `sequence.clips[${index}]`
   if (!isObject(value)) throw new ProjectFormatError(`${where} should be an object`)
   const kind = value['kind']
-  if (kind !== 'video' && kind !== 'audio') throw new ProjectFormatError(`${where}.kind should be "video" or "audio"`)
+  if (kind !== 'video' && kind !== 'audio' && kind !== 'automation') throw new ProjectFormatError(`${where}.kind should be "video", "audio" or "automation"`)
   const linkId = value['linkId']
+  const automation = kind === 'automation' ? { automation: parseAutomation(value['automation'], `${where}.automation`) } : {}
   return {
+    ...automation,
     id: expectString(value, 'id', where),
     trackId: expectString(value, 'trackId', where),
     mediaId: expectString(value, 'mediaId', where),
@@ -590,6 +613,13 @@ export function parseProject(input: string | unknown): Project {
   if (new Set(clips.map((c) => c.id)).size !== clips.length) throw new ProjectFormatError('Two clips share the same id')
   for (const clip of clips) {
     if (trackKinds.get(clip.trackId) !== clip.kind) throw new ProjectFormatError(`Clip "${clip.name}" is on a missing or wrong-kind track`)
+    if (clip.kind === 'automation') {
+      // An automation clip has no media, effects, keyframes or links of its own.
+      clip.effects = []
+      clip.keyframes = {}
+      clip.modulation = {}
+      continue
+    }
     if (clip.adjustment) {
       if (clip.kind !== 'video') throw new ProjectFormatError(`Adjustment layer "${clip.name}" is on an audio track`)
     } else if (!mediaIds.has(clip.mediaId)) throw new ProjectFormatError(`Clip "${clip.name}" points at media that isn't in the project`)
@@ -623,6 +653,12 @@ export function parseProject(input: string | unknown): Project {
   const modulators = wrap(() => parseModulators(sequence['modulators'], parseKeyframes))
   // Links to modulators that aren't there are dropped; Speed and choices can't be modulated.
   const modulatorIds = new Set(modulators.map((m) => m.id))
+  // An automation clip's modulator must be there and be an automation one.
+  for (const clip of clips) {
+    if (clip.kind !== 'automation') continue
+    const m = modulators.find((x) => x.id === clip.automation!.modulatorId)
+    if (!m || m.source.kind !== 'automation') throw new ProjectFormatError(`Automation clip "${clip.name}" has no automation modulator`)
+  }
   for (const clip of clips) {
     clip.modulation = keepLinks(clip.modulation, modulatorIds, (key) => key !== 'speed' && propertySpec(clip, null, key)?.kind !== undefined && propertySpec(clip, null, key)?.kind !== 'stepped')
     for (const effect of clip.effects) {

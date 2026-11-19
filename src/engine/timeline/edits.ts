@@ -1,4 +1,5 @@
 import type { Draft } from 'immer'
+import { pruneAutomation } from './automation-prune'
 import { CommandError, type Command } from '../project/commands'
 import type { MediaItem } from '../project/media'
 import { defaultId, type Clip, type IdFactory, type Project, type Sequence, type TrackKind } from '../project/model'
@@ -458,6 +459,8 @@ export function applyDelete(sequence: Sequence, clipIds: string[]): void {
   const ids = new Set(clipIds)
   for (const clip of sequence.clips) if (ids.has(clip.id)) assertUnlocked(findTrack(sequence, clip.trackId))
   sequence.clips = sequence.clips.filter((c) => !ids.has(c.id))
+  // The last clip of an automation goes with its modulator and links (W2).
+  pruneAutomation(sequence)
 }
 
 export function deleteClips(clipIds: string[]): TimelineCommand {
@@ -546,6 +549,8 @@ export interface ClipboardClip {
   keyframes: Clip['keyframes']
   modulation: Clip['modulation']
   mask: Clip['mask']
+  /** An automation clip's curve: the copy carries the same modulator, so it controls the same values (W2). */
+  automation?: Clip['automation']
 }
 
 export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[] {
@@ -573,7 +578,8 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     adjustment: c.adjustment,
     keyframes: cloneKeyframeMap(c.keyframes),
     modulation: cloneModulationMap(c.modulation),
-    mask: c.mask ? { ...c.mask } : null
+    mask: c.mask ? { ...c.mask } : null,
+    ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })) } } : {})
   }))
 }
 
@@ -584,7 +590,10 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
   const maskIds = new Set(sequence.masks.map((m) => m.id))
   const keepMask = (ref: Clip['mask']) => (ref && maskIds.has(ref.id) ? { ...ref } : null)
   const clips: Clip[] = clipboard.map((c) => {
-    if (!c.adjustment && !media.some((m) => m.id === c.mediaId)) throw new CommandError(`"${c.name}" is no longer in the project`)
+    if (c.automation) {
+      // A copy of an automation clip carries its modulator, so that must still be there (W2).
+      if (!sequence.modulators.some((m) => m.id === c.automation!.modulatorId)) throw new CommandError(`"${c.name}" is no longer in the project`)
+    } else if (!c.adjustment && !media.some((m) => m.id === c.mediaId)) throw new CommandError(`"${c.name}" is no longer in the project`)
     const track = findTrack(sequence, c.trackId)
     assertUnlocked(track)
     let linkId: string | null = null
@@ -615,7 +624,8 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       adjustment: c.adjustment,
       keyframes: cloneKeyframeMap(c.keyframes),
       modulation: cloneModulationMap(c.modulation),
-      mask: c.kind === 'video' ? keepMask(c.mask) : null
+      mask: c.kind === 'video' ? keepMask(c.mask) : null,
+      ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })) } } : {})
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]

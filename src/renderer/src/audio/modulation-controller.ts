@@ -41,6 +41,13 @@ function inputsFor(project: Project, m: Modulator): { inputs: CurveInputs; ready
     const cubes = rack.sections.map((s) => [s.bars, s.cubes[id] ?? []])
     return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid, pattern: { row, rack, frameSeconds } }, ready: true, key: JSON.stringify([row, cubes, frameSeconds]) }
   }
+  if (m.source.kind === 'automation') {
+    // The automation clips carrying this modulator (W2).
+    // A muted automation track's clips don't play.
+    const muted = new Set(project.sequence.tracks.filter((t) => t.kind === 'automation' && t.muted).map((t) => t.id))
+    const clips = project.sequence.clips.filter((c) => c.automation?.modulatorId === m.id && !muted.has(c.trackId)).map((c) => ({ start: c.start, duration: c.duration, sourceIn: c.sourceIn, points: c.automation!.points }))
+    return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid, automation: { clips } }, ready: true, key: JSON.stringify(clips) }
+  }
   if (m.source.kind !== 'audio') return { inputs: { analysis: null, analysisStart: 0, customBand: null, grid }, ready: true, key: '' }
   const source = m.source
   const state = analysisController.state(source.sourceId)

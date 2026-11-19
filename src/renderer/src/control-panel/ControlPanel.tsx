@@ -105,7 +105,7 @@ export function ControlPanel() {
       </div>
       <Divider />
       <div className="cp-group">
-        <button className="cp-button" disabled title="New automation clip at the playhead: comes in the next phase (an FL-style keyframe editor)" aria-label="New automation clip">
+        <button className="cp-button" title="New automation clip at the playhead: link it to values by right-clicking a value › Create Automation Clip, or in its editor" aria-label="New automation clip" onClick={() => timelineController.newAutomationClip()}>
           <Icon name="automationClip" fallback="⤳" />
         </button>
         <button className="cp-button" title="New adjustment layer at the playhead, above the clips there" aria-label="New adjustment layer" onClick={() => timelineController.newAdjustmentLayer()}>

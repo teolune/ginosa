@@ -2,7 +2,8 @@ import { ANALYSIS_RATE, type AudioAnalysis, type BandAnalysis } from '../audio/a
 import { beatAt, beatLength, beatTime } from '../audio/beat-grid'
 import { sampleAt } from '../audio/dsp'
 import { evaluate } from '../keyframes/keyframes'
-import type { BeatGrid, Rack, RackRow } from '../project/model'
+import { automationValue } from '../automation/curve'
+import type { AutomationPoint, BeatGrid, Rack, RackRow } from '../project/model'
 import { channelHits, cubeAmount, hitBeat } from '../timeline/rack'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '../time'
 import { MODULATOR_PARAMS, NOTE_VALUES, type ModSource, type Modulator, type ModulatorParam, type NoteValue, type ResponseCurve } from './types'
@@ -23,6 +24,8 @@ export interface CurveInputs {
   grid: BeatGrid | null
   /** A Channel Rack channel and its rack (sections of cubes), and how long a frame is (each hit fires for one frame, so the first frame at or after it gets the whole hit). */
   pattern?: { row: RackRow | null; rack: Rack | null; frameSeconds: number }
+  /** The automation clips carrying this modulator (W2): where each starts, how long, where its curve starts, and its points. */
+  automation?: { clips: ReadonlyArray<{ start: Ticks; duration: Ticks; sourceIn: Ticks; points: readonly AutomationPoint[] }> }
 }
 
 /** Without a beat grid, tempo signals and LFOs run at 120 BPM from the sequence start, 4/4. */
@@ -123,6 +126,24 @@ export function sourceSignal(source: ModSource, inputs: CurveInputs, frames: num
       }
       return out
     }
+    case 'automation': {
+      // While a clip plays, its curve; after it, its last value, until the next clip starts; before
+      // the first, nothing (NaN: the linked values keep their own, decision 127).
+      out.fill(NaN)
+      const clips = [...(inputs.automation?.clips ?? [])].sort((a, b) => a.start - b.start)
+      clips.forEach((clip, k) => {
+        const from = Math.max(0, Math.ceil(ticksToSeconds(clip.start) * CURVE_RATE - 1e-6))
+        const next = clips[k + 1]
+        const until = next ? Math.min(frames, Math.ceil(ticksToSeconds(next.start) * CURVE_RATE - 1e-6)) : frames
+        const end = ticksToSeconds(clip.start + clip.duration)
+        const last = automationValue(clip.points, clip.sourceIn + clip.duration)
+        for (let i = from; i < until; i++) {
+          const seconds = i / CURVE_RATE
+          out[i] = seconds < end ? automationValue(clip.points, clip.sourceIn + secondsToTicks(seconds) - clip.start) : last
+        }
+      })
+      return out
+    }
     case 'pattern': {
       // A pulse one frame long from each hit (swing and nudge move it, decision 106).
       const p = inputs.pattern
@@ -194,6 +215,8 @@ export function modulatorCurve(m: Modulator, inputs: CurveInputs, frames: number
       raw[i] = lfo(m.source.shape, cycles - step, step, m.source.seed)
     }
   } else raw = sourceSignal(m.source, inputs, frames)
+  // An automation clip's curve is the value itself: no gain, threshold or attack and release.
+  if (m.source.kind === 'automation') return raw
   const out = shapeSignal(m, raw, frames, false)
   // A channel's strength (0–150%, decision 106) scales what it moves.
   const strength = m.source.kind === 'pattern' ? (inputs.pattern?.row?.strength ?? 100) / 100 : 1

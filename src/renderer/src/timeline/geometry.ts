@@ -22,13 +22,14 @@ export interface Rows {
   height: number
 }
 
-/** V3, V2, V1 above the divider (V1 nearest the middle, as in Premiere), then A1, A2, A3. */
+/** V3, V2, V1 above the divider (V1 nearest the middle, as in Premiere), the automation tracks under them (W2), then A1, A2, A3. */
 export function layoutRows(sequence: Sequence): Rows {
   const video = sequence.tracks.filter((t) => t.kind === 'video').reverse()
+  const automation = sequence.tracks.filter((t) => t.kind === 'automation')
   const audio = sequence.tracks.filter((t) => t.kind === 'audio')
   const rows: Row[] = []
   let y = 0
-  for (const track of video) {
+  for (const track of [...video, ...automation]) {
     rows.push({ track, top: y, height: TRACK_HEIGHT })
     y += TRACK_HEIGHT
   }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { automationTest } from '../automation/automation-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
 import { createBin, moveToBin, setMarks } from '@engine/project/media-commands'
 import { secondsToTicks } from '@engine/time'
@@ -164,6 +165,20 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       workspaceController.focus('audio-analysis')
       timelineController.zoomToFit()
       timelineController.setPlayhead(secondsToTicks(5))
+      await wait(1500)
+      break
+    }
+    case 'automation': {
+      // W2.1 "done when": an automation clip moves values in playback and export alike.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /square_1080\.png$/.test(f)), null)
+      await wait(1500)
+      try {
+        await window.ginosa.snapshot.report(await automationTest())
+      } catch (error) {
+        await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
+      }
+      timelineController.zoomToFit()
+      timelineController.setPlayhead(secondsToTicks(4.4))
       await wait(1500)
       break
     }

@@ -1,4 +1,6 @@
 import { addTrack, type Command } from '@engine/project/commands'
+import { newAutomationClip } from '@engine/timeline/automation-edits'
+import type { PropertyRef } from '@engine/keyframes/properties'
 import { addAdjustmentLayer } from '@engine/timeline/effect-edits'
 import type { Clip, Sequence } from '@engine/project/model'
 import { frameRateOf } from '@engine/project/model'
@@ -358,6 +360,16 @@ class TimelineController extends Observable {
       const created = this.committed!.clips.find((c) => c.adjustment && c.trackId === target && c.start === toFrame(start, this.frame()))
       if (created) this.select([created.id], 'replace')
     }
+  }
+
+  /**
+   * New Automation Clip (W2): at the playhead on the first automation track free there (a new one
+   * if none is), selected. With `target`, it's linked to that value from where it is (right-click ›
+   * Create Automation Clip).
+   */
+  newAutomationClip(target?: PropertyRef): void {
+    const command = newAutomationClip({ at: this.playhead, target })
+    if (this.run(command)) this.select([command.clipId], 'replace')
   }
 
   /** Cmd+R: Speed/Duration for the selected clips. */

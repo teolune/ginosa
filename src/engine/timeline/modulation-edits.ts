@@ -40,6 +40,8 @@ export function describeSource(source: ModSource, sourceName: (id: string) => st
       return `Random ${source.rate} Hz`
     case 'pattern':
       return `Pattern · ${sourceName(source.rowId)}`
+    case 'automation':
+      return 'Automation clip'
   }
 }
 
@@ -164,6 +166,7 @@ export function removeModulator(id: string): TimelineCommand {
   return timelineCommand('Remove Modulator', (draft, command) => {
     const sequence = draft.sequence
     if (!sequence.modulators.some((m) => m.id === id)) throw new CommandError('That modulator is gone')
+    if (sequence.clips.some((c) => c.automation?.modulatorId === id)) throw new CommandError('That’s an automation clip’s: delete its clips on the timeline instead')
     const links = dropModulator(sequence, id)
     if (links > 0) command.notice = `Removed it from the ${links} value${links === 1 ? '' : 's'} it drove.`
   })
