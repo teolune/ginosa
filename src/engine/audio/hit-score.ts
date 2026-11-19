@@ -4,8 +4,10 @@
  * that no other found hit has taken; each true hit counts once.
  */
 
-/** ±30 ms: tighter than the usual 50 ms, as a 16th at 140 BPM is 107 ms. */
+/** ±30 ms for drum hits: tighter than the usual 50 ms, as a 16th at 140 BPM is 107 ms. */
 export const HIT_TOLERANCE = 0.03
+/** ±50 ms for bass note starts, the usual tolerance for notes (decision 125): sampled basses can sound 20–40 ms after their note. */
+export const NOTE_TOLERANCE = 0.05
 
 export interface HitScore {
   /** True hits, found hits, and the found ones that matched a true one. */

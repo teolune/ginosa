@@ -1,4 +1,4 @@
-import { combineScores, roundScore, scoreHits, type HitScore } from '@engine/audio/hit-score'
+import { combineScores, HIT_TOLERANCE, NOTE_TOLERANCE, roundScore, scoreHits, type HitScore } from '@engine/audio/hit-score'
 import type { RackDetect } from '@engine/project/model'
 import { secondsToTicks, ticksToSeconds } from '@engine/time'
 import { setBeatGrid } from '@engine/timeline/audio-edits'
@@ -12,7 +12,7 @@ import { detector } from './detect'
 
 /**
  * The detection bench (W4.1): Detect on songs whose hits are known, scored channel by channel
- * (F-measure within ±30 ms, engine/audio/hit-score). The songs: the generated test drums, and
+ * (F-measure within ±30 ms, bass notes ±50 ms, engine/audio/hit-score). The songs: the generated test drums, and
  * the answer keys in media/bench/keys (the STAR Drums preview, your songs from Reference
  * Materials). Each runs with bands of the whole song and, when stem separation is set up, with
  * each separator's stems (bands of the stems), and with the best separator's stems and the drum
@@ -141,7 +141,7 @@ export async function detectBench(): Promise<Record<string, unknown>> {
             result[kind] = { found: found.length }
             continue
           }
-          const score = scoreHits(found, truth)
+          const score = scoreHits(found, truth, kind === 'bass' ? NOTE_TOLERANCE : HIT_TOLERANCE)
           ;(all[method]![kind] ??= []).push(score)
           result[kind] = roundScore(score)
         }
