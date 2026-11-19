@@ -75,8 +75,11 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | [pretty_midi](https://github.com/craffel/pretty-midi) 0.2.11.post0, with mido 1.3.3 | Reads ADTOF's MIDI | MIT; MIT |
 | [Beat This!](https://github.com/CPJKU/beat_this) 1.1.0 (`beat-this`), its final0 checkpoint (81 MB, from JKU's server into `.stems/torch`) | The tempo and bar 1 of the song on A1 (W4.5): the song's beats and downbeats | MIT (code and weights; Institute of Computational Perception, JKU Linz) |
 | torchaudio 2.11.1, einops 0.8.2, rotary-embedding-torch 0.9.2 | Beat This!'s spectrogram and its model's parts | BSD-2-Clause; MIT; MIT |
+| [Basic Pitch](https://github.com/spotify/basic-pitch) 0.4.0 (`basic-pitch`, its ONNX model included; installed without its own requirements, which ask for TensorFlow on Python 3.12) | The bass ear's note transcriber (W4.4): the notes in the bass stem | Apache-2.0 (Spotify) |
+| [ONNX Runtime](https://onnxruntime.ai) 1.32.0, with flatbuffers and protobuf; resampy 0.4.3; mir_eval 0.8.2 | Runs Basic Pitch's model; resampling and note helpers it imports | MIT, Apache-2.0, BSD-3-Clause; ISC; MIT |
 | safetensors 0.8.0, soundfile 0.14.0, requests, PyYAML | Weights, audio files and downloads for the separator | Apache-2.0, BSD-3-Clause, Apache-2.0, MIT |
 | [STAR Drums](https://doi.org/10.5281/zenodo.15690078) preview (in `media/bench`, not in the repo) | The detection bench's real songs with exact drum hits (W4.1) | Code and annotations BSD-3-Clause; audio under various Creative Commons licences, listed in its `LICENSE` folder |
+| [BabySlakh](https://zenodo.org/records/4603870) (in `media/bench`, not in the repo; 883 MB download) | The detection bench's songs with exact bass notes (W4.4): 20 songs rendered from MIDI with sampled instruments, with their stems and MIDI (Manilow et al., WASPAA 2019) | CC BY 4.0 |
 
 No new npm packages.
 

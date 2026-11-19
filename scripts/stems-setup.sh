@@ -2,7 +2,8 @@
 # Sets up stem separation for the Channel Rack's Automatic Detection (decision 108): a
 # Python environment in .stems/venv with demucs-mlx (MIT), which splits a song into drums,
 # bass, vocals and the rest on this Mac, with Apple's MLX; then BS-RoFormer-SW (W4.2), the drum
-# transcriber (W4.3, DrumSep and ADTOF) and Beat This! (W4.5). Run it once:  npm run stems-setup
+# transcriber (W4.3, DrumSep and ADTOF), the bass ear (W4.4, Basic Pitch) and Beat This! (W4.5).
+# Run it once:  npm run stems-setup
 #
 # Everything goes in .stems/ in this folder, the model's weights too (htdemucs, about
 # 160 MB, downloaded from Hugging Face on the first run and checked against digests built
@@ -186,6 +187,23 @@ else
   ok "Beat This!'s model downloaded"
 fi
 
+# W4.4: the bass ear (scripts/detect/bass.py): Basic Pitch (Spotify, Apache-2.0) through ONNX Runtime
+# (MIT), with resampy (ISC) and mir_eval (MIT). Basic Pitch's own requirements ask for TensorFlow on
+# Python 3.12, which it doesn't need with ONNX, so it's installed without them and these added.
+BASIC_PITCH_VERSION="0.4.0"
+bass_installed() {
+  "$venv/bin/python" -c "import importlib.metadata as m, sys; sys.exit(0 if m.version('basic-pitch') == '$BASIC_PITCH_VERSION' and m.version('onnxruntime') == '1.32.0' else 1)" >/dev/null 2>&1
+}
+if bass_installed; then
+  ok "Basic Pitch $BASIC_PITCH_VERSION is already installed"
+else
+  say "Installing Basic Pitch $BASIC_PITCH_VERSION and ONNX Runtime (the bass ear, about 40 MB)…"
+  if ! "$venv/bin/python" -m pip install --prefer-binary "onnxruntime==1.32.0" "resampy==0.4.3" "mir_eval==0.8.2" || ! "$venv/bin/python" -m pip install --no-deps "basic-pitch==$BASIC_PITCH_VERSION"; then
+    bad "pip couldn't install Basic Pitch (the error is above)."; exit 1
+  fi
+  bass_installed && ok "Basic Pitch installed" || { bad "Basic Pitch didn't install properly."; exit 1; }
+fi
+
 # As with BS-RoFormer-SW, only the converted copy is loaded (mlx-audio-separator 0.1.20 reads the
 # settings from the .yaml and the weights from the .safetensors), so the checkpoint becomes a placeholder.
 if [[ -s "$models/$DRUMSEP.ckpt" && -s "$models/$DRUMSEP.safetensors" ]]; then
@@ -215,6 +233,13 @@ if "$venv/bin/demucs-mlx" "$input" -o "$work/out" -n htdemucs && HF_HOME="$stems
         ok "Transcribed its drums with DrumSep and ADTOF in $(( $(date +%s) - start )) s"
       else
         bad "The drum transcriber stopped with an error:"; tail -5 "$work/listen.log"; result=1
+      fi
+      bass="$(find "$work/sw" -type f -name '*_(bass)_*' | head -1)"
+      start=$(date +%s)
+      if [[ -n "$bass" ]] && "$venv/bin/python" "$root/scripts/detect/bass.py" "$bass" "$work/bass.json" > "$work/bass.log" 2>&1 && [[ -s "$work/bass.json" ]]; then
+        ok "Heard its bass notes with Basic Pitch in $(( $(date +%s) - start )) s"
+      else
+        bad "The bass ear stopped with an error:"; tail -5 "$work/bass.log" 2>/dev/null; result=1
       fi
       start=$(date +%s)
       if "$venv/bin/python" "$root/scripts/detect/beats.py" "$input" "$work/beats.json" > "$work/beats.log" 2>&1 && [[ -s "$work/beats.json" ]]; then

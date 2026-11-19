@@ -37,18 +37,20 @@ def env() -> dict:
 
 
 # Packages the lab may add to .stems/venv (nothing else): separation, transcription, and audio files.
-INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval", "pretty-midi", "beat-this", "einops", "rotary-embedding-torch"}
+INSTALLABLE = {"mlx-audio-separator", "soundfile", "huggingface-hub", "safetensors", "torch", "librosa", "mir-eval", "pretty-midi", "beat-this", "einops", "rotary-embedding-torch", "basic-pitch", "onnxruntime", "resampy", "mir-eval", "scikit-learn"}
 # ADTOF's PyTorch port isn't on PyPI: it installs from its GitHub repository (weights included).
 INSTALLABLE_URLS = {"git+https://github.com/xavriley/ADTOF-pytorch"}
 
 
 def pip_install(*specs: str) -> dict:
     """Adds packages to .stems/venv: only those in INSTALLABLE, pinned like name==1.2.3 or with extras like name[extra]."""
+    flags = [s for s in specs if s == "--no-deps"]
+    specs = tuple(s for s in specs if s != "--no-deps")
     names = [s if s in INSTALLABLE_URLS else s.split("[")[0].split("=")[0].split("<")[0].split(">")[0].lower() for s in specs]
     refused = [n for n in names if n not in INSTALLABLE and n not in INSTALLABLE_URLS]
     if refused or not specs:
         return {"refused": refused or ["nothing to install"]}
-    done = subprocess.run([sys.executable, "-m", "pip", "install", "--prefer-binary", *specs], capture_output=True, text=True)
+    done = subprocess.run([sys.executable, "-m", "pip", "install", "--prefer-binary", *flags, *specs], capture_output=True, text=True)
     return {"exit": done.returncode, "tail": (done.stdout + done.stderr).strip().splitlines()[-25:]}
 
 
@@ -215,7 +217,79 @@ def w45_phases(*slugs: str) -> dict:
     return w45.phases(*slugs)
 
 
-COMMANDS = {"w45-phases": w45_phases, "w45-bar-one": w45_bar_one, "w45-beats": w45_beats, "w45-grids": w45_grids, "midi-info": midi_info, "w43-dominance": w43_dominance, "listen": listen, "env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare, "w43-prepare": w43_prepare, "w43-score": w43_score, "w43-claps": w43_claps}
+def w44_prepare(*args: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.prepare(*args)
+
+
+def w44_score(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.score(*slugs)
+
+
+def w44_diagnose(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.diagnose(*slugs)
+
+
+def w44_combos(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.combos(*slugs)
+
+
+def w44_tune(*slugs: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.tune(*slugs)
+
+
+def bass_app(*slugs: str) -> dict:
+    """Detect's own bass ear (bass.py) on the BabySlakh songs' separated bass, scored, timed."""
+    import time
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    import bass as app
+    import w43
+    import w44
+
+    totals = {0.03: [0, 0, 0], 0.05: [0, 0, 0]}
+    out = {}
+    for kf in sorted((LAB / "keys").glob("slakh-*.json")):
+        if slugs and kf.stem not in slugs:
+            continue
+        truth = json.loads(kf.read_text())["bass"]
+        stem = w43.stem(LAB / "sep" / "BS-Roformer-SW" / kf.stem, "bass")
+        target = LAB / "bass" / f"{kf.stem}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        started = time.time()
+        app.main(str(stem), str(target))
+        found = json.loads(target.read_text())["bass"]
+        out[kf.stem] = {"seconds": round(time.time() - started, 1)}
+        for tol, agg in totals.items():
+            m, f, t = w43.match(found, truth, tol)
+            agg[0] += m; agg[1] += f; agg[2] += t
+            out[kf.stem][f"F±{int(tol * 1000)}"] = round(2 * m / (f + t), 3)
+    out["total"] = {f"F±{int(tol * 1000)}": round(2 * m / (f + t), 3) for tol, (m, f, t) in totals.items()}
+    return out
+
+
+def w44_bench_keys(*names: str) -> dict:
+    sys.path.insert(0, str(Path(__file__).parent))
+    import w44
+
+    return w44.bench_keys(*names)
+
+
+COMMANDS = {"w44-bench-keys": w44_bench_keys, "bass-app": bass_app, "w44-tune": w44_tune, "w44-combos": w44_combos, "w44-diagnose": w44_diagnose, "w44-prepare": w44_prepare, "w44-score": w44_score, "w45-phases": w45_phases, "w45-bar-one": w45_bar_one, "w45-beats": w45_beats, "w45-grids": w45_grids, "midi-info": midi_info, "w43-dominance": w43_dominance, "listen": listen, "env": env, "pip-install": pip_install, "tool": tool, "separate": separate, "compare": compare, "w43-prepare": w43_prepare, "w43-score": w43_score, "w43-claps": w43_claps}
 
 
 def main(argv: list[str]) -> int:

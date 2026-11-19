@@ -106,10 +106,13 @@ export async function detectBench(): Promise<Record<string, unknown>> {
   const keys = [await generatedDrums(), ...(await window.ginosa.snapshot.benchKeys())].filter((k): k is BenchKey => k !== null)
   // Bands, then each separator set up (W4.2: BS-RoFormer-SW and htdemucs), then the best with the drum transcriber (W4.3).
   const status = await window.ginosa.stems.status()
-  const runs: Array<{ label: string; method: 'bands' | 'stems'; separator?: StemSeparator; drums?: 'transcriber' | 'bands' }> = [
+  const runs: Array<{ label: string; method: 'bands' | 'stems'; separator?: StemSeparator; drums?: 'transcriber' | 'bands'; bass?: 'notes' | 'bands' }> = [
     { label: 'bands', method: 'bands' },
-    ...status.separators.map((separator) => ({ label: separator, method: 'stems' as const, separator, drums: 'bands' as const })),
-    ...(status.transcriber && status.separators[0] ? [{ label: `${status.separators[0]}+transcriber`, method: 'stems' as const, separator: status.separators[0], drums: 'transcriber' as const }] : [])
+    ...status.separators.map((separator) => ({ label: separator, method: 'stems' as const, separator, drums: 'bands' as const, bass: 'bands' as const })),
+    // The best separator with the drum transcriber (W4.3) and the bass ear (W4.4), as Detect runs by default.
+    ...(status.transcriber && status.separators[0]
+      ? [{ label: `${status.separators[0]}+transcriber`, method: 'stems' as const, separator: status.separators[0], drums: 'transcriber' as const, bass: status.bass ? ('notes' as const) : ('bands' as const) }]
+      : [])
   ]
   const methods = runs.map((r) => r.label)
   const songs: Array<Record<string, unknown>> = []

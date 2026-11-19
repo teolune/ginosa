@@ -32,6 +32,8 @@ export interface StemsStatus {
   transcriber: boolean
   /** Beat This! (W4.5) is set up, for the tempo and bar 1 of the song on A1. */
   beats: boolean
+  /** The bass ear (W4.4: level onsets and Basic Pitch) is set up. */
+  bass: boolean
 }
 
 const bin = (appRoot: string, name: string) => join(appRoot, '.stems', 'venv', 'bin', name)
@@ -60,6 +62,16 @@ async function transcriberReady(appRoot: string): Promise<boolean> {
   return adtof && (await exists(bin(appRoot, 'python'), constants.X_OK)) && (await exists(bin(appRoot, 'mlx-audio-separator'), constants.X_OK)) && (await allThere(models(appRoot), DRUMSEP_FILES)) && (await exists(LISTEN(appRoot)))
 }
 
+const BASS = (appRoot: string) => join(appRoot, 'scripts', 'detect', 'bass.py')
+
+/** Basic Pitch and ONNX Runtime in the environment, and the script that runs them. */
+async function bassReady(appRoot: string): Promise<boolean> {
+  const lib = join(appRoot, '.stems', 'venv', 'lib')
+  const versions = (await readdir(lib).catch(() => [] as string[])).filter((d) => d.startsWith('python'))
+  const has = async (pkg: string) => (await Promise.all(versions.map((v) => exists(join(lib, v, 'site-packages', pkg))))).some(Boolean)
+  return (await has(join('basic_pitch', 'inference.py'))) && (await has('onnxruntime')) && (await exists(bin(appRoot, 'python'), constants.X_OK)) && (await exists(BASS(appRoot)))
+}
+
 const BEATS = (appRoot: string) => join(appRoot, 'scripts', 'detect', 'beats.py')
 const BEAT_THIS_CHECKPOINT = (appRoot: string) => join(appRoot, '.stems', 'torch', 'hub', 'checkpoints', 'beat_this-final0.ckpt')
 
@@ -77,9 +89,10 @@ export async function stemsStatus(appRoot: string): Promise<StemsStatus> {
   if (await exists(bin(appRoot, 'demucs-mlx'), constants.X_OK)) separators.push('htdemucs')
   const transcriber = separators.length > 0 && (await transcriberReady(appRoot))
   const beats = await beatsReady(appRoot)
+  const bass = separators.length > 0 && (await bassReady(appRoot))
   return separators.length
-    ? { ready: true, detail: null, separators, transcriber, beats }
-    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators, transcriber, beats }
+    ? { ready: true, detail: null, separators, transcriber, beats, bass }
+    : { ready: false, detail: 'Stem separation isn’t set up on this Mac yet: set it up in the Cache window, or run  npm run stems-setup  in Terminal (once).', separators, transcriber, beats, bass }
 }
 
 /** A separator's stems in `dir`: `drums.wav` as kept in the cache, or `…_(drums)_…` as mlx-audio-separator names them. */
@@ -228,6 +241,47 @@ async function separate(appRoot: string, input: string, dir: string, separator: 
   }
   await rm(work, { recursive: true, force: true })
   return out
+}
+
+/** Raised when bass.py's method changes, so songs are heard again. */
+const BASS_VERSION = 1
+
+/**
+ * The bass note starts (seconds in the song file) in the stems in `dir` (W4.4): from the cache when
+ * heard before, otherwise by bass.py now (level onsets and Basic Pitch on the bass stem).
+ */
+export async function bassHits(appRoot: string, dir: string): Promise<{ bass: number[]; oneCheck: number[] }> {
+  const file = join(dir, `bass-v${BASS_VERSION}.json`)
+  const read = async () => {
+    const text = await readFile(file, 'utf8').catch(() => null)
+    if (text === null) return null
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const times = (v: unknown) => (Array.isArray(v) ? v.filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t >= 0) : [])
+    return { bass: times(parsed['bass']), oneCheck: times(parsed['one_check']) }
+  }
+  const cached = await read()
+  if (cached) return cached
+  const stem = (await findStems(dir)).bass
+  if (!stem) throw new Error('the song hasn’t been separated into stems yet')
+  if (!(await bassReady(appRoot))) throw new Error('the bass ear isn’t set up on this Mac: set up detection again in the Cache window')
+  if (settingUp) throw new Error('Detection is being set up; try again when it has finished.')
+  separating++
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin(appRoot, 'python'), [BASS(appRoot), stem, file], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let tail = ''
+      const take = (chunk: Buffer) => (tail = (tail + chunk.toString()).slice(-4000))
+      child.stdout.on('data', take)
+      child.stderr.on('data', take)
+      child.on('error', reject)
+      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`the bass ear stopped (exit ${code}): ${tail.trim().split('\n').at(-1) ?? ''}`))))
+    })
+  } finally {
+    separating--
+  }
+  const heard = await read()
+  if (!heard) throw new Error('the bass ear wrote no notes')
+  return heard
 }
 
 /** What Beat This! heard in a song (beats.py): seconds in the song file. */

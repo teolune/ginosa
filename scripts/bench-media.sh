@@ -3,7 +3,10 @@
 #  - star-preview/: the STAR Drums preview (Weber et al., TISMIR 2025; BSD-3-Clause, audio under
 #    Creative Commons licences listed in its LICENSE folder): real recordings with vocals and
 #    instruments, whose drums were re-played from annotations, so every drum hit's time is exact.
-# Downloaded once from Zenodo (about 97 MB); running it again only checks what's there.
+#  - babyslakh/: BabySlakh (Manilow et al., WASPAA 2019; CC BY 4.0), the first 20 songs of Slakh2100:
+#    mixes rendered from MIDI with sampled instruments, each with its stems and MIDI, so every bass
+#    note's start is exact (W4.4). 16 kHz.
+# Downloaded once from Zenodo (about 97 MB and 883 MB); running it again only checks what's there.
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bench="$root/media/bench"
@@ -28,3 +31,20 @@ if [[ ! -d "$bench/star-preview" ]]; then
 fi
 ok "Unzipped in media/bench/star-preview: $(find "$bench/star-preview" -type f | wc -l | tr -d ' ') files"
 find "$bench/star-preview" -maxdepth 6 | sed "s#$bench/##" | head -80
+
+tar="$bench/download/babyslakh_16k.tar.gz"
+url="https://zenodo.org/record/4603870/files/babyslakh_16k.tar.gz?download=1"
+if [[ ! -s "$tar" ]]; then
+  echo "Downloading BabySlakh (about 883 MB)…"
+  if ! curl -L --fail --retry 3 --silent --show-error -o "$tar.part" "$url"; then bad "Download failed (above)."; rm -f "$tar.part"; exit 1; fi
+  mv "$tar.part" "$tar"
+fi
+ok "BabySlakh: $(du -h "$tar" | cut -f1)"
+if [[ ! -d "$bench/babyslakh" ]]; then
+  rm -rf "$bench/babyslakh.part"
+  mkdir -p "$bench/babyslakh.part"
+  if ! tar -xzf "$tar" -C "$bench/babyslakh.part"; then bad "Couldn't unpack it."; exit 1; fi
+  mv "$bench/babyslakh.part" "$bench/babyslakh"
+fi
+ok "Unpacked in media/bench/babyslakh: $(find "$bench/babyslakh" -type f | wc -l | tr -d ' ') files"
+find "$bench/babyslakh" -maxdepth 3 | sed "s#$bench/##" | head -30

@@ -47,7 +47,7 @@ npm start
 
 - [ ] In a project with nothing on A1, the A1 lane says **♪ Drop the song here**. Drop a song there.
 - [ ] Set the tempo with the Control Panel's sparkles (or type it on the knob). With detection set up they listen to the song on A1 with Beat This!: `dpackdist` should come out at about **167** and `entrust` about **162**, with bar 1 at the start of the song (the ruler's 1 lines up with the first kick or the first sound). A song with silence at the start gets bar 1 where the music starts.
-- [ ] Open the **Channel Rack** (Control Panel). Press its sparkles (**Detect**). The rack's top bar says what it's doing; with stems: *Separating the song into drums, bass and vocals…*, then *Transcribing the drums hit by hit…* (with a percentage) and *Finding bass in the bass…*. The first time takes a while; the stems are kept in the project's cache, so detecting again is quick.
+- [ ] Open the **Channel Rack** (Control Panel). Press its sparkles (**Detect**). The rack's top bar says what it's doing; with stems: *Separating the song into drums, bass and vocals…*, then *Transcribing the drums hit by hit…* (with a percentage) and *Hearing the bass note by note…*. The Bass channel should now catch 808 slides and notes that change pitch without a new hit. The first time takes a while; the stems are kept in the project's cache, so detecting again is quick.
 - [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into 8-bar sections (A, B, C…; the last one is what's left). Undo brings back what was there.
 - [ ] Tell me how it did: which channels are right, which miss hits or catch the wrong sound, and whether the sections fall where the song changes.
 

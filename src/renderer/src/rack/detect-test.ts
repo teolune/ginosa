@@ -58,6 +58,8 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
   check(detector.last?.method === (stems.ready ? 'stems' : 'bands'), `listened by ${detector.last?.method}, expected ${stems.ready ? 'stems' : 'bands'}`)
   const drums = stems.ready ? (stems.transcriber ? 'transcriber' : 'bands') : null
   check(detector.last?.drums === drums, `drums by ${detector.last?.drums}, expected ${drums}`)
+  const bass = stems.ready ? (stems.bass ? 'notes' : 'bands') : null
+  check(detector.last?.bass === bass, `bass by ${detector.last?.bass}, expected ${bass}`)
   check(sections.length >= 1, 'no sections')
   check(kick.length >= 6 && kick.every((s) => s % 4 === 0), `kicks not on the beats: ${kick.join(' ')}`)
   check(clap.length >= 3 && clap.every((s) => s % 8 === 4), `claps not on 2 and 4: ${clap.join(' ')}`)
@@ -70,6 +72,7 @@ export async function rackDetectTest(): Promise<Record<string, unknown>> {
     reasons,
     method: detector.last?.method ?? null,
     drums: detector.last?.drums ?? null,
+    bass: detector.last?.bass ?? null,
     stems: stems.ready ? 'ready' : stems.detail,
     seconds,
     grid: sequence.beatGrid,

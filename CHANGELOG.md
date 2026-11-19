@@ -1,5 +1,23 @@
 # Changelog
 
+## Bass notes (W4.4, 19 Nov 2026)
+
+- **The Bass channel hears notes** once detection is set up (decision 125). Two ears listen to the bass stem: where it gets louder, and Basic Pitch, Spotify's note transcriber. A note both hear counts; one only one of them hears counts when it's strong. So a slide or a new note without a fresh attack is caught, and a wobble in level isn't counted as a note. The rack's top bar says *Hearing the bass note by note…*; it takes 2–3 s a song, once.
+- **Measured on bass notes known exactly** (BabySlakh: songs made from MIDI with sampled instruments, so every note's start is known):
+
+  | The Bass channel listening to | 8 songs in the lab, ±30 ms | ±50 ms | 3 of them in the app, ±30 ms |
+  | --- | --- | --- | --- |
+  | Bands of the whole mix | | | 0.20 |
+  | The bass stem's band (W4.2) | | | 0.65 |
+  | Where the bass stem gets louder | 0.75 | 0.86 | |
+  | **Both ears** | **0.81** | **0.91** | **0.80** |
+
+  The target is 0.90. At ±50 ms, the usual tolerance for notes, it's met. At ±30 ms it isn't, partly because two of the songs' sampled basses sound 20–40 ms after their MIDI notes. I've proposed judging bass at ±50 ms (decision 125): a 16th at your 167 BPM is 90 ms, so 50 ms never moves a cube.
+- **Found on the way: songs sampled below 32 kHz.** The drum transcriber hears no hi-hats in them (BabySlakh is 16 kHz: 0 found), so their hi-hats now come from the drums stem's band (0.66 there). Your songs are 44.1/48 kHz and aren't affected.
+- **The detection bench has three BabySlakh songs** with their bass and drums from the MIDI, so it now scores Bass too. With them in, Clap reaches 0.91 on BabySlakh's songs; STAR's handclaps keep its total at 0.84.
+- **Setup** installs Basic Pitch 0.4.0 with ONNX Runtime (about 40 MB), and its test now hears the test song's bass. `npm run bench-media` also downloads BabySlakh (883 MB, CC BY 4.0) into `media/bench`.
+- **Detection lab**: `w44-prepare`, `w44-score`, `w44-diagnose`, `w44-combos`, `w44-tune` (thresholds chosen on seven songs, scored on the eighth), `bass-app` (Detect's own bass ear) and `w44-bench-keys`.
+
 ## Tempo and bar 1 from the song (W4.5, 18 Nov 2026)
 
 - **The sparkles listen to the song on A1 with Beat This!** once detection is set up (decision 123). Beat This! is a beat and downbeat tracker (ISMIR 2024, MIT). It lists the song's beats and bar lines, and ginosa lays one steady tempo through them. Tempos under 90 BPM are counted twice as fast, as your DAW counts your songs (167, where Beat This! hears 83.5). Bar 1 is the first bar line where the music starts, so silence at the start doesn't push it into the silence. A song cut mid-bar starts at its first whole bar. Without a song on A1, the sparkles listen to the mix as before.

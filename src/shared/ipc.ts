@@ -278,7 +278,9 @@ export interface GinosaBridge {
   /** Stem separation (W3): whether it's set up, a song's stems (paths), and a stem as mono samples. */
   stems: {
     /** Whether it's set up, the separators set up, best first (W4.2: BS-RoFormer-SW, then htdemucs), and whether the drum transcriber is (W4.3). */
-    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[]; transcriber: boolean; beats: boolean }>
+    status(): Promise<{ ready: boolean; detail: string | null; separators: StemSeparator[]; transcriber: boolean; beats: boolean; bass: boolean }>
+    /** The bass note starts (seconds in the song file) in the bass stem separated under `key` (W4.4), and those only one ear heard. */
+    bassHits(projectId: string, key: string): Promise<{ bass: number[]; oneCheck: number[] }>
     /** Beat This!'s beats and downbeats in a song file, and where its music starts (seconds; W4.5), kept under `key`. */
     beats(projectId: string, input: string, key: string): Promise<{ beats: number[]; downbeats: number[]; firstSound: number }>
     separate(projectId: string, input: string, key: string, separator: StemSeparator): Promise<Record<'drums' | 'bass' | 'vocals' | 'other', string>>
