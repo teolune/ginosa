@@ -38,6 +38,8 @@ export interface Scene {
   render: { status: Uint8Array; frame: Ticks } | null
   /** Screen pixels per CSS pixel (2 on a Retina screen): waveforms are drawn a screen pixel at a time. */
   pixelRatio?: number
+  /** Stretches to flag on a track (W5.5: Automatic's gaps, where nothing you marked covers). */
+  flags?: ReadonlyArray<{ trackId: string; from: Ticks; to: Ticks }>
 }
 
 const COLOURS = {
@@ -575,6 +577,17 @@ function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
     for (const clip of scene.sequence.clips) if (clip.trackId === row.track.id) drawClip(ctx, scene, clip, row.top, row.height)
     if (row.track.kind === 'video') for (const span of transitionSpans(scene.sequence, row.track.id)) drawTransition(ctx, scene, span, row.top, row.height)
     ctx.globalAlpha = 1
+    // Flagged stretches: a red band along the bottom of the track, hatched.
+    for (const flag of scene.flags ?? []) {
+      if (flag.trackId !== row.track.id) continue
+      const x0 = timeToX(flag.from, view)
+      const x1 = timeToX(flag.to, view)
+      if (x1 < 0 || x0 > scene.width) continue
+      ctx.fillStyle = 'rgba(255, 64, 96, 0.28)'
+      ctx.fillRect(x0, row.top + 2, x1 - x0, row.height - 4)
+      ctx.fillStyle = '#ff4060'
+      ctx.fillRect(x0, row.top + row.height - 5, x1 - x0, 3)
+    }
   }
 
   if (scene.razorLine) {

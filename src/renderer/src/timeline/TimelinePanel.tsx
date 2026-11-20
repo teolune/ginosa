@@ -160,6 +160,7 @@ export function TimelinePanel() {
   useObservable(tl, ['state', 'playhead', 'view'])
   useObservable(mediaController)
   useObservable(renderCache)
+  useObservable(multicamUi)
   const project = projectController.project
   const areaRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -223,6 +224,7 @@ export function TimelinePanel() {
       playhead: tl.playhead,
       selection: tl.selection,
       dropTarget: tl.effectDropTarget,
+      flags: multicamUi.flags(),
       transition: tl.transition,
       gap: tl.gap,
       snapLine: tl.snapLine,

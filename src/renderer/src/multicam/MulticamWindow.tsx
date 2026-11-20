@@ -1,9 +1,11 @@
-import { MULTICAM_KEYS } from '@engine/project/model'
-import { removeMulticamGroup, setAngleKey } from '@engine/timeline/multicam-edits'
+import { MULTICAM_KEYS, frameRateOf } from '@engine/project/model'
+import { formatTimecode } from '@engine/time'
+import { removeMulticamGroup, setAngleKey, setBRoll } from '@engine/timeline/multicam-edits'
 import { STATE_AND_PLAYHEAD, PLAYHEAD_THROTTLE, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
-import { multicamUi } from './multicam-ui'
+import { FavouriteStrip } from './FavouriteStrip'
+import { CUT_LABELS, multicamUi } from './multicam-ui'
 import { syncController } from './sync-controller'
 
 const KEY_LABEL = (key: string) => (key === ',' ? ', (comma)' : key)
@@ -11,7 +13,7 @@ const KEY_LABEL = (key: string) => (key === ',' ? ', (comma)' : key)
 /**
  * The Multi-Camera window (W5, decision 134): the group's angles, each on a key, how each take
  * is synced to the song, sync points for takes the song can't be heard in, the multi-camera view
- * and Record.
+ * and Record; each angle's favourites strip and B-roll (W5.4), and Automatic (W5.5).
  */
 export function MulticamWindow() {
   useObservable(projectController)
@@ -39,6 +41,13 @@ export function MulticamWindow() {
   }
   const results = new Map(syncController.results.map((r) => [r.clipId, r]))
   const recording = multicamUi.recording !== null
+  const automaticRange = multicamUi.automaticRange()
+  const gaps = multicamUi.gaps.filter((g) => g.groupId === group.id)
+  const rate = frameRateOf(sequence.settings)
+  const angleLabel = (id: string) => {
+    const angle = group.angles.find((a) => a.id === id)
+    return sequence.tracks.find((t) => t.id === angle?.trackId)?.name ?? 'The angle before'
+  }
   return (
     <div className="multicam-window">
       <div className="multicam-head">
@@ -86,9 +95,12 @@ export function MulticamWindow() {
                 {/* The take's name when the track's is another. */}
                 {(takes.length !== 1 || takes[0]!.name !== track?.name) && <span className="muted small"> · {takes.length === 1 ? takes[0]!.name : `${takes.length} takes`}</span>}
               </span>
-              {sync && <span className={`status-pill ${sync.outcome === 'sure' ? 'ok' : sync.outcome === 'unsure' ? 'warn' : 'bad'}`} title={sync.detail}>{sync.outcome === 'sure' ? 'In sync' : sync.outcome === 'unsure' ? 'Check' : 'Not heard'}</span>}
+              {sync && !angle.bRoll && <span className={`status-pill ${sync.outcome === 'sure' ? 'ok' : sync.outcome === 'unsure' ? 'warn' : 'bad'}`} title={sync.detail}>{sync.outcome === 'sure' ? 'In sync' : sync.outcome === 'unsure' ? 'Check' : 'Not heard'}</span>}
               <span className="spacer" />
-              {marked ? (
+              <button className={`button compact ${angle.bRoll ? 'active' : ''}`} aria-pressed={angle.bRoll} title={angle.bRoll ? 'B-roll: Automatic puts its favourites wherever nothing synced covers. Click to make it synced again' : 'Make this angle B-roll: not tied to the song, its favourites go wherever nothing synced covers'} onClick={() => projectController.dispatch(setBRoll(group.id, angle.id, !angle.bRoll))}>
+                B-Roll
+              </button>
+              {angle.bRoll ? null : marked ? (
                 <button className="button compact" title="Moves the take so the moment you marked is at the playhead (put the playhead where the song has it)" onClick={() => multicamUi.lineUpHere()}>
                   Line Up Here
                 </button>
@@ -97,10 +109,44 @@ export function MulticamWindow() {
                   Sync Point
                 </button>
               )}
+              <FavouriteStrip group={group} angle={angle} />
             </div>
           )
         })}
       </div>
+      <div className="multicam-auto">
+        <b>Automatic</b>
+        <label className="small">
+          Cut every{' '}
+          <select className="input compact" value={multicamUi.cutEvery} aria-label="Cut every" onChange={(e) => multicamUi.setCutEvery(e.target.value)}>
+            {Object.entries(CUT_LABELS).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="small" title="Fill what no synced favourite covers with your B-roll favourites, each in turn">
+          <input type="checkbox" checked={multicamUi.useBRoll} onChange={(e) => multicamUi.setUseBRoll(e.target.checked)} /> Use B-roll
+        </label>
+        <span className="spacer" />
+        <button className="button compact primary" disabled={!automaticRange || recording} title={automaticRange ? `Cuts ${automaticRange.label} between the favourite parts you marked, on the beat (one undo step); what was on ${group.name} there goes` : 'Put the song on A1, or set In and Out'} onClick={() => multicamUi.automatic()}>
+          Make the Edit {automaticRange ? <span className="muted">{automaticRange.label}</span> : null}
+        </button>
+      </div>
+      {gaps.length > 0 && (
+        <div className="multicam-gaps" role="list" aria-label="Gaps">
+          <span className="small">Nothing you marked covers:</span>
+          {gaps.map((g) => (
+            <button key={g.from} role="listitem" className="button compact gap" title={g.hold ? `${angleLabel(g.hold)} holds here. Mark a favourite that covers it, or use B-roll, and Make the Edit again` : 'Nothing holds here. Mark a favourite that covers it, or use B-roll, and Make the Edit again'} onClick={() => timelineController.setPlayhead(g.from)}>
+              {formatTimecode(g.from, rate)}–{formatTimecode(g.to, rate)}
+            </button>
+          ))}
+          <button className="button compact" title="Stop flagging these" onClick={() => multicamUi.clearGaps()}>
+            Clear
+          </button>
+        </div>
+      )}
       <div className="multicam-foot">
         <button className="button compact" disabled={syncController.busy || !syncController.song()} title="Line every take up with the song on A1 by its sound" onClick={() => {
           const ids = sequence.clips.filter((c) => group.angles.some((a) => a.trackId === c.trackId) && c.kind === 'video').map((c) => c.id)

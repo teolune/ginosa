@@ -31,6 +31,7 @@ import { datamoshExportTest } from '../playback/datamosh-export-test'
 import { datamoshBakeTest } from '../playback/datamosh-bake-test'
 import { syncTest } from '../multicam/sync-test'
 import { multicamUi } from '../multicam/multicam-ui'
+import { multicamAutoTest } from '../multicam/multicam-auto-test'
 import { multicamTest } from '../multicam/multicam-test'
 import { datamoshFootage } from '../playback/datamosh-footage'
 import { effectsPerf } from '../playback/effects-perf'
@@ -526,6 +527,14 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(multicam_song\.wav|take_(a|b|early)\.mp4)$/.test(f)), null)
       await wait(2500)
       await window.ginosa.snapshot.report(await multicamTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      await wait(1200)
+      break
+    }
+    case 'multicamauto': {
+      // W5.4–W5.5: favourites marked by dragging, B-roll, and Automatic cutting on the bar.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(multicam_song\.wav|take_(a|b|early|noise)\.mp4)$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await multicamAutoTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       await wait(1200)
       break
     }

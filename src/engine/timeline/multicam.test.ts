@@ -161,3 +161,135 @@ describe('the multi-camera view (W5.3)', () => {
     expect(video).toHaveLength(3)
   })
 })
+
+describe('favourites and Automatic (W5.4–W5.5)', () => {
+  /** Takes A, B, C synced over 0–20 s on V1–V3, and D (B-roll) on a fourth track; a group of all four. 120 BPM: a bar is 2 s. */
+  async function auto() {
+    const { addFavourite, removeFavourites, setBRoll, setFavourite } = await import('./multicam-edits')
+    const { addTrack } = await import('../project/commands')
+    const { applyAutomatic, planAutomatic } = await import('./multicam-auto')
+    const history = new History(createProject({ name: 'Auto', createId: ids }))
+    history.dispatch(importMedia([media('a', 30), media('b', 30), media('c', 30), media('d', 30)]))
+    history.dispatch(addTrack('video', ids))
+    const video = history.state.sequence.tracks.filter((t) => t.kind === 'video').map((t) => t.id)
+    const run = <T extends TimelineCommand>(command: T): T => {
+      if (!history.dispatch(command)) throw new Error(`${command.label} changed nothing`)
+      return command
+    }
+    ;['a', 'b', 'c', 'd'].forEach((m, i) => run(placeMedia({ mediaId: `m-${m}`, sourceIn: 0, sourceOut: s(20), at: 0, videoTrackId: video[i]!, audioTrackId: null, mode: 'overwrite' }, ids)))
+    const take = (m: string) => history.state.sequence.clips.find((c) => c.mediaId === `m-${m}` && !c.multicam)!
+    const made = run(newMulticamGroup(['a', 'b', 'c', 'd'].map((m) => take(m).id), ids))
+    const group = () => history.state.sequence.multicam[0]!
+    const angle = (key: string) => group().angles.find((a) => a.key === key)!.id
+    return { history, run, take, made, group, angle, addFavourite, removeFavourites, setBRoll, setFavourite, applyAutomatic, planAutomatic }
+  }
+
+  it('marks favourites on whole frames inside the take, moves and deletes them', async () => {
+    const { history, run, take, made, angle, addFavourite, setFavourite, removeFavourites, group } = await auto()
+    const fav = run(addFavourite(made.groupId, angle('1'), take('a').id, s(5.011), s(1)))
+    expect(group().angles[0]!.favourites).toEqual([{ id: fav.favouriteId, clipId: take('a').id, from: s(1), to: s(5) }])
+    run(setFavourite(made.groupId, angle('1'), fav.favouriteId, s(2), s(40)))
+    // Kept inside the take (it ends at 20 s).
+    expect(group().angles[0]!.favourites[0]).toMatchObject({ from: s(2), to: s(20) })
+    run(removeFavourites(made.groupId, angle('1'), [fav.favouriteId]))
+    expect(group().angles[0]!.favourites).toEqual([])
+    expect(history.state.sequence.multicam).toHaveLength(1)
+  })
+
+  it('a synced take’s favourites fall on its frames as they are on the timeline', async () => {
+    const { history, made, angle, addFavourite } = await auto()
+    const { produce } = await import('immer')
+    // The take's file starts a little between frames (as a sync by sound puts it).
+    const a = history.state.sequence.clips.find((c) => c.mediaId === 'm-a' && !c.multicam)!
+    const project = produce(history.state, (draft) => {
+      draft.sequence.clips.find((c) => c.id === a.id)!.sourceIn = 1234
+    })
+    const next = produce(project, (draft) => addFavourite(made.groupId, angle('1'), a.id, 1234 + s(1.01), 1234 + s(2)).apply(draft))
+    const f = next.sequence.multicam[0]!.angles.find((x) => x.key === '1')!.favourites[0]!
+    expect([f.from - 1234, f.to - 1234]).toEqual([s(1), s(2)])
+  })
+
+  it('cuts every bar between the favourites, never the same angle twice when there’s another, and lists what nothing covers', async () => {
+    const { history, run, take, made, angle, addFavourite, setBRoll, applyAutomatic, planAutomatic, group } = await auto()
+    run(addFavourite(made.groupId, angle('1'), take('a').id, 0, s(5)))
+    run(addFavourite(made.groupId, angle('2'), take('b').id, s(3), s(9)))
+    run(addFavourite(made.groupId, angle('3'), take('c').id, s(8), s(14)))
+    const plan = planAutomatic(history.state.sequence, made.groupId, { from: 0, to: s(16), everyBeats: 4, bRoll: false })
+    const keyOf = (id: string | null) => group().angles.find((a) => a.id === id)?.key ?? null
+    expect(plan.map((p) => [p.kind, p.from / s(1), p.to / s(1), p.kind === 'gap' ? keyOf(p.holdAngleId) : keyOf(p.angleId)])).toEqual([
+      ['synced', 0, 4, '1'],
+      ['synced', 4, 8, '2'],
+      ['synced', 8, 14, '3'],
+      ['gap', 14, 16, '3']
+    ])
+    // B-roll on: D's favourite (its own 2–6 s) fills the gap, from its start.
+    run(setBRoll(made.groupId, angle('4'), true))
+    run(addFavourite(made.groupId, angle('4'), take('d').id, s(2), s(6)))
+    const withBRoll = planAutomatic(history.state.sequence, made.groupId, { from: 0, to: s(16), everyBeats: 4, bRoll: true })
+    expect(withBRoll[3]).toMatchObject({ kind: 'broll', from: s(14), to: s(16), sourceIn: s(2) })
+    run(applyAutomatic(made.groupId, withBRoll, ids))
+    const pieces = history.state.sequence.clips.filter((c) => c.trackId === group().programTrackId).sort((a, b) => a.start - b.start)
+    expect(pieces.map((p) => [p.mediaId, p.start / s(1), (p.start + p.duration) / s(1), p.sourceIn / s(1)])).toEqual([
+      ['m-a', 0, 4, 0],
+      ['m-b', 4, 8, 4],
+      ['m-c', 8, 14, 8],
+      ['m-d', 14, 16, 2]
+    ])
+  })
+
+  it('a favourite that ends partway cuts on the beat before it ends', async () => {
+    const { history, run, take, made, angle, addFavourite, planAutomatic } = await auto()
+    run(addFavourite(made.groupId, angle('1'), take('a').id, 0, s(3.3)))
+    run(addFavourite(made.groupId, angle('2'), take('b').id, s(2), s(8)))
+    const plan = planAutomatic(history.state.sequence, made.groupId, { from: 0, to: s(8), everyBeats: 8, bRoll: false })
+    // A to the beat at 3 s (it ends at 3.3), then B; at 120 BPM a beat is 0.5 s.
+    expect(plan.map((p) => [p.kind, p.from / s(1), p.to / s(1)])).toEqual([
+      ['synced', 0, 3],
+      ['synced', 3, 8]
+    ])
+  })
+
+  it('B-roll fills only what nothing synced covers, runs on from where it was left, and the last synced angle holds after it', async () => {
+    const { history, run, take, made, angle, addFavourite, setBRoll, setFavourite, planAutomatic, group } = await auto()
+    run(addFavourite(made.groupId, angle('1'), take('a').id, 0, s(6.3)))
+    run(addFavourite(made.groupId, angle('2'), take('b').id, s(6), s(13.2)))
+    // C's starts off the beat (13.6 s): it comes in on the next beat, 14 s.
+    run(addFavourite(made.groupId, angle('3'), take('c').id, s(13.6), s(17)))
+    run(setBRoll(made.groupId, angle('4'), true))
+    const d = run(addFavourite(made.groupId, angle('4'), take('d').id, s(2), s(5.5)))
+    const keyOf = (id: string | null) => group().angles.find((a) => a.id === id)?.key ?? null
+    const show = () =>
+      planAutomatic(history.state.sequence, made.groupId, { from: 0, to: s(20), everyBeats: 4, bRoll: true }).map((p) =>
+        p.kind === 'broll' ? ['broll', p.from / s(1), p.to / s(1), p.sourceIn / s(1)] : [p.kind, p.from / s(1), p.to / s(1), p.kind === 'gap' ? keyOf(p.holdAngleId) : keyOf(p.angleId)]
+      )
+    // D's 3.5 s: 1 s at 13 s, then on from 3 s at 17 s, trimmed to the beat at 19.5 s (on a frame at 25 fps: 19.52); C holds the rest.
+    expect(show()).toEqual([
+      ['synced', 0, 6, '1'],
+      ['synced', 6, 13, '2'],
+      ['broll', 13, 14, 2],
+      ['synced', 14, 17, '3'],
+      ['broll', 17, 19.52, 3],
+      ['gap', 19.52, 20, '3']
+    ])
+    // Less B-roll: it runs out at 18 s.
+    run(setFavourite(made.groupId, angle('4'), d.favouriteId, s(2), s(4)))
+    expect(show()).toEqual([
+      ['synced', 0, 6, '1'],
+      ['synced', 6, 13, '2'],
+      ['broll', 13, 14, 2],
+      ['synced', 14, 17, '3'],
+      ['broll', 17, 18, 3],
+      ['gap', 18, 20, '3']
+    ])
+  })
+
+  it('a drag that marks a favourite and changes it is one undo step', async () => {
+    const { history, run, take, made, angle, addFavourite, setFavourite, group } = await auto()
+    const fav = run(addFavourite(made.groupId, angle('1'), take('a').id, s(1), s(2), ids, 'drag-1'))
+    run(setFavourite(made.groupId, angle('1'), fav.favouriteId, s(1), s(3), 'drag-1'))
+    run(setFavourite(made.groupId, angle('1'), fav.favouriteId, s(1), s(4), 'drag-1'))
+    expect(group().angles[0]!.favourites[0]).toMatchObject({ from: s(1), to: s(4) })
+    history.undo()
+    expect(group().angles[0]!.favourites).toEqual([])
+  })
+})

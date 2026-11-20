@@ -1,5 +1,23 @@
 # Changelog
 
+## Multi-camera: favourites, B-roll and Automatic (W5.4–W5.5, 20 Nov 2026)
+
+- **Favourites:** each angle in the Multi-Camera window has a strip. Drag across it to mark a favourite part of the take, as many as you like. Drag a favourite's ends to change it, its middle to move it; click one and press ⌫ to delete it. While you drag, the playhead follows and the multi-camera view is on, so you see the frame you're on. Marking and dragging is one undo step.
+  - A synced angle's strip is the song's time, the same for every synced angle, so their favourites line up one over another. Favourites fall on the take's own frames.
+- **B-Roll** (a button on each angle): the angle isn't tied to the song. Its strip is the take's own time, and Automatic puts its favourites wherever nothing synced covers.
+- **Automatic** (under the angles): **Cut Every** a beat, 2 beats, a bar (the default), 2 bars or 4 bars, and **Use B-roll**. **Make the Edit** cuts between In and Out (or over the song on A1), in one undo step, replacing what was on the group's track there:
+  - Each stretch goes to a synced angle whose favourite covers it: not the angle before when there's another, then the one used least, then the one whose favourite covers most of it.
+  - A favourite that ends partway cuts on the last beat before it ends; one that starts off the beat comes in on the next beat.
+  - B-roll fills what nothing synced covers, up to where the next synced favourite starts. Each B-roll favourite is used in turn, from where it was left, trimmed to whole beats.
+  - What's left is a **gap**: flagged in red on the Multi-Camera track and on the strips, and listed in the window (click one to go there). The last synced angle holds there, where its take has pictures.
+- **Measured** (`multicamauto`, `"verdict":"pass"`): the song on A1 at 120 BPM, a group of take_a, take_b, take_early (synced) and take_noise (B-roll).
+  - Dragging across take_a's strip from 7 to 11 s marked a favourite at exactly 7–11 s. The playhead followed, and the view was on while dragging and off after.
+  - Dragging its end to 12.5 s moved it to 12.52 s (the nearest frame of the take), and one undo put it back.
+  - ⌫ deleted the selected favourite and no clips.
+  - Make the Edit, every bar from 0 to 20 s, made: take_early 0–6, take_a 6–13 (its favourite ends at 13.2), take_noise 13–14 (from its 2 s), take_b 14–17, take_noise 17–19.52 (on from its 3 s), and take_b holding 19.52–20. That last stretch was flagged and listed.
+  - Every synced piece was in sync with its take, and the B-roll piece showed take_noise's own frame pixel for pixel. One undo removed the whole edit.
+  - Tests: 485 (6 new: favourites on frames and kept inside the take, a synced take's favourites on its frames, cutting every bar with the gap listed, a favourite ending partway, B-roll filling only what's uncovered, a drag being one undo step).
+
 ## Multi-camera: groups, the multi-camera view and recording (W5.2–W5.3, 20 Nov 2026)
 
 - **New Multi-Camera Group** (right-click your takes in the Media panel): each take goes on a video track of its own, lined up with the song on A1 by its sound, as angles 1, 2, 3… A **Multi-Camera** track goes above them for the pieces. The angles' tracks are hidden, and their own sound muted. From the timeline, right-click takes on tracks of their own › New Multi-Camera Group does the same with them. Window › Multi-Camera (⌥⇧7) shows the group.

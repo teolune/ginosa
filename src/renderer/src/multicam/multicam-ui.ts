@@ -1,7 +1,8 @@
 import { MULTICAM_KEYS, type MulticamGroup, type Sequence } from '@engine/project/model'
 import type { Ticks } from '@engine/time'
 import { multicamGrid } from '@engine/timeline/multicam-grid'
-import { newMulticamFromMedia, newMulticamGroup, recordMulticam, switchAngle, type Switch } from '@engine/timeline/multicam-edits'
+import { newMulticamFromMedia, newMulticamGroup, recordMulticam, removeFavourites, switchAngle, type Switch } from '@engine/timeline/multicam-edits'
+import { applyAutomatic, cutEveryBeats, planAutomatic } from '@engine/timeline/multicam-auto'
 import { syncPointPlace, placeInSync } from '@engine/timeline/sync-edits'
 import { clipEnd, frameTicks, sourceTimeAt } from '@engine/timeline/timeline'
 import { player } from '../playback/player'
@@ -11,6 +12,9 @@ import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 import { syncController } from './sync-controller'
+
+/** Automatic's Cut Every choices (W5.5). */
+export const CUT_LABELS: Record<string, string> = { beat: 'beat', '2beats': '2 beats', bar: 'bar', '2bars': '2 bars', '4bars': '4 bars' }
 
 /**
  * Multi-camera in the interface (W5, decision 134): the group in use, the multi-camera view in
@@ -28,6 +32,12 @@ class MulticamUi extends Observable {
   /** A sync point being made (W5.1): the take, and its file's time at the moment marked. */
   syncMark: { clipId: string; mediaTime: Ticks } | null = null
   busy = false
+  /** The favourite selected in the window (W5.4), for ⌫. */
+  favourite: { angleId: string; id: string } | null = null
+  /** Automatic's settings and what it left uncovered (W5.5). */
+  cutEvery = 'bar'
+  useBRoll = true
+  gaps: Array<{ groupId: string; from: Ticks; to: Ticks; hold: string | null }> = []
 
   constructor() {
     super()
@@ -188,6 +198,81 @@ class MulticamUi extends Observable {
     // The comma is Insert on the timeline, unless multi-camera is in use right now.
     if (key === ',' && !this.recording && !this.view) return false
     return this.press(key)
+  }
+
+  // ---- Automatic (W5.5) ----
+
+  /** The stretch Automatic edits: In to Out when both are set, else the song on A1, else every take of the group. */
+  automaticRange(): { from: Ticks; to: Ticks; label: string } | null {
+    const sequence = projectController.project?.sequence
+    const group = this.group()
+    if (!sequence || !group) return null
+    const { in: inMark, out } = sequence.marks
+    if (inMark !== null && out !== null && out > inMark) return { from: inMark, to: out, label: 'between In and Out' }
+    const song = syncController.song()
+    if (song) return { from: song.start, to: clipEnd(song), label: 'over the song' }
+    const takes = sequence.clips.filter((c) => group.angles.some((a) => a.trackId === c.trackId && !a.bRoll))
+    if (!takes.length) return null
+    return { from: Math.min(...takes.map((c) => c.start)), to: Math.max(...takes.map(clipEnd)), label: 'over the takes' }
+  }
+
+  /** Makes the edit from the favourites, cut on the beat; gaps are listed and flagged on the timeline. */
+  automatic(): void {
+    const project = projectController.project
+    const group = this.group()
+    const range = this.automaticRange()
+    if (!project || !group || !range) return
+    if (!group.angles.some((a) => a.favourites.length)) {
+      projectController.showMessage('Mark some favourites first: drag across a take’s strip in this window')
+      return
+    }
+    const everyBeats = cutEveryBeats(this.cutEvery, project.sequence.beatGrid?.beatsPerBar ?? 4)
+    const plan = planAutomatic(project.sequence, group.id, { from: range.from, to: range.to, everyBeats, bRoll: this.useBRoll })
+    if (!projectController.dispatch(applyAutomatic(group.id, plan))) return
+    this.gaps = plan.flatMap((p) => (p.kind === 'gap' ? [{ groupId: group.id, from: p.from, to: p.to, hold: p.holdAngleId }] : []))
+    const shots = plan.filter((p) => p.kind !== 'gap').length
+    projectController.showMessage(`${shots} shots, cut every ${CUT_LABELS[this.cutEvery] ?? 'bar'}${this.gaps.length ? `. ${this.gaps.length} ${this.gaps.length === 1 ? 'stretch' : 'stretches'} nothing marked covers: flagged in red (the angle before holds there)` : ''}`)
+    this.notify()
+  }
+
+  /** Automatic's gaps, for the timeline (on the group's track). */
+  flags(): Array<{ trackId: string; from: Ticks; to: Ticks }> {
+    const sequence = projectController.project?.sequence
+    if (!sequence || this.gaps.length === 0) return []
+    return this.gaps.flatMap((g) => {
+      const group = sequence.multicam.find((x) => x.id === g.groupId)
+      return group ? [{ trackId: group.programTrackId, from: g.from, to: g.to }] : []
+    })
+  }
+
+  setCutEvery(id: string): void {
+    this.cutEvery = id in CUT_LABELS ? id : 'bar'
+    this.notify()
+  }
+
+  setUseBRoll(on: boolean): void {
+    this.useBRoll = on
+    this.notify()
+  }
+
+  clearGaps(): void {
+    this.gaps = []
+    this.notify()
+  }
+
+  // ---- Favourites (W5.4) ----
+
+  selectFavourite(angleId: string, id: string | null): void {
+    this.favourite = id ? { angleId, id } : null
+    this.notify()
+  }
+
+  deleteSelectedFavourite(): boolean {
+    const group = this.group()
+    const f = this.favourite
+    if (!group || !f) return false
+    this.favourite = null
+    return projectController.dispatch(removeFavourites(group.id, f.angleId, [f.id]))
   }
 
   // ---- Sync points (W5.1, by hand) ----

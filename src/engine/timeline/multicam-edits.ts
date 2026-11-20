@@ -208,3 +208,72 @@ export function removeMulticamGroup(groupId: string): TimelineCommand {
     for (const c of sequence.clips) if (c.multicam?.groupId === groupId) delete c.multicam
   })
 }
+
+// ---- Favourites and B-roll (W5.4) ----
+
+function angleOf(group: MulticamGroup, angleId: string): MulticamAngle {
+  const angle = group.angles.find((a) => a.id === angleId)
+  if (!angle) throw new CommandError('That angle isn’t in the group')
+  return angle
+}
+
+/** A take's stretch as a favourite, in its file's time, clamped to the take and on whole frames. */
+function favouriteRange(sequence: Sequence, take: Clip, from: Ticks, to: Ticks): { from: Ticks; to: Ticks } {
+  const frame = frameTicks(sequence)
+  const lo = take.sourceIn
+  const hi = take.sourceIn + take.duration
+  // On the take's frames as they fall on the timeline (a synced take's file can start between frames).
+  const onFrame = (t: Ticks) => lo + Math.round((t - lo) / frame) * frame
+  const a = Math.min(hi, Math.max(lo, onFrame(Math.min(from, to))))
+  const b = Math.min(hi, Math.max(lo, onFrame(Math.max(from, to))))
+  if (b - a < frame) throw new CommandError('A favourite is at least a frame long')
+  return { from: a, to: b }
+}
+
+/** Marks a favourite part of a take on an angle (its file's time, `from` to `to`). With `stroke`, the drag that follows (setFavourite, same stroke) is the same undo step. */
+export function addFavourite(groupId: string, angleId: string, clipId: string, from: Ticks, to: Ticks, newId: IdFactory = defaultId, stroke: string | null = null): TimelineCommand & { favouriteId: string } {
+  const favouriteId = newId()
+  const command = timelineCommand('Mark Favourite', (draft) => {
+    const sequence = draft.sequence
+    const angle = angleOf(groupOf(sequence, groupId), angleId)
+    const take = sequence.clips.find((c) => c.id === clipId && c.trackId === angle.trackId)
+    if (!take) throw new CommandError('That take isn’t on the angle’s track')
+    angle.favourites.push({ id: favouriteId, clipId, ...favouriteRange(sequence, take, from, to) })
+    angle.favourites.sort((a, b) => a.from - b.from)
+  }) as TimelineCommand & { favouriteId: string }
+  command.favouriteId = favouriteId
+  if (stroke) command.coalesceKey = `favourite:${stroke}`
+  return command
+}
+
+/** Moves a favourite's ends (a drag of one end is one undo step: `stroke`). */
+export function setFavourite(groupId: string, angleId: string, favouriteId: string, from: Ticks, to: Ticks, stroke: string | null = null): TimelineCommand {
+  const command = timelineCommand('Change Favourite', (draft) => {
+    const sequence = draft.sequence
+    const angle = angleOf(groupOf(sequence, groupId), angleId)
+    const favourite = angle.favourites.find((f) => f.id === favouriteId)
+    if (!favourite) throw new CommandError('That favourite is gone')
+    const take = sequence.clips.find((c) => c.id === favourite.clipId)
+    if (!take) throw new CommandError('Its take is gone')
+    Object.assign(favourite, favouriteRange(sequence, take, from, to))
+    angle.favourites.sort((a, b) => a.from - b.from)
+  })
+  if (stroke) command.coalesceKey = `favourite:${stroke}`
+  return command
+}
+
+export function removeFavourites(groupId: string, angleId: string, favouriteIds: readonly string[]): TimelineCommand {
+  return timelineCommand(favouriteIds.length === 1 ? 'Delete Favourite' : 'Delete Favourites', (draft) => {
+    const angle = angleOf(groupOf(draft.sequence, groupId), angleId)
+    const before = angle.favourites.length
+    angle.favourites = angle.favourites.filter((f) => !favouriteIds.includes(f.id))
+    if (angle.favourites.length === before) throw new CommandError('Nothing to delete')
+  })
+}
+
+/** B-roll: the angle isn't synced to the song, and Automatic places its favourites anywhere. */
+export function setBRoll(groupId: string, angleId: string, on: boolean): TimelineCommand {
+  return timelineCommand(on ? 'Make B-Roll' : 'Make Synced', (draft) => {
+    angleOf(groupOf(draft.sequence, groupId), angleId).bRoll = on
+  })
+}
