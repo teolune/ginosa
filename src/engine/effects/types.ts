@@ -124,7 +124,16 @@ export interface TrackParam extends ParamBase {
   default: ''
 }
 
-export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam | LutParam | TrackParam
+/**
+ * A Channel Rack channel (M15): its row id, or '' for none. Shown as a menu of the rack's
+ * channels; holds between keyframes. Datamosh Bake sets off a bloom or a heal on each of its cubes.
+ */
+export interface ChannelParam extends ParamBase {
+  type: 'channel'
+  default: ''
+}
+
+export type ParamSpec = NumberParam | AngleParam | ChoiceParam | ToggleParam | PointParam | CurveParam | StepsParam | GradientParam | LutParam | TrackParam | ChannelParam
 
 export interface EffectManifest {
   id: string
@@ -172,6 +181,16 @@ export interface EffectManifest {
    * 129). Without it, the first number that can be modulated.
    */
   mainParam?: string
+  /**
+   * A baked effect (M15: Datamosh Bake). Its span is rendered, encoded and broken in the
+   * background (bake-plan.ts), and the effect then shows the bake's frames: its shader reads them
+   * with `motionSourceLoad(p)`, as it would a motion source. Until a bake for its current
+   * settings is ready it's drawn as `live` with `liveParams(params)` instead (Datamosh, Engine A).
+   */
+  bake?: {
+    live: string
+    liveParams(params: Record<string, ParamValue>): Record<string, ParamValue>
+  }
   /** What a parameter's value means right now, shown next to it (Posterize Time: "1/16 · 8.53 fps"). */
   readout?(param: string, params: Record<string, ParamValue>, context: { beatGrid: BeatGrid | null }): string | null
   migrate?(params: Record<string, unknown>, from: number): Record<string, unknown>

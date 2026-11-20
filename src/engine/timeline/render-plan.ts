@@ -13,6 +13,8 @@ import type { EffectClock } from '../effects/types'
 import { effectById } from '../../effects/registry'
 import { holdAt, holdFromCut, posterizeGrid, posterizeSettings } from './posterize'
 import { clipEnd, clipsOnTrack, frameTicks, mediaLength, sourceTimeAt, tracksOf } from './timeline'
+import { bakeSourceClip, isBaked, withBakes, type BakedEffect } from '../datamosh/bakes'
+import { defaultMotion } from './motion'
 
 export { sourceTimeAt }
 
@@ -197,7 +199,14 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
   for (const [index, track] of tracks.slice(0, trackLimit).entries()) {
     if (!track.visible || (soloed && !track.solo)) continue
     for (const { clip: stored, weight } of trackLayers(sequence, track.id, time)) {
-      let clip = resolveClip(stored, time, modulation)
+      // Datamosh Bake (M15): a baked effect shows its bake once it's ready, its live look until then.
+      let baked: BakedEffect[] = []
+      const resolve = (at: Ticks) => {
+        const result = withBakes(sequence, media, modulation, stored, resolveClip(stored, at, modulation))
+        if (at === time) baked = result.baked
+        return result.clip
+      }
+      let clip = resolve(time)
       // Posterize Time (M12): the picture (and the effects above it) from the held moment.
       let shown = time
       let held: VideoLayer['held'] = null
@@ -219,7 +228,7 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
           else sample = Math.min(sample, clipEnd(stored) - frame)
           if (sample !== time) {
             shown = sample
-            const then = resolveClip(stored, sample, modulation)
+            const then = resolve(sample)
             clip = { ...clip, effects: [...then.effects.slice(0, p), ...clip.effects.slice(p)] }
             held = { effects: p, clock: clockAt(sequence, sample) }
             if (clip.adjustment) {
@@ -233,7 +242,7 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
         }
       }
       let temporal: LayerTemporal | null = null
-      if (hasStatefulEffect(stored)) {
+      if (hasStatefulEffect(clip)) {
         const resetAt = visibleFrom(sequence, stored)
         const since = stateFrame(time, resetAt, frame)
         const f = Math.round(time / frame)
@@ -250,7 +259,8 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
       let motion: Record<string, string> | undefined
       for (const effect of clip.effects) {
         const source = motionTrackOf(sequence, effect)
-        if (!source) continue
+        // A baked effect's motion source went into its bake; it reads only the bake's frames.
+        if (!source || isBaked(effect)) continue
         const key = `${clip.id}:${effect.id}`
         ;(motion ??= {})[effect.id] = key
         for (const { clip: other, weight: w } of trackLayers(sequence, source, time)) {
@@ -259,6 +269,13 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
           const shot = resolveClip(other, time, modulation)
           sources.push({ clip: { ...shot, effects: [], mask: null, opacity: 100, blendMode: 'normal' }, item: otherItem, sourceTime: sourceTimeAt(shot, time, frame, mediaLength(otherItem)), weight: Math.min(1, w), masks, temporal: null, clock, motionFor: key })
         }
+      }
+      // A ready bake's frames go in the same way, read by its effect alone (M15).
+      for (const { effect, bake, span } of baked) {
+        const key = `${clip.id}:${effect.id}`
+        ;(motion ??= {})[effect.id] = key
+        const shot = bakeSourceClip(clip, bake, span, frame, defaultMotion(bake.item, sequence.settings))
+        sources.push({ clip: shot, item: bake.item, sourceTime: sourceTimeAt(shot, time, frame, mediaLength(bake.item)), weight: 1, masks, temporal: null, clock, motionFor: key })
       }
       if (clip.adjustment) {
         // An adjustment layer with nothing switched on changes nothing.

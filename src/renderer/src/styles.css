@@ -716,6 +716,8 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
    apart by shade (groups of 4) and a little space, the bars by more. */
 /* Cubes at their own size (at least 30 px), filling the row when there's room. */
 .rack-cubes { display: grid; gap: 5px; align-items: center; min-width: 0; padding: 2px 1px 4px; }
+/* The cubes' width: narrow keys, taller than wide, as FL Studio's steps (the window scrolls sideways for more bars). */
+.rack-row, .rack-bars-row { --rack-cube-width: 20px; }
 .rack-bars-row { display: grid; grid-template-columns: 196px minmax(max-content, 1fr); align-items: end; gap: 6px; margin-bottom: -6px; width: max-content; min-width: 100%; }
 .rack-bar-numbers { padding-bottom: 0; }
 .rack-bar-number {
@@ -928,3 +930,10 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 /* The tempo knob where a tempo clip sets the tempo (W2.3): it shows that tempo and opens the clip. */
 .bpm.automated .bpm-arc { stroke: #f0a8d8; }
 .bpm.automated .bpm-readout { color: #f0a8d8; }
+
+/* Datamosh Bake's state (M15), at the top of its Effect Controls. */
+.bake-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 2px 0 8px; padding: 6px 8px; border-radius: 6px; font-size: 11.5px; background: rgba(255, 255, 255, 0.04); }
+.bake-status progress { width: 100%; height: 4px; }
+.bake-status.bake-ready { color: var(--ok); background: rgba(63, 178, 127, 0.1); }
+.bake-status.bake-failed { color: var(--bad); background: rgba(229, 96, 77, 0.1); }
+.bake-status.bake-unavailable { color: var(--warn); background: rgba(224, 164, 58, 0.1); }

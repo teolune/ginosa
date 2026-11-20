@@ -152,6 +152,7 @@ export function ExportWindow() {
           <progress max={state.frames} value={state.frame} />
           <div className="small">
             {state.stage === 'checking' && 'Getting ready…'}
+            {state.stage === 'baking' && 'Making the Datamosh Bakes first…'}
             {state.stage === 'sound' && 'Mixing the sound…'}
             {state.stage === 'frames' &&
               `Frame ${state.frame} of ${state.frames} · ${state.fps.toFixed(0)} fps${state.fps > 0 ? ` · ${duration((state.frames - state.frame) / state.fps)} left` : ''}`}

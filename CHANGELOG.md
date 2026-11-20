@@ -1,5 +1,23 @@
 # Changelog
 
+## Datamosh B: Datamosh Bake (M15, 20 Nov 2026)
+
+- **Datamosh Bake** (Effects › Time, decision 133): a real codec datamosh. On a clip or an adjustment layer, it bakes its whole span in the background with **FFglitch**: the picture is encoded as MPEG-4 Part 2, broken at the moments you choose, its motion vectors rewritten, and decoded back with the errors left in. Then it plays in place. Until the bake is ready, the **live Datamosh look** (M14's Engine A, with the same settings) shows. Effect Controls says what it's doing: waiting, baking (rendering, removing keyframes, moving the vectors, decoding) with a bar, baked, or why it didn't.
+- **Moments, all at once if you like:** Cuts beneath an adjustment layer (Melt, Melt and Bloom, or Clean), a Channel Rack channel's cubes, Every 1 beat to 8 bars, and markers. Each is a Bloom (that frame repeats, so its motion keeps pushing) or a Heal (a keyframe: the picture clears). Heal After clears the picture again that many frames after each melt or bloom.
+- **Vector tools:** Push X/Y, Scale (below 0% runs the motion backwards), Rotate, Swirl, Fluid, Wrong Guesses, and Motion Source (another track's real vectors move this picture). Keyframes and audio links on them work, frame by frame. Codec: Block Size 16, 32 or 64 px and Quality (Fine to Crushed).
+- **Re-bakes on change:** any change to the effect, or to the picture it bakes, shows the live look at once and starts a new bake after 0.7 s. Bakes stay in the project's cache (Cache window › Datamosh bakes), so undo brings the last one back at once. Export makes any bake that isn't ready first.
+- **FFglitch 0.10.2** (GPL-2.0-or-later) runs as separate programs from `.ffglitch/`: `npm run ffglitch-setup`, or **Set Up FFglitch** in Effect Controls. It's set up on your Mac already (the test did it).
+- **Measured** (`datamoshbake`, `"verdict":"pass"`): an adjustment layer over the test pattern (2 s) cut to the frame counter (2 s), 100 frames at 1080p, baked in 2.3 s.
+  - **Before the cut** the bake is the footage through the codec, 0.040 on average (4:2:0 colour and quantising on a pattern made of sharp coloured edges), the same on every frame: no drift.
+  - **The melt:** five frames after the cut, where the counter didn't change, the bake is 0.084 from the old shot and 0.39 from the new one.
+  - **The bake plays:** the export is within 0.0012 of the bake file, real-time playback within 0.0004 on average on all 100 frames, and paused frames within 0.0003.
+  - **Changes re-bake:** Push X 3 showed the live look at once, then re-baked, and the picture slid right a little further each frame. Setting it back found the first bake without baking again.
+  - **The units, on a still:** Push X 3 px moved a still 3.07 px a frame, to the right. Motion transfer from the same square sliding 4 px a frame on a hidden track moved the still 4 px a frame.
+  - **The rest:** every vector tool, a motion source and every kind of moment baked together in 3.5 s, and a clip's own bake (32 px blocks) came out at the clip's size, 50 frames.
+  - Tests: 463 (23 new: the plan, the frames, keys and the live look, the vector tools run as ffedit runs them).
+- **Channel Rack:** the cubes are narrower, 20 px wide and 32 px tall like FL Studio's step keys (your "too fat"). They stay that width however wide the window is.
+- The title bar says M15.
+
 ## One clip, the tempo and an effect (W2.4, 20 Nov 2026)
 
 - **Automation clips are complete** (W2.1–W2.4, decisions 127, 131 and 132); W2 waits for your sign-off (the checklist at the end of `docs/Automation-try-this.md`).

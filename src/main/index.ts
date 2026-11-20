@@ -8,6 +8,7 @@ import { handleMediaProtocol, registerMediaSchemePrivileges } from './media-prot
 import { isHarnessRun, parseHarnessArgs, writeHarnessFile, type HarnessOptions } from './harness'
 import { analyseExport } from './export/analyse'
 import { registerExportIpc } from './export/export-service'
+import { registerBakeIpc } from './export/bake-service'
 import { registerMediaIpc } from './media/media-ipc'
 import { AppMenu } from './menu'
 import { normaliseProjectPath, OpenProjects, RecentProjects } from './project-service'
@@ -452,7 +453,8 @@ app.whenReady().then(async () => {
   registerIpc()
   // Snapshots use a throwaway cache, like their throwaway settings folder.
   registerExportIpc()
-  await registerMediaIpc(() => mainWindow, snapshotMode ? { cacheRoot: join(app.getPath('userData'), 'ginosa Cache') } : {})
+  const services = await registerMediaIpc(() => mainWindow, snapshotMode ? { cacheRoot: join(app.getPath('userData'), 'ginosa Cache') } : {})
+  registerBakeIpc(services.cache)
 
   if (harnessMode) {
     if (!harness) return

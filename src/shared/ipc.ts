@@ -6,6 +6,7 @@
 import type { MediaFingerprint, MediaInfo } from '../engine/project/media'
 import type { ExportSettings } from '../engine/export/export-settings'
 import type { FrameRate } from '../engine/time'
+import type { VectorFrame } from '../engine/datamosh/vectors'
 import type {
   CacheCategory,
   CacheProjectUsage,
@@ -40,6 +41,52 @@ export interface ExportAnalysis {
   /** Sound level: RMS of the mono mix in 10 ms windows from the audio stream's start. */
   envelope: number[]
   tags: { primaries: string | null; transfer: string | null; matrix: string | null; range: string | null }
+}
+
+/** Datamosh Bake (M15): a bake to make from frames the interface sends (see main/export/bake-service.ts). */
+export interface BakeBegin {
+  projectId: string
+  /** The bake's key (bakeKey): its file is bakes/<key>.mp4 in the project's cache. */
+  key: string
+  /** The size it's encoded at (bakeSize), and the size it's written at (the effect's picture). */
+  width: number
+  height: number
+  output: { width: number; height: number }
+  rate: FrameRate
+  frames: number
+  /** The plan (planBake): where the encoder makes keyframes, and the order the frames go back in. */
+  keyframes: number[]
+  order: number[]
+  quantiser: number
+  /** Each frame's vector values, or null when nothing moves them (then ffedit isn't run). */
+  vectors: VectorFrame[] | null
+  /** Half pixels of the bake per pixel of a 1080-high picture. */
+  unit: number
+  seed: number
+  /** A motion source's frames follow too ('motion'), and its vectors replace the picture's. */
+  motion: boolean
+}
+
+export interface BakeFile {
+  key: string
+  path: string
+  frames: number
+  size: number
+  info: MediaInfo
+  /** What ffedit said, and what the motion source's vectors were like (for tests and the log). */
+  notes?: string[]
+}
+
+export interface BakeProgress {
+  id: string
+  stage: 'breaking' | 'vectors' | 'decoding'
+  fraction: number
+}
+
+export interface BakeStatus {
+  ready: boolean
+  version: string | null
+  detail: string | null
 }
 
 export interface ExportResult {
@@ -312,6 +359,19 @@ export interface GinosaBridge {
     frame(id: string, bytes: Uint8Array): Promise<void>
     finish(id: string): Promise<ExportResult>
     cancel(id: string): Promise<void>
+  }
+  /** Datamosh Bake (M15): FFglitch's state, and bakes made from frames sent here. */
+  bake: {
+    status(): Promise<BakeStatus>
+    /** Runs npm run ffglitch-setup's script; resolves with its exit code, 0 when it worked. */
+    setUp(): Promise<number>
+    onSetupLine(listener: (line: string) => void): () => void
+    list(projectId: string): Promise<BakeFile[]>
+    begin(request: BakeBegin): Promise<string>
+    frame(id: string, which: 'picture' | 'motion', bytes: Uint8Array): Promise<void>
+    finish(id: string): Promise<BakeFile>
+    cancel(id: string): Promise<void>
+    onProgress(listener: (progress: BakeProgress) => void): () => void
   }
   cache: {
     registerProject(projectId: string, name: string, path: string): Promise<void>

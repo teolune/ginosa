@@ -28,6 +28,7 @@ import { runGradientMapGpuTest } from '../playback/gradient-map-gpu-test'
 import { runLookLutGpuTest } from '../playback/look-lut-gpu-test'
 import { runDatamoshGpuTest } from '../playback/datamosh-gpu-test'
 import { datamoshExportTest } from '../playback/datamosh-export-test'
+import { datamoshBakeTest } from '../playback/datamosh-bake-test'
 import { datamoshFootage } from '../playback/datamosh-footage'
 import { effectsPerf } from '../playback/effects-perf'
 import { lookLutExportTest } from '../playback/look-lut-export-test'
@@ -515,6 +516,18 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
       timelineController.zoomToFit()
       await wait(1200)
+      break
+    }
+    case 'datamoshbake': {
+      // M15 "done when": Datamosh Bake bakes with FFglitch, plays on the timeline and re-bakes on change.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(testsrc_1080p24_h264\.mp4|framecode_h264\.mp4|square_1080\.png)$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await datamoshBakeTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      workspaceController.open('effect-controls')
+      workspaceController.focus('effect-controls')
+      timelineController.zoomToFit()
+      timelineController.setPlayhead(secondsToTicks(2.2))
+      await wait(1500)
       break
     }
     case 'exportmosh': {

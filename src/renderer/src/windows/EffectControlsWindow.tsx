@@ -10,6 +10,8 @@ import { CHANNEL_COLOURS, CurveEditor } from './CurveEditor'
 import { StepsKnob } from './StepsKnob'
 import { LutControl } from './LutControl'
 import { TrackControl } from './TrackControl'
+import { ChannelControl } from './ChannelControl'
+import { BakeStatus } from './BakeStatus'
 import { addEffect, moveEffect, removeEffects, resetEffect, setEffectEnabled, setEffectValues } from '@engine/timeline/effect-edits'
 import { effectById } from '../../../effects/registry'
 import { PromptDialog, type PromptRequest } from '../app/Dialogs'
@@ -563,6 +565,7 @@ function ParamControl({ spec, value, onChange, disabled, readout }: { spec: Para
     case 'gradient':
     case 'lut':
     case 'track':
+    case 'channel':
       return null
     case 'curve': {
       const points = parseCurve(String(value ?? spec.default))
@@ -620,6 +623,7 @@ function ParamRow({ clip, effect, spec, locked }: { clip: Clip; effect: EffectIn
         if (spec.type === 'gradient') return <GradientControl clip={clip} effect={effect} spec={spec} value={value} disabled={locked} />
         if (spec.type === 'lut') return <LutControl value={String(value ?? '')} onChange={onChange} disabled={locked} label={spec.label} />
         if (spec.type === 'track') return <TrackControl value={String(value ?? '')} onChange={onChange} disabled={locked} label={spec.label} ownTrackId={clip.trackId} />
+        if (spec.type === 'channel') return <ChannelControl value={String(value ?? '')} onChange={onChange} disabled={locked} label={spec.label} />
         return <ParamControl spec={spec} value={value} disabled={locked} onChange={onChange} readout={readout} />
       }}
     </PropertyRow>
@@ -815,6 +819,7 @@ function EffectBlockView({ clip, effect, index, locked, selected, onDropAt }: Ef
           {!manifest && <p className="muted small">This effect isn’t in this version of ginosa, so the picture passes through it unchanged. It’s kept in the project.</p>}
           {manifest && (
             <>
+              {manifest.bake && <BakeStatus clip={clip} effect={effect} />}
               <PropertyRow clip={clip} effectId={effect.id} param="mix" label="Mix" locked={locked}>
                 {(value, onChange) => <ScrubNumber label="Mix" value={Number(value)} min={0} max={100} step={0.5} unit="%" onChange={onChange} disabled={locked} />}
               </PropertyRow>

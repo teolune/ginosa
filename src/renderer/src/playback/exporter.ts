@@ -17,10 +17,11 @@ import { LayerBuilder } from './layers'
 import { ExactRenderer } from './exact-render'
 import { TemporalStore } from './temporal'
 import { YuvConverter } from './yuv'
+import { bakeController } from './bake-controller'
 
 export type ExportState =
   | { kind: 'idle' }
-  | { kind: 'running'; stage: 'checking' | 'sound' | 'frames' | 'finishing'; frame: number; frames: number; fps: number; started: number; output: string }
+  | { kind: 'running'; stage: 'checking' | 'baking' | 'sound' | 'frames' | 'finishing'; frame: number; frames: number; fps: number; started: number; output: string }
   | { kind: 'done'; result: ExportResult; seconds: number; fps: number }
   | { kind: 'failed'; error: string; output: string }
   | { kind: 'cancelled' }
@@ -60,7 +61,7 @@ class Exporter extends Observable {
     const end = sequenceEnd(sequence)
     const frames = Math.ceil(end / frame)
     const { width, height } = sequence.settings
-    const progress = (stage: 'checking' | 'sound' | 'frames' | 'finishing', done = 0) => {
+    const progress = (stage: 'checking' | 'baking' | 'sound' | 'frames' | 'finishing', done = 0) => {
       const seconds = (performance.now() - started) / 1000
       this.set({ kind: 'running', stage, frame: done, frames, fps: stage === 'frames' && seconds > 0 ? done / seconds : 0, started, output })
     }
@@ -79,6 +80,11 @@ class Exporter extends Observable {
         if (!mediaController.playablePath(item)) throw new Error(`${item.name} isn't available: ${mediaController.get(item.id).status === 'offline' ? 'it is offline' : 'its optimised copy is still being made'}`)
       }
       const path = (item: MediaItem) => mediaController.playablePath(item)
+      // Datamosh Bake (M15): the export shows the bakes, so any not ready yet are made first.
+      progress('baking')
+      await bakeController.ensureAll(project)
+      this.checkCancelled()
+      progress('checking')
       const { device } = await getGpu()
       compositor = new Compositor(device)
       compositor.resize(width, height)

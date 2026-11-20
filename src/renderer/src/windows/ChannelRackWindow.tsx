@@ -119,9 +119,9 @@ export function ChannelRackWindow() {
   const columns = shown?.steps ?? DEFAULT_SECTION_BARS * perBar
   const playColumn = shown && playing && playing.section.id === shown.section.id ? Math.floor(playStep - shown.firstStep) : -1
   const loop = columns
-  // Each bar's 16ths at their own size (at least 30 px), with a narrow empty track between bars, so a bar's first cube is as wide as the rest.
+  // Each bar's 16ths, narrow keys of one width (--rack-cube-width), with a thin empty track between bars, so a bar's first cube is as wide as the rest.
   const bars = Math.max(1, Math.ceil(columns / perBar))
-  const cubeGrid: CSSProperties = { gridTemplateColumns: Array.from({ length: bars }, () => `repeat(${perBar}, minmax(30px, 1fr))`).join(' 2px ') }
+  const cubeGrid: CSSProperties = { gridTemplateColumns: Array.from({ length: bars }, () => `repeat(${perBar}, var(--rack-cube-width))`).join(' 2px ') }
 
   const ref = (rowId: string, step: number): CubeRef | null => (shown ? { sectionId: shown.section.id, rowId, step } : null)
 

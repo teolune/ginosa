@@ -75,7 +75,7 @@ export function TitleBar() {
       {active && (
         <span className={`save-status ${active.status.kind === 'error' ? 'error-text' : 'muted'}`}>{describe(active.status, active.isDirty)}</span>
       )}
-      <span className="milestone muted">M14</span>
+      <span className="milestone muted">M15</span>
     </header>
   )
 }

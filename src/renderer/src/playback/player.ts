@@ -22,6 +22,8 @@ import { TemporalStore } from './temporal'
 import { ExactFrames, ExactRenderer } from './exact-render'
 import { checkpointEvery } from '@engine/timeline/temporal'
 import { renderCache } from '../render-cache/render-cache'
+import { bakeStore } from '@engine/datamosh/bakes'
+import { bakeController } from './bake-controller'
 
 export type PlaybackResolution = 1 | 0.5 | 0.25
 
@@ -167,8 +169,10 @@ export class Player extends Observable {
   /** Whether the paused frame showing is a preview (stateful effects not yet caught up exactly). */
   approximate = false
   /** What the paused frame was last asked for: a change that alters none of it (a selection, a tool) doesn't redraw it. */
-  private shownScene: { sequence: Sequence; media: unknown; playhead: Ticks; modulation: ModulationContext | null } | null = null
+  private shownScene: { sequence: Sequence; media: unknown; playhead: Ticks; modulation: ModulationContext | null; bakes: number } | null = null
   private sequenceAtStart: Sequence | null = null
+  /** The bakes there were when playing started (M15). */
+  private bakesAtStart = 0
   recording: PresentedFrame[] | null = null
   /** The last paused-frame composite (for tests that read pixels back). */
   lastStill: GPUTexture | null = null
@@ -591,6 +595,11 @@ export class Player extends Observable {
     if (this.playing) {
       // New curves (a Channel Rack edit, say): the picture uses them from its next frame; sounds whose Volume they move, from now.
       if (!this.starting) this.audio?.setModulation(this.host.modulation?.() ?? null)
+      // A bake that came (or went) while playing: playing starts again here, so its frames are decoding before they're shown.
+      if (bakeStore.version !== this.bakesAtStart && !this.starting) {
+        void this.play(this.rate, this.currentTime())
+        return
+      }
       if (!this.sequenceAtStart || project.sequence === this.sequenceAtStart) return
       if (!this.starting && playsTheSame(this.sequenceAtStart, project.sequence)) {
         // Every sound and every picture's timing as it was (a cube, an effect's value, a mute): playing carries on.
@@ -605,11 +614,11 @@ export class Player extends Observable {
     }
     // Nothing in the picture changed (a selection, the tool, a window): it isn't drawn again.
     const preview = this.host.scene(true)
-    const scene = { sequence: preview?.sequence ?? project.sequence, media: project.media, playhead: this.host.playhead, modulation: this.host.modulation?.() ?? null }
+    const scene = { sequence: preview?.sequence ?? project.sequence, media: project.media, playhead: this.host.playhead, modulation: this.host.modulation?.() ?? null, bakes: bakeStore.version }
     const last = this.shownScene
     // Curves rebuilt the same (same id) change nothing in the picture.
     const sameModulation = last?.modulation === scene.modulation || (last?.modulation?.id !== undefined && last.modulation.id === scene.modulation?.id)
-    if (last && last.sequence === scene.sequence && last.media === scene.media && last.playhead === scene.playhead && sameModulation) return
+    if (last && last.sequence === scene.sequence && last.media === scene.media && last.playhead === scene.playhead && last.bakes === scene.bakes && sameModulation) return
     this.shownScene = scene
     this.requestStill()
   }
@@ -657,6 +666,7 @@ export class Player extends Observable {
     this.lastClock = from
     this.wallStart = performance.now()
     this.sequenceAtStart = project.sequence
+    this.bakesAtStart = bakeStore.version
     this.stats = { fps: 0, dropped: 0, renderMs: 0, lagMs: 0, cached: 0 }
     this.debug = { skipped: 0, missing: {} }
     this.presentedCount = 0
@@ -1006,10 +1016,13 @@ export const player = new Player({
     const b = timelineController.subscribe(listener)
     // Analysis finishing changes what modulated values show.
     const c = modulationController.subscribe(listener)
+    // A bake finishing changes what a Datamosh Bake shows (M15).
+    const d = bakeController.subscribe(listener)
     return () => {
       a()
       b()
       c()
+      d()
     }
   }
 })

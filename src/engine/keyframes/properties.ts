@@ -89,6 +89,7 @@ function paramProperty(spec: ParamSpec): PropertySpec {
     case 'gradient':
     case 'lut':
     case 'track':
+    case 'channel':
       return { label: spec.label, kind: 'stepped', param: spec }
     case 'steps':
       return { label: spec.label, kind: 'number', min: 0, max: spec.steps.length - 1, decimals: 0, hold: true, param: spec }
@@ -163,7 +164,7 @@ export function clampValue(spec: PropertySpec, value: ParamValue): ParamValue | 
     if (p?.type === 'curve') return typeof value === 'string' && parseCurve(value) ? value : null
     if (p?.type === 'gradient') return typeof value === 'string' && parseGradient(value) ? value : null
     if (p?.type === 'lut') return typeof value === 'string' && isLutPath(value) ? value : null
-    if (p?.type === 'track') return typeof value === 'string' ? value : null
+    if (p?.type === 'track' || p?.type === 'channel') return typeof value === 'string' ? value : null
     return null
   }
   const c = components(value)

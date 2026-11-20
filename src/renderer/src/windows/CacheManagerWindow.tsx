@@ -3,6 +3,7 @@ import { CACHE_CATEGORIES, CACHE_CATEGORY_LABELS, type CacheCategory, type Cache
 import { formatBytes } from '../media-panel/format'
 import { mediaController } from '../state/media-controller'
 import { projectController } from '../state/project-controller'
+import { bakeController } from '../playback/bake-controller'
 import { renderCache } from '../render-cache/render-cache'
 
 const GB = 1024 ** 3
@@ -192,6 +193,8 @@ export function CacheManagerWindow() {
     if (projectId === currentId) {
       mediaController.recheckAll()
       if (category === 'all' || category === 'renders') renderCache.reload()
+      // Datamosh bakes (M15): those gone are made again.
+      if (category === 'all' || category === 'bakes') bakeController.reload()
     }
     await refresh()
   }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import type { GinosaBridge, HarnessReport, JournalEntry, MenuCommand, MenuState } from '@shared/ipc'
+import type { BakeProgress, GinosaBridge, HarnessReport, JournalEntry, MenuCommand, MenuState } from '@shared/ipc'
 import type { OptimiseJob } from '@shared/media-types'
 import { mediaUrlForPath } from '@shared/ipc'
 
@@ -121,6 +121,17 @@ const bridge: GinosaBridge = {
     frame: (id, bytes) => ipcRenderer.invoke('export:frame', id, bytes),
     finish: (id) => ipcRenderer.invoke('export:finish', id),
     cancel: (id) => ipcRenderer.invoke('export:cancel', id)
+  },
+  bake: {
+    status: () => ipcRenderer.invoke('bake:status'),
+    setUp: () => ipcRenderer.invoke('bake:setUp'),
+    onSetupLine: (listener: (line: string) => void) => listen('bake:setupLine', listener),
+    list: (projectId) => ipcRenderer.invoke('bake:list', projectId),
+    begin: (request) => ipcRenderer.invoke('bake:begin', request),
+    frame: (id, which, bytes) => ipcRenderer.invoke('bake:frame', id, which, bytes),
+    finish: (id) => ipcRenderer.invoke('bake:finish', id),
+    cancel: (id) => ipcRenderer.invoke('bake:cancel', id),
+    onProgress: (listener: (progress: BakeProgress) => void) => listen('bake:progress', listener)
   },
   cache: {
     registerProject: (projectId, name, path) => ipcRenderer.invoke('cache:registerProject', projectId, name, path),

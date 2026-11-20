@@ -30,8 +30,14 @@ ginosa is a personal project that won't be distributed, so licences don't limit 
 | --- | --- | --- |
 | FFmpeg / ffprobe | Conform, optimised copies, ProRes, export muxing, test media | LGPL-2.1+ / GPL-2+ (Homebrew build includes GPL parts) |
 | Python 3 (macOS command line tools) | `scripts/codec-mosh.py`: the real codec mosh for M14's side-by-side tests (standard library only, with FFmpeg) | PSF License |
-| ffglitch | Codec-level datamosh (M15) | FFmpeg-derived; checked when added |
 | GitHub CLI (gh) | Pushing to the private repo | MIT |
+
+## FFglitch (M15, decision 133; downloaded by `npm run ffglitch-setup` into `.ffglitch/`, not bundled)
+
+| What | Use | Licence |
+| --- | --- | --- |
+| [FFglitch](https://ffglitch.org) 0.10.2 for macOS on Apple silicon (`ffgac`, `ffedit`; by Ramiro Polla, from `ffglitch.org/pub/bin/macos-aarch64/`; the zip downloaded on 20 Nov 2026 had SHA-256 `25a5a7d51217919db5a093b211fd8a1e27845284efb0a6f616b8f371f6638eef`, which the setup prints each time it downloads, since ffglitch.org publishes no checksums) | Datamosh Bake: ffgac (FFmpeg with glitch options) encodes each bake as MPEG-4 Part 2; ffedit runs the bake's script on its motion vectors. ginosa runs them as separate programs and links nothing from them | GPL-2.0-or-later (an FFmpeg fork). Run as separate tools, so ginosa's own code isn't affected; a personal app that isn't distributed either way |
+| [ffglitch-scripts](https://github.com/ramiropolla/ffglitch-scripts) and FFglitch's documentation and source (`ffglitch-core`) | Read for how ffedit's scripts see motion vectors (`frame.mv.forward`, `MV2DArray`, `overflow`) and the encoder options; ginosa's scripts are its own, no code copied | Unlicense (scripts); GPL-2.0-or-later (source, read only) |
 
 ## Provided by macOS
 
