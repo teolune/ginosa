@@ -18,6 +18,9 @@ open renders/ui/automationeditor.png
 npm run snapshot -- --scenario tempoauto
 cat renders/ui/tempoauto.json
 open renders/ui/tempoauto.png
+npm run snapshot -- --scenario automationtogether
+cat renders/ui/automationtogether.json
+open renders/ui/automationtogether.png
 npm start
 ```
 
@@ -27,6 +30,8 @@ npm start
 - [ ] `automationeditor`: `"verdict":"pass"`, `"worst"` under 0.008, and all eight stretches in `"shapes"` (single, double, hold, stairs, smooth-stairs, pulse, wave, single) with their `"worst"` under 0.008: the curve the editor draws is what plays. `"controls"` ends as `["opacity","scale"]`.
 - [ ] `tempoauto`: `"verdict":"pass"`: `"posterize"` `"held":250` with `"holdLengths"` shrinking from 13 and 12 to 11 (the ramp), `"cubes"` 20 of 20, `"playback"` `"same"` equal to `"of"`, and `"metronome"` `"worstMs":0`.
 - [ ] `tempoauto.png`: the Automation Editor on the tempo clip, its axis in BPM (60–180), the ramp from 120 to 140 then flat; the tempo knob reading 130.000 at 7 s, in pink.
+- [ ] `automationtogether`: `"verdict":"pass"`, `"controls":["tempo","scale"]`, `"worstWidthPx"` under 1.5, `"flashes"` equal to `"beats"` (22), `"scaleAt0369":[100,116.67,133.33,133.33]`, `"playbackVsExport"` `"worst"` under 0.006, and `"metronome"` `"worstMs":0`.
+- [ ] `automationtogether.png`: the Automation Editor on one clip whose Controls list both **Tempo** (60–180 BPM) and **Scale**.
 - [ ] `automationeditor.png`: the Automation Editor over the timeline: the curve in its eight shapes on the bar grid (1–5), the points and the small tension handles, the playhead's pink line, and the clip's name, Controls and + Pick a value… on the right.
 
 ## In ginosa
@@ -50,3 +55,18 @@ npm start
 - [ ] The **tempo knob** shows the tempo under the playhead: pink where the tempo clip sets it (click it to open the clip), its usual colour before the first tempo clip.
 - [ ] The **Channel Rack**'s cubes, **Posterize Time** (on the beat grid) and beat-synced LFOs stay on the beat through the ramp, in playback and in an export.
 - [ ] Beside the graph: type the range's ends (the curve keeps its tempos), × stops the clip setting the tempo, and **+ Control the tempo** on another automation clip makes it set the tempo too. Muting the automation track turns the tempo changes off.
+
+### One clip, the tempo and an effect (W2.4)
+
+- [ ] Press **Automate BPM**, then in the editor **+ Pick a value…** and choose an effect value (Basic Correction's Exposure, say). Draw a ramp: the tempo and the value rise together, the metronome speeding up as the picture changes.
+- [ ] Or the other way: right-click a value › **Create Automation Clip**, then **+ Control the tempo** in its editor.
+- [ ] Export a few seconds over the ramp and play the file: it matches what the preview played.
+
+## Sign-off (W2)
+
+When it all works as you want, tell me "W2 signed off" (or what to change). Signing off approves:
+
+- [ ] **Decision 131**, the automation editor's interactions (click to add, drag, handles for tension, right-click for shapes, snapping by zoom, ⌥ to move freely, the picker and dragging the clip's name).
+- [ ] **Decision 132**, tempo automation (Automate BPM, tempo clips and their BPM range, the knob showing the tempo under the playhead and opening the clip, beats counted through ramps).
+- [ ] **Decision 127**'s engineering (clips drive values through the modulation engine; before a clip a value is its own; after it the clip's last point holds until the next).
+

@@ -1,5 +1,10 @@
 # Changelog
 
+## One clip, the tempo and an effect (W2.4, 20 Nov 2026)
+
+- **Automation clips are complete** (W2.1–W2.4, decisions 127, 131 and 132); W2 waits for your sign-off (the checklist at the end of `docs/Automation-try-this.md`).
+- **Measured** (`automationtogether`, `"verdict":"pass"`): Automate BPM at the start, then + Pick a value… › a square's Scale, so one clip sets both; its curve rises over 6 s (120 → 140 BPM, Scale 100% → 133%), then holds, while a Kick channel flashes the square on every beat. Against the sums by hand: the exported square's width within 0.17 px of the Scale on all 250 frames, and its 22 flashes on exactly the 22 beats; real-time playback within 0.0012 of the file on every frame it showed (249); the metronome's 25 clicks on their beats to within a microsecond.
+
 ## Tempo automation (W2.3, 20 Nov 2026)
 
 - **Automate BPM** (the wave button by the tempo knob, or right-click the knob): a **tempo clip** at the playhead, opened in the automation editor (decision 132). Its curve sets the tempo; the editor's axis reads in BPM, across a range 60 BPM either side of where it started (type both ends beside the graph; the curve keeps its tempos). Draw ramps with curves and jumps with holds or stairs, as for any value.

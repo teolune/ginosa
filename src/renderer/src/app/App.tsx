@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { automationTest } from '../automation/automation-test'
 import { automationEditorTest } from '../automation/editor-test'
 import { tempoAutomationTest } from '../automation/tempo-test'
+import { automationTogetherTest } from '../automation/together-test'
 import { tabsTest } from './tabs-test'
 import { channelWindowTest } from '../rack/channel-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
@@ -182,6 +183,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
       }
       if (scenario === 'tabshome') projectController.showHome()
+      break
+    }
+    case 'automationtogether': {
+      // W2.4: one automation clip moves the tempo and an effect; it plays and exports alike.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /square_1080\.png$/.test(f)), null)
+      await wait(1500)
+      await window.ginosa.snapshot.report(await automationTogetherTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'tempoauto': {
