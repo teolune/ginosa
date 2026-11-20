@@ -1,4 +1,5 @@
-import { useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { ValueEntry } from '../app/ValueEntry'
 
 /**
  * A detented knob (M12) for a steps parameter: drag up or right to turn it up, down or left
@@ -11,6 +12,7 @@ const PIXELS_PER_STEP = 8
 
 export function StepsKnob({ value, steps, defaultValue, onChange, disabled, label, readout }: { value: number; steps: ReadonlyArray<{ id: string; label: string }>; defaultValue: number; onChange(value: number): void; disabled: boolean; label: string; readout?: string | null }) {
   const drag = useRef<{ x: number; y: number; from: number } | null>(null)
+  const [entry, setEntry] = useState<{ x: number; y: number } | null>(null)
   const count = steps.length
   const index = Math.min(count - 1, Math.max(0, Math.round(value)))
   const set = (v: number) => {
@@ -54,7 +56,7 @@ export function StepsKnob({ value, steps, defaultValue, onChange, disabled, labe
         aria-valuemax={count - 1}
         aria-valuenow={index}
         aria-valuetext={readout ?? steps[index]?.label}
-        title={`${steps[index]?.label ?? ''}: drag up or down, or use the arrow keys. Double-click for the default.`}
+        title={`${steps[index]?.label ?? ''}: drag up or down, or use the arrow keys. Double-click for the default, right-click to type it.`}
         disabled={disabled}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -62,6 +64,11 @@ export function StepsKnob({ value, steps, defaultValue, onChange, disabled, labe
         onPointerCancel={() => (drag.current = null)}
         onDoubleClick={() => !disabled && set(defaultValue)}
         onKeyDown={onKeyDown}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (!disabled) setEntry({ x: event.clientX, y: event.clientY })
+        }}
       >
         <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
           {ticks}
@@ -70,6 +77,24 @@ export function StepsKnob({ value, steps, defaultValue, onChange, disabled, labe
         </svg>
       </button>
       <span className="knob-readout">{readout ?? steps[index]?.label}</span>
+      {entry && (
+        <ValueEntry
+          x={entry.x}
+          y={entry.y}
+          label={label}
+          value={steps[index]?.label ?? ''}
+          hint={`One of: ${steps.map((s) => s.label).join(', ')}`}
+          options={steps.map((s) => s.label)}
+          onCommit={(text) => {
+            const typed = text.trim().toLowerCase()
+            const i = steps.findIndex((s) => s.label.toLowerCase() === typed || s.id.toLowerCase() === typed)
+            if (i < 0) return 'Pick one of the list'
+            set(i)
+            return null
+          }}
+          onClose={() => setEntry(null)}
+        />
+      )}
     </span>
   )
 }

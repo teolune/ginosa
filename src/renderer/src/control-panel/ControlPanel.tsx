@@ -42,7 +42,7 @@ export function ControlPanel() {
   useObservable(analysisController)
   useObservable(songTempo)
   const [framesMenu, setFramesMenu] = useState<{ x: number; y: number } | null>(null)
-  const [tempoMenu, setTempoMenu] = useState<{ x: number; y: number } | null>(null)
+  const [tempoMenu, setTempoMenu] = useState<{ x: number; y: number; type: () => void } | null>(null)
   const sequence = projectController.project?.sequence
   if (!sequence) return null
   const grid = sequence.beatGrid
@@ -62,7 +62,7 @@ export function ControlPanel() {
   return (
     <div className="control-panel" role="toolbar" aria-label="Control Panel">
       <div className="cp-group cp-tempo">
-        <TempoKnob onMenu={(x, y) => setTempoMenu({ x, y })} />
+        <TempoKnob onMenu={(x, y, type) => setTempoMenu({ x, y, type })} />
         <span className="cp-stack">
           <button
             className={`cp-button ${detecting ? 'busy' : ''}`}
@@ -151,7 +151,17 @@ export function ControlPanel() {
         <PlayheadTime />
       </span>
       {framesMenu && <ContextMenu x={framesMenu.x} y={framesMenu.y} items={frameItems} onClose={() => setFramesMenu(null)} />}
-      {tempoMenu && <ContextMenu x={tempoMenu.x} y={tempoMenu.y} items={[{ label: 'Create Automation Clip (Automate BPM)', onSelect: automateTempo }]} onClose={() => setTempoMenu(null)} />}
+      {tempoMenu && (
+        <ContextMenu
+          x={tempoMenu.x}
+          y={tempoMenu.y}
+          items={[
+            { label: 'Type Tempo…', onSelect: tempoMenu.type },
+            { label: 'Create Automation Clip (Automate BPM)', onSelect: automateTempo }
+          ]}
+          onClose={() => setTempoMenu(null)}
+        />
+      )}
     </div>
   )
 }
@@ -166,7 +176,7 @@ function automateTempo(): void {
  * The tempo knob, in its own component so only it follows the playhead: the tempo under the
  * playhead. Where a tempo clip sets it (W2.3), the knob shows that tempo and opens the clip.
  */
-function TempoKnob({ onMenu }: { onMenu(x: number, y: number): void }) {
+function TempoKnob({ onMenu }: { onMenu(x: number, y: number, type: () => void): void }) {
   useObservable(projectController)
   useObservable(timelineController, ['playhead'], { throttle: { playhead: 100 } })
   const sequence = projectController.project?.sequence

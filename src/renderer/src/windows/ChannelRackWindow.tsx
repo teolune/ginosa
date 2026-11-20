@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Keyb
 import { beatAt, beatTime } from '@engine/audio/beat-grid'
 import { DEFAULT_GRID } from '@engine/modulation/curve'
 import { DEFAULT_SECTION_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type RackCube, type RackRow, type Sequence } from '@engine/project/model'
-import { channelModulatorIds, placeSections, sectionAtStep, sectionName, stepsPerBar, type PlacedSection } from '@engine/timeline/rack'
+import { barOneStep, channelModulatorIds, placeSections, sectionAtStep, sectionName, stepsPerBar, type PlacedSection } from '@engine/timeline/rack'
 import {
   addRackRows,
   addRackSection,
@@ -31,6 +31,7 @@ import { CubeWindow } from '../rack/CubeWindow'
 import { DoubtPopover } from '../rack/DoubtPopover'
 import { detector } from '../rack/detect'
 import { MiniKnob } from '../rack/MiniKnob'
+import { RackOverview } from '../rack/RackOverview'
 import { CHANNEL_DRAG_TYPE, rackUi } from '../rack/rack-ui'
 import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
@@ -104,6 +105,40 @@ export function ChannelRackWindow() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollLeft = 0
   }, [rackUi.follow ? null : rackUi.sectionId])
+  // The song overview (below the cubes): the bars in view, and a bar it asked to go to.
+  const [view, setView] = useState<{ from: number; to: number } | null>(null)
+  const goTo = useRef<number | null>(null)
+  const measure = useCallback(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const numbers = [...scroller.querySelectorAll<HTMLElement>('.rack-bar-number')]
+    const first = Number(scroller.querySelector<HTMLElement>('.rack-bar-numbers')?.dataset['startBar'] ?? NaN)
+    if (!numbers.length || !Number.isFinite(first)) return setView((v) => (v === null ? v : null))
+    const box = scroller.getBoundingClientRect()
+    const head = scroller.querySelector<HTMLElement>('.rack-bars-row .rack-row-head')?.getBoundingClientRect().right ?? box.left
+    let from = -1
+    let to = -1
+    numbers.forEach((n, i) => {
+      const r = n.getBoundingClientRect()
+      if (r.right > head + 4 && r.left < box.right - 4) {
+        if (from < 0) from = i
+        to = i + 1
+      }
+    })
+    const next = from < 0 ? null : { from: first + from, to: first + to }
+    setView((v) => (v?.from === next?.from && v?.to === next?.to ? v : next))
+  }, [])
+  useEffect(() => {
+    // A bar picked on the overview: scroll it to the left of the rack, then keep the frame up to date.
+    const scroller = scrollRef.current
+    if (scroller && goTo.current !== null) {
+      const bar = scroller.querySelectorAll<HTMLElement>('.rack-bar-number')[goTo.current]
+      const head = scroller.querySelector<HTMLElement>('.rack-bars-row .rack-row-head')
+      if (bar && head) scroller.scrollLeft += bar.getBoundingClientRect().left - head.getBoundingClientRect().right - 6
+      goTo.current = null
+    }
+    measure()
+  })
   if (!project || !rack) return null
   const sequence = project.sequence
   const rows = rack.rows
@@ -397,15 +432,15 @@ export function ChannelRackWindow() {
         </div>
       ) : (
         <>
-        <div className="rack-rows" ref={scrollRef}>
+        <div className="rack-rows" ref={scrollRef} onScroll={measure}>
           {shown && (
             <div className="rack-bars-row" aria-hidden="true">
               <div className="rack-row-head" />
-              <div className="rack-cubes rack-bar-numbers" style={cubeGrid}>
+              <div className="rack-cubes rack-bar-numbers" style={cubeGrid} data-start-bar={shown.startBar}>
                 {Array.from({ length: shown.section.bars }, (_, bar) => (
                   <button
                     key={bar}
-                    className={`rack-bar-number ${bar > 0 ? 'bar-start' : ''}`}
+                    className={`rack-bar-number ${bar > 0 ? 'bar-start' : ''} ${playColumn >= 0 && Math.floor(playColumn / perBar) === bar ? 'current' : ''}`}
                     style={{ gridColumn: `${bar * (perBar + 1) + 1} / span ${perBar}` }}
                     title={`Bar ${shown.startBar + bar + 1}: click to move the playhead there`}
                     tabIndex={-1}
@@ -531,6 +566,21 @@ export function ChannelRackWindow() {
             )
           })}
         </div>
+          <RackOverview
+            placed={placed}
+            rows={rows}
+            perBar={perBar}
+            playBar={(playStep - barOneStep(grid)) / perBar}
+            view={view}
+            shownId={shown?.section.id ?? null}
+            onPick={(bar) => {
+              const section = placed.find((p) => bar >= p.startBar && bar < p.startBar + p.section.bars)
+              if (!section) return
+              if (!rackUi.follow) rackUi.showSection(section.section.id)
+              goTo.current = bar - section.startBar
+              timelineController.movePlayhead(Math.max(0, beatTime(grid, (section.firstStep + (bar - section.startBar) * perBar) / 4)))
+            }}
+          />
           <div className="rack-row rack-add-row">
             <button className="button compact" onClick={(e) => addMenu(e.clientX, e.clientY)}>
               + Channel

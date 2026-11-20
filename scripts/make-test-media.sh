@@ -88,6 +88,23 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.5*sin(2*PI
 echo "Beat: 30 s of drums at 128 BPM, first bar at 0.4 s (accented kick on 1, snare on 2 and 4, hats on 8ths), for tempo detection"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='if(gte(t\,0.4)\,(0.6+0.3*eq(mod(floor((t-0.4)/0.46875)\,4)\,0))*sin(2*PI*(48*mod(t-0.4\,0.46875)+2.4*(1-exp(-mod(t-0.4\,0.46875)/0.03))))*exp(-mod(t-0.4\,0.46875)/0.12)+0.1*(2*random(0)-1)*exp(-mod(t-0.4\,0.234375)/0.012)+0.3*eq(mod(floor((t-0.4)/0.46875)\,2)\,1)*(2*random(1)-1)*exp(-mod(t-0.4\,0.46875)/0.05)\,0)':sample_rate=48000:duration=30" -c:a pcm_s24le "$out/beat_128bpm.wav"
 
+echo "Multi-camera (W5): a 40 s song that never repeats (a kick, a bass line, a gliding pad, noise hats), and takes of it"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "aevalsrc=exprs='0.6*sin(2*PI*55*t)*exp(-12*mod(t\,0.5))+0.22*sin(2*PI*82.4*pow(2\,mod(floor(t*2)*7+floor(t/2)*5\,12)/12)*t)*exp(-3*mod(t\,0.5))+0.08*sin(2*PI*(220+30*sin(0.37*t))*t)+0.18*(2*random(0)-1)*exp(-50*mod(t\,0.125))':sample_rate=48000:duration=40" \
+  -c:a pcm_s24le "$out/multicam_song.wav"
+# Each take: a picture, and the song as a camera on set hears it (a stretch of it, quieter, muffled, a room echo, pink noise).
+take() { # name, picture, seconds, song from (s), lead-in silence (ms), volume, lowpass (Hz), noise amplitude, noise seed
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$2=size=1280x720:rate=25:duration=$3" -i "$out/multicam_song.wav" \
+    -f lavfi -i "anoisesrc=color=pink:amplitude=$8:sample_rate=48000:duration=$3:seed=$9" \
+    -filter_complex "[1:a]atrim=start=$4,asetpts=PTS-STARTPTS,adelay=$5:all=1,atrim=duration=$3,volume=$6,highpass=f=150,lowpass=f=$7,aecho=0.8:0.7:23:0.35[s];[s][2:a]amix=inputs=2:normalize=0:duration=longest[a]" \
+    -map 0:v -map "[a]" -c:v libx264 -pix_fmt yuv420p -g 25 -c:a aac -b:a 192k -t "$3" -movflags +faststart "$out/$1.mp4"
+}
+take take_a testsrc2 18 5.2 0 0.35 3000 0.06 3
+take take_b smptebars 14 13.36 0 0.2 2200 0.12 4
+take take_early rgbtestsrc 12 0 1500 0.3 3000 0.06 5
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc=size=1280x720:rate=25:duration=10" \
+  -f lavfi -i "anoisesrc=color=pink:amplitude=0.1:sample_rate=48000:duration=10:seed=6" \
+  -c:v libx264 -pix_fmt yuv420p -g 25 -c:a aac -b:a 192k -shortest -movflags +faststart "$out/take_noise.mp4"
+
 echo "4K still image"
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=3840x2160:rate=1" -frames:v 1 "$out/still_4k.png"
 

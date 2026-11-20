@@ -113,8 +113,33 @@ export async function channelWindowTest(): Promise<Record<string, unknown>> {
   const amounts = (placeSections(sequence().rack, grid)[0]!.section.cubes[kick.id] ?? []).map((c) => c.amounts[link.id] ?? 100)
   check(amounts.slice(0, 2).every((a) => a !== -40) && amounts.slice(2).every((a) => a === -40), `amounts after the menu: ${amounts.join(' ')}`)
 
+  // Right-click a knob to type its value (20 Nov): Kick's nudge to 12.5, then a value out of range is refused.
+  kickRow()?.querySelector<HTMLElement>('.mini-knob')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }))
+  await pause(200)
+  const typing = document.querySelector<HTMLInputElement>('.value-entry input')
+  check(typing !== null, 'right-clicking the nudge knob opened no box to type in')
+  if (typing) {
+    typing.value = '12,5'
+    typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await pause(200)
+  }
+  const typedNudge = sequence().rack.rows.find((r) => r.id === kick.id)!.nudge
+  check(typedNudge === 12.5 && !document.querySelector('.value-entry'), `typed nudge: ${typedNudge}`)
+  kickRow()?.querySelector<HTMLElement>('.mini-knob')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }))
+  await pause(200)
+  const again = document.querySelector<HTMLInputElement>('.value-entry input')
+  if (again) {
+    again.value = '80'
+    again.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await pause(200)
+  }
+  const refused = document.querySelector('.value-entry-error')?.textContent ?? null
+  check(refused === 'From -50 to 50' && sequence().rack.rows.find((r) => r.id === kick.id)!.nudge === 12.5, `typing 80: ${refused}`)
+  again?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await pause(150)
+
   // For the screenshot: Kick's window open.
   rackUi.openChannelWindow(kick.id)
   await pause(300)
-  return { verdict: reasons.length === 0 ? 'pass' : 'fail', reasons, cubes, barNumbers, kickSteps, listed: listed(), amounts }
+  return { verdict: reasons.length === 0 ? 'pass' : 'fail', reasons, cubes, barNumbers, kickSteps, listed: listed(), amounts, typedNudge, refused }
 }

@@ -1,4 +1,5 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { ValueEntry, parseTyped } from '../app/ValueEntry'
 
 interface Props {
   value: number
@@ -29,9 +30,10 @@ function arc(from: number, to: number, r: number): string {
   return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${(b - a) * SWEEP > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`
 }
 
-/** A small knob (the Channel Rack's strength and nudge): drag up or down, scroll, arrows; double-click resets. */
+/** A small knob (the Channel Rack's strength and nudge): drag up or down, scroll, arrows; double-click resets; right-click to type a value. */
 export function MiniKnob({ value, min, max, reset, origin, label, format, onChange, disabled }: Props) {
   const drag = useRef<{ y: number; start: number; stroke: string } | null>(null)
+  const [entry, setEntry] = useState<{ x: number; y: number } | null>(null)
   const turn = (v: number) => (v - min) / (max - min)
   const set = (v: number, stroke: string) => onChange(Math.round(Math.min(max, Math.max(min, v)) * 10) / 10, stroke)
   const span = max - min
@@ -45,7 +47,7 @@ export function MiniKnob({ value, min, max, reset, origin, label, format, onChan
     <button
       className="mini-knob"
       aria-label={label}
-      title={`${label}: ${format(value)}. Drag up or down (Shift: finer), double-click to reset.`}
+      title={`${label}: ${format(value)}. Drag up or down (Shift: finer), double-click to reset, right-click to type a value.`}
       disabled={disabled}
       onPointerDown={onPointerDown}
       onPointerMove={(event) => {
@@ -56,6 +58,11 @@ export function MiniKnob({ value, min, max, reset, origin, label, format, onChan
       onPointerUp={() => (drag.current = null)}
       onPointerCancel={() => (drag.current = null)}
       onDoubleClick={() => set(reset, `${label}:reset:${Date.now()}`)}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!disabled) setEntry({ x: event.clientX, y: event.clientY })
+      }}
       onWheel={(event) => set(value + (event.deltaY < 0 ? 1 : -1) * span * 0.02, `${label}:wheel`)}
       onKeyDown={(event) => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
@@ -70,6 +77,23 @@ export function MiniKnob({ value, min, max, reset, origin, label, format, onChan
         <circle cx="10" cy="10" r="6" className="mini-knob-body" />
         <line x1="10" y1="10" x2={px.toFixed(2)} y2={py.toFixed(2)} className="mini-knob-pointer" />
       </svg>
+      {entry && (
+        <ValueEntry
+          x={entry.x}
+          y={entry.y}
+          label={label}
+          value={String(value)}
+          hint={`${min} to ${max}`}
+          onCommit={(text) => {
+            const v = parseTyped(text)
+            if (v === null) return 'Type a number'
+            if (v < min || v > max) return `From ${min} to ${max}`
+            set(v, `${label}:typed:${Date.now()}`)
+            return null
+          }}
+          onClose={() => setEntry(null)}
+        />
+      )}
     </button>
   )
 }

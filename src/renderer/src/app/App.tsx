@@ -29,6 +29,7 @@ import { runLookLutGpuTest } from '../playback/look-lut-gpu-test'
 import { runDatamoshGpuTest } from '../playback/datamosh-gpu-test'
 import { datamoshExportTest } from '../playback/datamosh-export-test'
 import { datamoshBakeTest } from '../playback/datamosh-bake-test'
+import { syncTest } from '../multicam/sync-test'
 import { datamoshFootage } from '../playback/datamosh-footage'
 import { effectsPerf } from '../playback/effects-perf'
 import { lookLutExportTest } from '../playback/look-lut-export-test'
@@ -516,6 +517,15 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       timelineController.select([projectController.project!.sequence.clips.find((c) => c.adjustment)?.id ?? ''], 'replace')
       timelineController.zoomToFit()
       await wait(1200)
+      break
+    }
+    case 'multicamsync': {
+      // W5.1: takes synced to the song by their sound, through the timeline's Sync to Song by Sound.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(multicam_song\.wav|take_[a-z]+\.mp4)$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await syncTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      timelineController.zoomToFit()
+      await wait(1000)
       break
     }
     case 'datamoshbake': {

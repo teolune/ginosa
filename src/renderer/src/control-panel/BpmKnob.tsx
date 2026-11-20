@@ -47,8 +47,8 @@ interface Props {
   onInvalid(message: string): void
   /** The tempo here comes from a tempo clip (W2.3): the knob shows it and opens the clip instead of changing it. */
   automated?: { name: string; open(): void } | null
-  /** Right-click: Automate BPM. */
-  onMenu?(x: number, y: number): void
+  /** Right-click: Type Tempo… (`type` opens the box) and Automate BPM. */
+  onMenu?(x: number, y: number, type: () => void): void
 }
 
 /** The Control Panel's tempo: a knob to drag or scroll, and the number to click and type (to 999.999). */
@@ -88,13 +88,13 @@ export function BpmKnob({ bpm, set, onChange, onInvalid, automated = null, onMen
         title={
           automated
             ? `The tempo here comes from the tempo clip “${automated.name}”: click to edit its curve`
-            : 'Tempo: drag up or down, or scroll (Shift: 10 BPM at a time, Option: hundredths). Arrow keys nudge. Right-click to automate it.'
+            : 'Tempo: drag up or down, or scroll (Shift: 10 BPM at a time, Option: hundredths). Arrow keys nudge. Right-click to type it or automate it.'
         }
         onClick={() => automated?.open()}
         onContextMenu={(event) => {
-          if (!onMenu) return
           event.preventDefault()
-          onMenu(event.clientX, event.clientY)
+          if (onMenu) onMenu(event.clientX, event.clientY, () => !automated && setTyping(true))
+          else if (!automated) setTyping(true)
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

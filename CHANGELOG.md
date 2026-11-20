@@ -1,5 +1,13 @@
 # Changelog
 
+## Multi-camera begins: syncing takes by sound (W5.1); Channel Rack and knobs (20 Nov 2026)
+
+- **Multi-camera (W5)** is planned (decision 134, Proposed; the plan doc's Multi-camera section): groups of takes synced to the song, angles on 1–9, 0 and the comma, recording switches into a multi-camera clip, favourite parts, and Automatic.
+- **W5.1: Sync to Song by Sound** (right-click clips on the timeline): ginosa listens for the song on A1 in each clip's own sound and moves the clip (with its linked sound) into sync, in one undo step. A take it isn't sure of is placed at its best guess and flagged, with the other place it could be. One where it can't hear the song stays where it is, flagged. Each take starts on a whole frame and is in sync to the sample.
+- **Measured** (`multicamsync`, `"verdict":"pass"`): a 40 s song on A1, and takes made from it as a camera on set hears it (quieter, muffled, a room echo, pink noise): from 5.2 s, from 13.36 s (noisier), and one starting 1.5 s before the song. All three landed within 0.1 ms, in 0.4 s together. A take of noise alone was left where it was and flagged. One undo put everything back. Tests: 472 (9 new: the matching, through noise, an echo, a take starting first, noise and another song refused, a repeated stretch flagged; and where a synced take goes).
+- **Channel Rack:** each bar's number sits in a box spanning its 16 cubes (the playhead's bar lit; click to go there). An **overview of the whole song** under the cubes shows the sections, a tick for every cube, the bars in view and the playhead; click or drag along it to go there.
+- **Type any knob's value:** right-click a knob (the Channel Rack's nudge and strength, stepped knobs in Effect Controls, the tempo knob's menu › Type Tempo…). Enter sets it; a value out of range is refused, with the range shown.
+
 ## Datamosh B: Datamosh Bake (M15, 20 Nov 2026)
 
 - **Datamosh Bake** (Effects › Time, decision 133): a real codec datamosh. On a clip or an adjustment layer, it bakes its whole span in the background with **FFglitch**: the picture is encoded as MPEG-4 Part 2, broken at the moments you choose, its motion vectors rewritten, and decoded back with the errors left in. Then it plays in place. Until the bake is ready, the **live Datamosh look** (M14's Engine A, with the same settings) shows. Effect Controls says what it's doing: waiting, baking (rendering, removing keyframes, moving the vectors, decoding) with a bar, baked, or why it didn't.
