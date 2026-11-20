@@ -8,6 +8,7 @@ import { clipEnd, sourceSpan, sourceTimeAt, speedRamp, timeForMedia } from '@eng
 import type { WrappedAudioBuffer } from 'mediabunny'
 import { beatsBetween } from '@engine/audio/beat-grid'
 import { useMedia, type MediaUse } from './sources'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /** How far ahead audio is decoded and scheduled, in seconds. */
 const LOOKAHEAD = 1.2
@@ -407,7 +408,8 @@ export class AudioEngine implements MixTarget {
 
   /** Schedules the clicks for beats up to context time `until` (the same lookahead as the sound). */
   private scheduleClicks(until: number): void {
-    const grid = this.sequence?.beatGrid
+    // The tempo map's beats (W2.3).
+    const grid = this.sequence ? tempoGrid(this.sequence) : null
     if (!grid) return
     const to = this.startTime + secondsToTicks(until - this.startCtx)
     if (to < this.clickedTo) return

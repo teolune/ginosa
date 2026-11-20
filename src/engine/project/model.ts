@@ -1,3 +1,4 @@
+import type { TempoMap } from '../audio/tempo-map'
 import type { BandId } from '../audio/analysis'
 import { FRAME_RATES, type FrameRateName, type Ticks } from '../time'
 import type { Bin, MediaItem } from './media'
@@ -156,6 +157,8 @@ export interface AutomationCurve {
   modulatorId: string
   /** At least one, in time order. */
   points: AutomationPoint[]
+  /** A tempo clip (W2.3): its curve also sets the tempo, 0 to 1 from `min` to `max` BPM. */
+  tempo?: { min: number; max: number }
 }
 
 export interface Transition {
@@ -284,6 +287,11 @@ export interface BeatGrid {
   beatsPerBar: number
   /** The source whose detected tempo this started from, or null when entered by hand. */
   sourceId: string | null
+  /**
+   * Tempo automation (W2.3): the tempo map laid over `bpm` by the sequence's tempo clips. Never
+   * saved and never in the project's state: `tempoGrid(sequence)` adds it to a copy.
+   */
+  map?: TempoMap
 }
 
 export interface Project {

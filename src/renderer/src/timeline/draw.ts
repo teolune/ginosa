@@ -9,6 +9,7 @@ import type { MediaRuntime } from '../state/media-controller'
 import { levelFor, peakRange } from '@shared/waveform'
 import { RULER_HEIGHT, rulerSteps, timeToX, type Rows, type View } from './geometry'
 import type { GapSelection } from './timeline-controller'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /** Everything one frame of the timeline canvas needs. */
 export interface Scene {
@@ -186,7 +187,7 @@ function drawRenderBar(ctx: CanvasRenderingContext2D, scene: Scene): void {
 
 /** Bars (numbered) and beats along the bottom of the ruler, once there's a beat grid. */
 function drawBeatGrid(ctx: CanvasRenderingContext2D, scene: Scene): void {
-  const grid = scene.sequence.beatGrid
+  const grid = tempoGrid(scene.sequence)
   if (!grid) return
   const { view, width } = scene
   const beatPx = (beatLength(grid) / secondsToTicks(1)) * view.pps
@@ -214,7 +215,7 @@ function drawBeatGrid(ctx: CanvasRenderingContext2D, scene: Scene): void {
 
 /** Faint bar lines through the tracks, so clips can be lined up with the music by eye. */
 function drawBarLines(ctx: CanvasRenderingContext2D, scene: Scene, height: number): void {
-  const grid = scene.sequence.beatGrid
+  const grid = tempoGrid(scene.sequence)
   if (!grid) return
   const { view, width } = scene
   const barPx = (beatLength(grid) / secondsToTicks(1)) * view.pps * grid.beatsPerBar

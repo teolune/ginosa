@@ -7,6 +7,7 @@ import type { ModulationContext } from '../modulation/types'
 import { resolveMasks, type FrameSize, type ResolvedShape } from '../masks/masks'
 import { hasStatefulEffect, motionTrackOf, stateFrame, stateKey } from './temporal'
 import { beatAt } from '../audio/beat-grid'
+import { tempoGrid } from '../audio/tempo-map'
 import { DEFAULT_GRID } from '../modulation/curve'
 import type { EffectClock } from '../effects/types'
 import { effectById } from '../../effects/registry'
@@ -41,6 +42,11 @@ export interface VideoLayer {
    */
   held?: { effects: number; clock: EffectClock } | null
   /**
+   * A held picture's next one (Posterize Time): the media time the next update will show, so
+   * playback can decode up to it during the hold and have it ready on the beat (W2.3).
+   */
+  prefetch?: Ticks
+  /**
    * Motion transfer (M14): this layer isn't drawn; it's a clip on another effect's motion
    * source track (the key says whose: `<clip id>:<effect id>`), as shot: its Motion and
    * transition weight, without its effects, mask, opacity or blend mode. It comes just before
@@ -54,8 +60,10 @@ export interface VideoLayer {
 /** The clock at a sequence time: its frame number, and its place on the beat grid (120 BPM from 0 without one). */
 export function clockAt(sequence: Sequence, time: Ticks): EffectClock {
   const frame = frameTicks(sequence)
-  const grid = sequence.beatGrid ?? DEFAULT_GRID
-  return { frame: Math.round(time / frame), beat: beatAt(grid, time), beatsPerFrame: beatAt(grid, frame) - beatAt(grid, 0), beatsPerBar: grid.beatsPerBar }
+  // On the tempo map (W2.3): a frame's beats are those around this moment.
+  const grid = tempoGrid(sequence) ?? DEFAULT_GRID
+  const beat = beatAt(grid, time)
+  return { frame: Math.round(time / frame), beat, beatsPerFrame: beatAt(grid, time + frame) - beat, beatsPerBar: grid.beatsPerBar }
 }
 
 export interface LayerTemporal {
@@ -193,11 +201,12 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
       // Posterize Time (M12): the picture (and the effects above it) from the held moment.
       let shown = time
       let held: VideoLayer['held'] = null
+      let nextSample: Ticks | null = null
       const p = holdingEffect(clip)
       if (p >= 0) {
         const settings = posterizeSettings(clip.effects[p]!.params)
         const f = Math.round(time / frame)
-        let hold = holdAt(settings, posterizeGrid(settings, sequence.beatGrid), frame, f)
+        let hold = holdAt(settings, posterizeGrid(settings, tempoGrid(sequence)), frame, f)
         if (hold && clip.adjustment && settings.cuts === 'switch') {
           const cut = latestCut(sequence, tracks.slice(0, index).map((t) => t.id), hold.start, f, frame)
           if (cut !== null) hold = holdFromCut(settings, hold, cut)
@@ -213,7 +222,13 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
             const then = resolveClip(stored, sample, modulation)
             clip = { ...clip, effects: [...then.effects.slice(0, p), ...clip.effects.slice(p)] }
             held = { effects: p, clock: clockAt(sequence, sample) }
-            if (clip.adjustment) layers = layersAt(sequence, media, sample, modulation, index)
+            if (clip.adjustment) {
+              // The pictures beneath, held; and where each will be at the next update.
+              const next = hold.end * frame
+              layers = layersAt(sequence, media, sample, modulation, index).map((l) =>
+                l.item && l.item.kind !== 'image' && next >= l.clip.start && next < clipEnd(l.clip) ? { ...l, prefetch: sourceTimeAt(l.clip, next, frame, mediaLength(l.item)) } : l
+              )
+            } else nextSample = Math.min(hold.end * frame, clipEnd(stored) - frame)
           }
         }
       }
@@ -252,7 +267,8 @@ function layersAt(sequence: Sequence, media: MediaItem[], time: Ticks, modulatio
       }
       const item = media.find((m) => m.id === clip.mediaId)
       if (!item) continue
-      layers.push(...sources, { clip, item, sourceTime: sourceTimeAt(clip, shown, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock, held, motion })
+      const prefetch = nextSample !== null && item.kind !== 'image' ? { prefetch: sourceTimeAt(clip, nextSample, frame, mediaLength(item)) } : {}
+      layers.push(...sources, { clip, item, sourceTime: sourceTimeAt(clip, shown, frame, mediaLength(item)), weight: Math.min(1, weight), masks, temporal, clock, held, motion, ...prefetch })
     }
   }
   if (sequence.masks.length > 0) {

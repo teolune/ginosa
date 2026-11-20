@@ -1,4 +1,5 @@
 import { beatSnapTargets } from '../audio/beat-grid'
+import { tempoGrid } from '../audio/tempo-map'
 import type { Sequence } from '../project/model'
 import { secondsToTicks, type Ticks } from '../time'
 import { clipEnd, frameTicks, sequenceEnd } from './timeline'
@@ -13,7 +14,8 @@ export function snapTargets(sequence: Sequence, options: { playhead: Ticks | nul
     targets.add(clipEnd(clip))
   }
   for (const marker of sequence.markers) targets.add(marker.time)
-  if (sequence.beatGrid) for (const beat of beatSnapTargets(sequence.beatGrid, 0, sequenceEnd(sequence) + secondsToTicks(60), frameTicks(sequence))) targets.add(beat)
+  const grid = tempoGrid(sequence)
+  if (grid) for (const beat of beatSnapTargets(grid, 0, sequenceEnd(sequence) + secondsToTicks(60), frameTicks(sequence))) targets.add(beat)
   return [...targets].sort((a, b) => a - b)
 }
 

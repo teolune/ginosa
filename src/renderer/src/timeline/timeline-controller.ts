@@ -385,6 +385,14 @@ class TimelineController extends Observable {
     if (this.run(command)) this.select([command.clipId], 'replace')
   }
 
+  /** Automate BPM (W2.3): a tempo clip at the playhead, from the tempo there; returns its id. */
+  newTempoClip(): string | null {
+    const command = newAutomationClip({ at: this.playhead, tempo: true })
+    if (!this.run(command)) return null
+    this.select([command.clipId], 'replace')
+    return command.clipId
+  }
+
   /** Cmd+R: Speed/Duration for the selected clips. */
   openSpeedDialog(): void {
     const ids = [...this.selection]

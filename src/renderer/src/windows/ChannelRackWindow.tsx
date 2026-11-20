@@ -36,6 +36,7 @@ import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/o
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /**
  * The Channel Rack (M12, redesigned in W3, decisions 105–109 and 130). Sections run on from bar 1
@@ -49,7 +50,7 @@ import { timelineController } from '../timeline/timeline-controller'
 const dispatch = (command: Parameters<typeof projectController.dispatch>[0]) => projectController.dispatch(command)
 
 function gridOf(sequence: Sequence) {
-  return sequence.beatGrid ?? DEFAULT_GRID
+  return tempoGrid(sequence) ?? DEFAULT_GRID
 }
 
 function cubesOf(placed: PlacedSection | null, rowId: string): Map<number, RackCube> {

@@ -126,7 +126,9 @@ export function cloneClip(clip: Clip): Clip {
     keyframes: cloneKeyframeMap(clip.keyframes),
     modulation: cloneModulationMap(clip.modulation),
     mask: clip.mask ? { ...clip.mask } : null,
-    ...(clip.automation ? { automation: { modulatorId: clip.automation.modulatorId, points: clip.automation.points.map((p) => ({ ...p })) } } : {})
+    ...(clip.automation
+      ? { automation: { modulatorId: clip.automation.modulatorId, points: clip.automation.points.map((p) => ({ ...p })), ...(clip.automation.tempo ? { tempo: { ...clip.automation.tempo } } : {}) } }
+      : {})
   }
 }
 

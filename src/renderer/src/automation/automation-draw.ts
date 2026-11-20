@@ -60,6 +60,8 @@ export interface DrawInput {
   selected: ReadonlySet<number>
   /** The sequence playhead. */
   playhead: Ticks
+  /** The value axis's labels: a tempo clip's in BPM (W2.3); percentages otherwise. */
+  valueLabel?: (value: number) => string
 }
 
 export function drawAutomationEditor(ctx: CanvasRenderingContext2D, input: DrawInput): void {
@@ -118,7 +120,7 @@ export function drawAutomationEditor(ctx: CanvasRenderingContext2D, input: DrawI
     ctx.lineTo(g.x1, y)
     ctx.stroke()
     ctx.fillStyle = '#8f86a3'
-    ctx.fillText(`${Math.round(v * 100)}%`, g.x0 - 6, y)
+    ctx.fillText(input.valueLabel ? input.valueLabel(v) : `${Math.round(v * 100)}%`, g.x0 - 6, y)
   }
 
   // The curve: one sample per screen column (its centre), the same function playback reads.

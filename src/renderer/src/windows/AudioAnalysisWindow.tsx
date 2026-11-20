@@ -12,6 +12,7 @@ import { PLAYHEAD_THROTTLE, STATE_AND_PLAYHEAD, useObservable } from '../state/o
 import { projectController } from '../state/project-controller'
 import { timelineController as tl } from '../timeline/timeline-controller'
 import { ScrubNumber } from './EffectControlsWindow'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /**
  * Audio Analysis (M8): the sounds ginosa listens to, what it hears in them, and the
@@ -94,7 +95,7 @@ function SignalView({ sourceId, sequence }: { sourceId: string | null; sequence:
     const xOf = (t: Ticks) => LABEL_W + ((t - from) / (to - from)) * plotW
     const laneH = height / LANES.length
     // Beat grid.
-    const grid = sequence.beatGrid
+    const grid = tempoGrid(sequence)
     if (grid) {
       for (const b of beatsBetween(grid, from, to)) {
         ctx.fillStyle = b.bar ? 'rgba(232,176,74,0.45)' : 'rgba(232,176,74,0.16)'

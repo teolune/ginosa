@@ -8,10 +8,11 @@ import { replaceRackSections, stepsFromHits } from '@engine/timeline/rack-edits'
 import { sequenceEnd } from '@engine/timeline/timeline'
 import { analysisController } from '../audio/analysis-controller'
 import { projectController } from '../state/project-controller'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /** The 16ths of the whole sequence, from its start to its end. */
 export function songSteps(sequence: Sequence): [number, number] {
-  const grid = sequence.beatGrid ?? DEFAULT_GRID
+  const grid = tempoGrid(sequence) ?? DEFAULT_GRID
   return [Math.floor(beatAt(grid, 0) * STEPS_PER_BEAT), Math.ceil(beatAt(grid, sequenceEnd(sequence)) * STEPS_PER_BEAT)]
 }
 
@@ -25,7 +26,7 @@ export function fillFromBands(sourceId: string): { steps: Record<string, number[
   const sequence = projectController.project?.sequence
   const ready = analysisController.ready(sourceId)
   if (!sequence || !ready) return null
-  const grid = sequence.beatGrid ?? DEFAULT_GRID
+  const grid = tempoGrid(sequence) ?? DEFAULT_GRID
   const [from, to] = songSteps(sequence)
   const steps: Record<string, number[]> = {}
   const times: Record<string, number[]> = {}

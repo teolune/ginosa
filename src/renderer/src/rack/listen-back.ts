@@ -6,6 +6,7 @@ import { ticksToSeconds } from '@engine/time'
 import { DETECT_LISTEN, hitBeat, type PlacedSection } from '@engine/timeline/rack'
 import { clipEnd, frameTicks, sourceTimeAt } from '@engine/timeline/timeline'
 import { projectController } from '../state/project-controller'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 const RATE = 44_100
 /** What you hear: from a little before the cube's moment to half a second after it. */
@@ -29,7 +30,7 @@ class ListenBack {
   where(placed: PlacedSection, row: RackRow, step: number): { clip: Clip; item: MediaItem; seconds: number } | null {
     const project = projectController.project
     const sequence = project?.sequence
-    const grid = sequence?.beatGrid
+    const grid = sequence ? tempoGrid(sequence) : null
     const a1 = sequence?.tracks.find((t) => t.kind === 'audio')
     if (!project || !sequence || !grid || !a1) return null
     const time = beatTime(grid, placed.firstStep / STEPS_PER_BEAT + hitBeat(step, row))

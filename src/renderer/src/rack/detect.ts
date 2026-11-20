@@ -12,6 +12,7 @@ import { analysisController, runWorker } from '../audio/analysis-controller'
 import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { fillFromBands, songSteps } from './autofill'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -121,7 +122,7 @@ class Detector extends Observable {
   private async fromStems(projectId: string, clips: Clip[], how: { separator: StemSeparator; drums: 'transcriber' | 'bands'; bass: 'notes' | 'bands'; suggestSetup: boolean }): Promise<boolean> {
     const { separator, drums, bass } = how
     const project = projectController.project!
-    const grid = project.sequence.beatGrid!
+    const grid = tempoGrid(project.sequence)!
     const rows = project.sequence.rack.rows.filter((r) => r.detect)
     const hits = new Map<string, number[]>(rows.map((r) => [r.id, []]))
     // The hits only one of a channel's two checks heard (W4.6: their cubes are marked as doubtful).

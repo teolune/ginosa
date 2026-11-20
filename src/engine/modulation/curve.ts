@@ -88,11 +88,12 @@ export function sourceSignal(source: ModSource, inputs: CurveInputs, frames: num
     }
     case 'tempo': {
       if (source.signal === 'beat-trigger' || source.signal === 'bar-trigger') {
+        // Each beat (or bar) where the grid has it, tempo map and all (W2.3).
         const every = source.signal === 'bar-trigger' ? grid.beatsPerBar : 1
-        const step = beatLength(grid) * every
         const end = tickAt(frames)
-        let n = Math.ceil(-grid.downbeat / step - 1e-9)
-        for (let t = grid.downbeat + n * step; t < end; n++, t = grid.downbeat + n * step) {
+        for (let n = Math.ceil(beatAt(grid, 0) / every - 1e-9); ; n++) {
+          const t = beatTime(grid, n * every)
+          if (t >= end) break
           const i = Math.round((t / secondsToTicks(1)) * CURVE_RATE)
           if (i >= 0 && i < frames) out[i] = 1
         }

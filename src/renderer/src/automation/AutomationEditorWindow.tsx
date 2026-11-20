@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { dragTension, insertPoint, movePoint, removePoints, setShape, SHAPE_LABELS, snapCurveTime, snapStepBeats, tensionLabel } from '@engine/automation/edit'
 import { findEffect, propertySpec } from '@engine/keyframes/properties'
 import { AUTOMATION_SHAPES, type AutomationPoint, type AutomationShape, type Clip } from '@engine/project/model'
-import { linkToAutomation, setAutomationPoints } from '@engine/timeline/automation-edits'
+import { linkToAutomation, setAutomationPoints, setControlsTempo, setTempoRange } from '@engine/timeline/automation-edits'
 import { linksTo, removeLinks } from '@engine/timeline/modulation-edits'
 import { effectById } from '../../../effects/registry'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
@@ -12,6 +12,7 @@ import { projectController } from '../state/project-controller'
 import { timelineController } from '../timeline/timeline-controller'
 import { drawAutomationEditor, editorGeometry, hitEditor } from './automation-draw'
 import { AUTOMATION_DRAG_TYPE, automationUi } from './automation-ui'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /**
  * The automation editor (W2.2, decision 127): an automation clip's curve, FL Studio's way. Click
@@ -63,7 +64,16 @@ export function AutomationEditorWindow() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    drawAutomationEditor(ctx, { clip, points: clip.automation.points, size, grid: sequence.beatGrid, selected: new Set(automationUi.selected), playhead: timelineController.playhead })
+    const tempo = clip.automation.tempo
+    drawAutomationEditor(ctx, {
+      clip,
+      points: clip.automation.points,
+      size,
+      grid: tempoGrid(sequence),
+      selected: new Set(automationUi.selected),
+      playhead: timelineController.playhead,
+      valueLabel: tempo ? (v) => String(Math.round(tempo.min + (tempo.max - tempo.min) * v)) : undefined
+    })
   })
 
   if (!sequence || !clip?.automation) {
@@ -77,7 +87,7 @@ export function AutomationEditorWindow() {
   const automation = clip.automation
   const points = automation.points
   const g = editorGeometry(clip, size)
-  const grid = sequence.beatGrid
+  const grid = tempoGrid(sequence)
   const frame = timelineController.frame()
   const stepBeats = grid ? snapStepBeats(grid, (g.x1 - g.x0) / Math.max(1, g.to - g.from)) : 1
   const snap = (time: number, free: boolean) => (automationUi.snapping && !free ? snapCurveTime(time, clip, grid, stepBeats, frame) : Math.max(0, Math.round(time)))
@@ -207,7 +217,9 @@ export function AutomationEditorWindow() {
 
   const first = selected.length ? points[selected[0]!] : undefined
   const sameShape = first && selected.every((i) => points[i]?.shape === first.shape) ? first.shape : ''
-  const readout = first ? [`${Math.round(first.value * 100)}%`, timelineController.timecode(clip.start + first.time - clip.sourceIn), tensionLabel(first)].filter(Boolean).join(' · ') : `${points.length} point${points.length === 1 ? '' : 's'}`
+  const tempo = automation.tempo
+  const valueText = (v: number) => (tempo ? `${(tempo.min + (tempo.max - tempo.min) * v).toFixed(1)} BPM` : `${Math.round(v * 100)}%`)
+  const readout = first ? [valueText(first.value), timelineController.timecode(clip.start + first.time - clip.sourceIn), tensionLabel(first)].filter(Boolean).join(' · ') : `${points.length} point${points.length === 1 ? '' : 's'}`
   const targets = linksTo(sequence, automation.modulatorId)
   const label = (t: (typeof targets)[number]) => {
     const spec = propertySpec(t.clip, t.ref.effectId, t.ref.param)
@@ -276,7 +288,42 @@ export function AutomationEditorWindow() {
           <span aria-hidden="true">⠿</span> {clip.name}
         </div>
         <div className="fx-section-title">Controls</div>
-        {targets.length === 0 && <p className="muted small">Nothing yet: pick a value below, or drag the name above onto one.</p>}
+        {tempo ? (
+          <div className="channel-value auto-target auto-tempo">
+            <span className="auto-tempo-label">Tempo</span>
+            <input
+              key={`min:${tempo.min}`}
+              className="input compact mono auto-bpm"
+              aria-label="Tempo at the bottom of the curve (BPM)"
+              title="The tempo at the bottom of the curve"
+              defaultValue={tempo.min}
+              onBlur={(e) => {
+                const v = Number(e.currentTarget.value)
+                if (v !== tempo.min) projectController.dispatch(setTempoRange(clip.id, v, tempo.max))
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+            <span className="muted small">–</span>
+            <input
+              key={`max:${tempo.max}`}
+              className="input compact mono auto-bpm"
+              aria-label="Tempo at the top of the curve (BPM)"
+              title="The tempo at the top of the curve"
+              defaultValue={tempo.max}
+              onBlur={(e) => {
+                const v = Number(e.currentTarget.value)
+                if (v !== tempo.max) projectController.dispatch(setTempoRange(clip.id, tempo.min, v))
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+            <span className="muted small">BPM</span>
+            <span className="spacer" />
+            <button className="channel-unlink" aria-label="Stop setting the tempo" title="Stop setting the tempo" onClick={() => projectController.dispatch(setControlsTempo(clip.id, false))}>
+              ×
+            </button>
+          </div>
+        ) : null}
+        {targets.length === 0 && !tempo && <p className="muted small">Nothing yet: pick a value below, or drag the name above onto one.</p>}
         {targets.map((t) => (
           <div key={t.link.id} className="channel-value auto-target">
             <button className="link-button" title="Show that clip" onClick={() => timelineController.select([t.clip.id], 'replace')}>
@@ -304,9 +351,16 @@ export function AutomationEditorWindow() {
             </button>
           </>
         ) : (
-          <button className="button compact" onClick={() => setPicking(true)}>
-            + Pick a value…
-          </button>
+          <>
+            <button className="button compact" onClick={() => setPicking(true)}>
+              + Pick a value…
+            </button>
+            {!tempo && (
+              <button className="button compact" title="This clip's curve sets the tempo too (W2.3)" onClick={() => projectController.dispatch(setControlsTempo(clip.id, true))}>
+                + Control the tempo
+              </button>
+            )}
+          </>
         )}
       </aside>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}

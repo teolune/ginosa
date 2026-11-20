@@ -15,13 +15,18 @@ open renders/ui/automation.png
 npm run snapshot -- --scenario automationeditor
 cat renders/ui/automationeditor.json
 open renders/ui/automationeditor.png
+npm run snapshot -- --scenario tempoauto
+cat renders/ui/tempoauto.json
+open renders/ui/tempoauto.png
 npm start
 ```
 
-- [ ] `npm run check` ends with **Tests 434 passed (434)**. New tests: the curve shapes (single and double curves, hold, stairs, smooth stairs, pulse, wave), Create Automation Clip (its own track, modulator and link), the clip setting a value while it plays, holding its last point after and leaving the value alone before, splitting (both halves control the same values, the curve carries on), deleting the last clip (its links go), and saving and opening. Since W2.2: the editor's edits (adding a point with its stretch's shape, moving between neighbours, deleting but keeping one, shapes, tension handles, snapping by zoom).
+- [ ] `npm run check` ends with **Tests 440 passed (440)**. New tests: the curve shapes (single and double curves, hold, stairs, smooth stairs, pulse, wave), Create Automation Clip (its own track, modulator and link), the clip setting a value while it plays, holding its last point after and leaving the value alone before, splitting (both halves control the same values, the curve carries on), deleting the last clip (its links go), and saving and opening. Since W2.2: the editor's edits (adding a point with its stretch's shape, moving between neighbours, deleting but keeping one, shapes, tension handles, snapping by zoom).
 - [ ] `automation`: `"verdict":"pass"`. A white square's Opacity and Scale follow one automation clip; the exported square matches the curve (`worstEdgePx` under 1.5, `worstLevel` under 0.006), `curveFromExport` reads 50 at the start, 100 at 3 s, four stairs down, 60 held, 100 at the end, and playback matches the export (`worst` under 0.006).
 - [ ] `automation.png`: an **Auto 1** track under V1 with an amber clip, its curve drawn across it.
 - [ ] `automationeditor`: `"verdict":"pass"`, `"worst"` under 0.008, and all eight stretches in `"shapes"` (single, double, hold, stairs, smooth-stairs, pulse, wave, single) with their `"worst"` under 0.008: the curve the editor draws is what plays. `"controls"` ends as `["opacity","scale"]`.
+- [ ] `tempoauto`: `"verdict":"pass"`: `"posterize"` `"held":250` with `"holdLengths"` shrinking from 13 and 12 to 11 (the ramp), `"cubes"` 20 of 20, `"playback"` `"same"` equal to `"of"`, and `"metronome"` `"worstMs":0`.
+- [ ] `tempoauto.png`: the Automation Editor on the tempo clip, its axis in BPM (60–180), the ramp from 120 to 140 then flat; the tempo knob reading 130.000 at 7 s, in pink.
 - [ ] `automationeditor.png`: the Automation Editor over the timeline: the curve in its eight shapes on the bar grid (1–5), the points and the small tension handles, the playhead's pink line, and the clip's name, Controls and + Pick a value… on the right.
 
 ## In ginosa
@@ -37,3 +42,11 @@ npm start
 - [ ] **Right-click a point** (or the stretch after it): pick its shape, Straighten, or Delete. The **Shape** menu at the top changes the selected points' stretches. **⌫** deletes the selected points (one always stays); **⌘A** selects them all. ⌘Z undoes a whole drag at once.
 - [ ] On the right: what the clip **controls** (× lets a value go), **+ Pick a value…** (search, open an effect, click a value), and the clip's name: **drag it onto a value** in Effect Controls to link that value too.
 - [ ] Play: the values follow the curve as drawn. Tell me how the editor feels next to FL's.
+
+### Tempo (W2.3)
+
+- [ ] With a song and its tempo set, put the playhead where the tempo should start changing and press the **wave button** by the tempo knob (Automate BPM), or right-click the knob. A clip named **Tempo** appears on an automation track and opens in the editor, its axis in BPM, flat at the song's tempo.
+- [ ] Draw a ramp (drag the end point up), a jump (a Hold, then a higher point), or stairs. Turn on the metronome and play: the clicks speed up and slow down with the curve. The ruler's bars squeeze and stretch to match.
+- [ ] The **tempo knob** shows the tempo under the playhead: pink where the tempo clip sets it (click it to open the clip), its usual colour before the first tempo clip.
+- [ ] The **Channel Rack**'s cubes, **Posterize Time** (on the beat grid) and beat-synced LFOs stay on the beat through the ramp, in playback and in an export.
+- [ ] Beside the graph: type the range's ends (the curve keeps its tempos), × stops the clip setting the tempo, and **+ Control the tempo** on another automation clip makes it set the tempo too. Muting the automation track turns the tempo changes off.

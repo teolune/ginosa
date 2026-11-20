@@ -1,5 +1,6 @@
 import { effectById } from '../../effects/registry'
 import { hashText } from '../audio/sources'
+import { tempoKey } from '../audio/tempo-map'
 import type { EffectInstance } from '../effects/types'
 import type { MediaItem } from '../project/media'
 import type { Clip, Sequence } from '../project/model'
@@ -64,7 +65,8 @@ export function stateKey(sequence: Sequence, media: readonly MediaItem[], clip: 
   const cached = cache.get(clip.id)
   if (cached) return cached
   const stored = sequence.clips.find((c) => c.id === clip.id) ?? clip
-  const shared = { settings: sequence.settings, modulators: sequence.modulators, beatGrid: sequence.beatGrid, audioSources: sequence.audioSources }
+  // The tempo clips too (W2.3): they move the beats a stateful or held frame depends on.
+  const shared = { settings: sequence.settings, modulators: sequence.modulators, beatGrid: sequence.beatGrid, tempo: tempoKey(sequence), audioSources: sequence.audioSources }
   const fingerprint = (item: MediaItem | undefined) => (item ? { id: item.id, fingerprint: item.fingerprint, colour: item.colour, info: item.info.video } : null)
   let content: unknown
   if (stored.adjustment) {

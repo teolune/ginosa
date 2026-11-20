@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { automationTest } from '../automation/automation-test'
 import { automationEditorTest } from '../automation/editor-test'
+import { tempoAutomationTest } from '../automation/tempo-test'
 import { tabsTest } from './tabs-test'
 import { channelWindowTest } from '../rack/channel-test'
 import { addTrack, renameTrack, setSequenceSettings, setTrackFlag } from '@engine/project/commands'
@@ -181,6 +182,13 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
         await window.ginosa.snapshot.report({ verdict: 'fail', reasons: [(error as Error).message] })
       }
       if (scenario === 'tabshome') projectController.showHome()
+      break
+    }
+    case 'tempoauto': {
+      // W2.3: a tempo ramp keeps the metronome, the cubes and Posterize Time on the beat.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /framecode_h264\.mp4$|square_1080\.png$/.test(f)), null)
+      await wait(2000)
+      await window.ginosa.snapshot.report(await tempoAutomationTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
       break
     }
     case 'automationeditor': {

@@ -922,3 +922,9 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 }
 .auto-target { padding-left: 0; }
 .auto-target-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.auto-tempo { gap: 6px; }
+.auto-tempo-label { font-weight: 600; color: var(--accent); }
+.auto-bpm { width: 52px; text-align: right; }
+/* The tempo knob where a tempo clip sets the tempo (W2.3): it shows that tempo and opens the clip. */
+.bpm.automated .bpm-arc { stroke: #f0a8d8; }
+.bpm.automated .bpm-readout { color: #f0a8d8; }

@@ -1,4 +1,5 @@
-import { beatLength } from '../audio/beat-grid'
+import { beatAt, beatTime, MAX_BPM, MIN_BPM, tempoAt } from '../audio/beat-grid'
+import { tempoGrid } from '../audio/tempo-map'
 import { components } from '../keyframes/keyframes'
 import { modulatable, propertySpec, valueAt, type PropertyRef } from '../keyframes/properties'
 import { CommandError } from '../project/commands'
@@ -22,7 +23,15 @@ export interface NewAutomationRequest {
   duration?: Ticks
   /** Right-click › Create Automation Clip: the value to link, starting from where it is now. */
   target?: PropertyRef
+  /** Automate BPM (W2.3): a tempo clip, starting from the tempo there (a 120 BPM grid is made if there's none). */
+  tempo?: boolean
   name?: string
+}
+
+/** A tempo clip's range: 60 BPM either side of the tempo it starts from (within 20–999.999). */
+export function tempoRangeAround(bpm: number): { min: number; max: number } {
+  const min = Math.max(MIN_BPM, Math.round(bpm - 60))
+  return { min, max: Math.min(MAX_BPM, Math.max(min + 1, Math.round(bpm + 60))) }
 }
 
 /** The range a clip sweeps a value over: its own range when it has one, else around where it is. */
@@ -60,9 +69,12 @@ export function newAutomationClip(request: NewAutomationRequest, newId: IdFactor
   const command = timelineCommand(request.target ? 'Create Automation Clip' : 'New Automation Clip', (draft) => {
     const sequence = draft.sequence
     const frame = frameTicks(sequence)
-    const grid = sequence.beatGrid
+    if (request.tempo && !sequence.beatGrid) sequence.beatGrid = { bpm: 120, downbeat: 0, beatsPerBar: 4, sourceId: null }
+    // On the tempo map (W2.3): 4 bars from here, however the tempo moves.
+    const grid = tempoGrid(sequence)
     const start = Math.max(0, toFrame(request.at, frame))
-    const duration = Math.max(frame, toFrame(request.duration ?? (grid ? beatLength(grid) * grid.beatsPerBar * NEW_AUTOMATION_BARS : secondsToTicks(8)), frame))
+    const fourBars = grid ? beatTime(grid, beatAt(grid, start) + grid.beatsPerBar * NEW_AUTOMATION_BARS) - start : secondsToTicks(8)
+    const duration = Math.max(frame, toFrame(request.duration ?? fourBars, frame))
     let trackId = freeTrack(sequence, start, start + duration)
     if (!trackId) {
       const count = sequence.tracks.filter((t) => t.kind === 'automation').length
@@ -81,6 +93,13 @@ export function newAutomationClip(request: NewAutomationRequest, newId: IdFactor
       const range = automationRange(target, request.target, start)
       first = range.start
       if (!request.name) name = `${propertySpec(target, request.target.effectId, request.target.param)!.label} (${target.name})`
+    }
+    let tempo: { min: number; max: number } | undefined
+    if (request.tempo && grid) {
+      const bpm = tempoAt(grid, start)
+      tempo = tempoRangeAround(bpm)
+      first = (bpm - tempo.min) / (tempo.max - tempo.min)
+      if (!request.name) name = 'Tempo'
     }
     sequence.modulators.push(newModulator(modulatorId, name, { kind: 'automation' }))
     const points: AutomationPoint[] = [{ time: 0, value: first, shape: 'single', tension: 0 }]
@@ -107,7 +126,7 @@ export function newAutomationClip(request: NewAutomationRequest, newId: IdFactor
       keyframes: {},
       modulation: {},
       mask: null,
-      automation: { modulatorId, points }
+      automation: tempo ? { modulatorId, points, tempo } : { modulatorId, points }
     })
     if (target && request.target) linkAutomation(target, request.target, modulatorId, start, newId)
   })
@@ -145,6 +164,48 @@ export function setAutomationPoints(clipId: string, points: readonly AutomationP
   })
   if (stroke) command.coalesceKey = `automation:${clipId}:${stroke}`
   return command
+}
+
+/**
+ * A tempo clip's BPM range (W2.3), for it and the clips sharing its modulator: each point keeps
+ * its tempo where the new range allows it.
+ */
+export function setTempoRange(clipId: string, min: number, max: number): TimelineCommand {
+  const command = timelineCommand('Change Tempo Range', (draft) => {
+    const sequence = draft.sequence
+    const source = sequence.clips.find((c) => c.id === clipId)
+    if (!source?.automation?.tempo) throw new CommandError('That isn’t a tempo clip')
+    if (!(Number.isFinite(min) && Number.isFinite(max) && min >= MIN_BPM && max <= MAX_BPM && max > min)) throw new CommandError(`A tempo range runs from ${MIN_BPM} to ${MAX_BPM} BPM, its top above its bottom`)
+    for (const clip of sequence.clips) {
+      const a = clip.automation
+      if (!a?.tempo || a.modulatorId !== source.automation.modulatorId) continue
+      const { min: lo, max: hi } = a.tempo
+      a.points = a.points.map((p) => ({ ...p, value: Math.min(1, Math.max(0, (lo + (hi - lo) * p.value - min) / (max - min))) }))
+      a.tempo = { min, max }
+    }
+  })
+  command.coalesceKey = `tempo-range:${clipId}`
+  return command
+}
+
+/**
+ * An automation clip (and those sharing its modulator) sets the tempo too, or stops: in its
+ * editor, Control the Tempo, or the tempo's ×. Its range starts 60 BPM either side of the tempo
+ * where it starts.
+ */
+export function setControlsTempo(clipId: string, on: boolean): TimelineCommand {
+  return timelineCommand(on ? 'Automate Tempo' : 'Stop Automating Tempo', (draft) => {
+    const sequence = draft.sequence
+    const source = sequence.clips.find((c) => c.id === clipId)
+    if (!source?.automation) throw new CommandError('That automation clip is gone')
+    if (on && !sequence.beatGrid) sequence.beatGrid = { bpm: 120, downbeat: 0, beatsPerBar: 4, sourceId: null }
+    const range = on ? tempoRangeAround(tempoAt(tempoGrid(sequence)!, source.start)) : null
+    for (const clip of sequence.clips) {
+      if (clip.automation?.modulatorId !== source.automation.modulatorId) continue
+      if (range) clip.automation.tempo ??= { ...range }
+      else delete clip.automation.tempo
+    }
+  })
 }
 
 export { pruneAutomation } from './automation-prune'

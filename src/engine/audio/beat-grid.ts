@@ -1,27 +1,37 @@
 import type { BeatGrid } from '../project/model'
 import { secondsToTicks, ticksToSeconds, type Ticks } from '../time'
+import { beatsAt, bpmAt, secondsAt } from './tempo-map'
 
 /**
  * The beat grid (M8): a constant tempo laid over the sequence. Beat n sits at
  * downbeat + n × (60 / BPM) seconds, for any whole n (negative before the downbeat), and
  * every `beatsPerBar`-th beat starts a bar. Positions are exact (not rounded to frames);
- * snapping rounds them to the frame grid where clips and keyframes live.
+ * snapping rounds them to the frame grid where clips and keyframes live. A grid from
+ * `tempoGrid(sequence)` carries the tempo map (W2.3), and every function here follows it.
  */
 
 export const MIN_BPM = 20
 export const MAX_BPM = 999.999
 
+/** A beat at the grid's own tempo (with a tempo map, before the first tempo clip): for sizes and zoom, not positions. */
 export function beatLength(grid: BeatGrid): Ticks {
   return secondsToTicks(60 / grid.bpm)
 }
 
 /** Beat number at `time` (fractional; 0 at the downbeat). */
 export function beatAt(grid: BeatGrid, time: Ticks): number {
+  if (grid.map) return beatsAt(grid.map, ticksToSeconds(time))
   return (time - grid.downbeat) / beatLength(grid)
 }
 
 export function beatTime(grid: BeatGrid, beat: number): Ticks {
+  if (grid.map) return secondsToTicks(secondsAt(grid.map, beat))
   return grid.downbeat + beat * beatLength(grid)
+}
+
+/** The tempo (BPM) at `time`: the grid's, or the tempo map's there. */
+export function tempoAt(grid: BeatGrid, time: Ticks): number {
+  return grid.map ? bpmAt(grid.map, ticksToSeconds(time)) : grid.bpm
 }
 
 /** 0–1 through the current beat, and through the current bar. */

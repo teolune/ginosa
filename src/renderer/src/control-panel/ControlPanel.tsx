@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MAX_BPM, MIN_BPM, barNumber, beatAt } from '@engine/audio/beat-grid'
+import { MAX_BPM, MIN_BPM, barNumber, beatAt, tempoAt } from '@engine/audio/beat-grid'
 import type { BeatGrid } from '@engine/project/model'
 import type { Ticks } from '@engine/time'
 import { ContextMenu, type MenuEntry } from '../app/ContextMenu'
@@ -15,6 +15,8 @@ import { workspaceController } from '../state/workspace'
 import { timelineController } from '../timeline/timeline-controller'
 import type { FrameChoice } from '../workspace/layout'
 import { BpmKnob } from './BpmKnob'
+import { tempoClipAt, tempoGrid } from '@engine/audio/tempo-map'
+import { automationUi } from '../automation/automation-ui'
 
 /** The tempo the knob shows before there is a beat grid. */
 const UNSET_BPM = 120
@@ -40,6 +42,7 @@ export function ControlPanel() {
   useObservable(analysisController)
   useObservable(songTempo)
   const [framesMenu, setFramesMenu] = useState<{ x: number; y: number } | null>(null)
+  const [tempoMenu, setTempoMenu] = useState<{ x: number; y: number } | null>(null)
   const sequence = projectController.project?.sequence
   if (!sequence) return null
   const grid = sequence.beatGrid
@@ -59,7 +62,7 @@ export function ControlPanel() {
   return (
     <div className="control-panel" role="toolbar" aria-label="Control Panel">
       <div className="cp-group cp-tempo">
-        <BpmKnob bpm={bpm} set={grid !== null} onChange={changeTempo} onInvalid={(message) => projectController.showMessage(message)} />
+        <TempoKnob onMenu={(x, y) => setTempoMenu({ x, y })} />
         <span className="cp-stack">
           <button
             className={`cp-button ${detecting ? 'busy' : ''}`}
@@ -70,7 +73,7 @@ export function ControlPanel() {
           >
             <Icon name="sparkles" fallback="✦" />
           </button>
-          <button className="cp-button" disabled title="Automate BPM: tempo changes over time come with automation clips (the next phase)" aria-label="Automate tempo">
+          <button className="cp-button" title="Automate BPM: a tempo clip at the playhead, starting from the tempo there; draw ramps and jumps in its editor" aria-label="Automate tempo" onClick={automateTempo}>
             <Icon name="automate" fallback="∿" />
           </button>
         </span>
@@ -148,14 +151,49 @@ export function ControlPanel() {
         <PlayheadTime />
       </span>
       {framesMenu && <ContextMenu x={framesMenu.x} y={framesMenu.y} items={frameItems} onClose={() => setFramesMenu(null)} />}
+      {tempoMenu && <ContextMenu x={tempoMenu.x} y={tempoMenu.y} items={[{ label: 'Create Automation Clip (Automate BPM)', onSelect: automateTempo }]} onClose={() => setTempoMenu(null)} />}
     </div>
+  )
+}
+
+/** Automate BPM (W2.3): a tempo clip at the playhead, opened in the automation editor. */
+function automateTempo(): void {
+  const id = timelineController.newTempoClip()
+  if (id) automationUi.open(id)
+}
+
+/**
+ * The tempo knob, in its own component so only it follows the playhead: the tempo under the
+ * playhead. Where a tempo clip sets it (W2.3), the knob shows that tempo and opens the clip.
+ */
+function TempoKnob({ onMenu }: { onMenu(x: number, y: number): void }) {
+  useObservable(projectController)
+  useObservable(timelineController, ['playhead'], { throttle: { playhead: 100 } })
+  const sequence = projectController.project?.sequence
+  if (!sequence) return null
+  const grid = sequence.beatGrid
+  const time = timelineController.playhead
+  const clipId = tempoClipAt(sequence, time)
+  const clip = clipId ? sequence.clips.find((c) => c.id === clipId) : undefined
+  const mapped = tempoGrid(sequence)
+  const bpm = clip && mapped ? Math.round(tempoAt(mapped, time) * 1000) / 1000 : (grid?.bpm ?? UNSET_BPM)
+  return (
+    <BpmKnob
+      bpm={bpm}
+      set={grid !== null}
+      onChange={changeTempo}
+      onInvalid={(message) => projectController.showMessage(message)}
+      automated={clip ? { name: clip.name, open: () => (timelineController.select([clip.id], 'replace'), automationUi.open(clip.id)) } : null}
+      onMenu={onMenu}
+    />
   )
 }
 
 /** The playhead's timecode, in its own component so only it re-renders during playback. */
 function PlayheadTime() {
   useObservable(timelineController, ['playhead'], { throttle: { playhead: 50 } })
-  const grid = projectController.project?.sequence.beatGrid
+  const sequence = projectController.project?.sequence
+  const grid = sequence ? tempoGrid(sequence) : null
   const time = timelineController.playhead
   return (
     <>

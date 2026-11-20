@@ -6,9 +6,14 @@ export interface FrameSource {
   /** The frame to show at `seconds` (media time), or null if nothing has been decoded yet. */
   frameAt(seconds: number): VideoSample | null
   ready(timeoutMs: number): Promise<void>
+  /** Decode on up to `seconds` (media time) while the picture holds (Posterize Time), so it's ready when asked for. */
+  prefetch?(seconds: number): void
   close(): void
   late: number
 }
+
+/** The most frames a held stream decodes ahead (a 1/4 hold at 70 BPM and 25 fps is about 21). */
+export const MAX_PREFETCH = 32
 
 /**
  * Sequential decoding of one clip during playback: a few frames are decoded ahead,
@@ -21,6 +26,8 @@ export class VideoStream implements FrameSource {
   private pumping = false
   private ended = false
   private closed = false
+  /** Media time (with the origin) to decode up to while held, or null. */
+  private target: number | null = null
   /** How many frames we had to show late because decoding hadn't caught up. */
   late = 0
 
@@ -38,7 +45,7 @@ export class VideoStream implements FrameSource {
     if (this.pumping) return
     this.pumping = true
     try {
-      while (!this.closed && !this.ended && this.queue.length < this.ahead) {
+      while (!this.closed && !this.ended && (this.queue.length < this.ahead || this.wantsMore())) {
         const next = await this.iterator.next()
         if (next.done) this.ended = true
         else if (this.closed) next.value.close()
@@ -50,6 +57,17 @@ export class VideoStream implements FrameSource {
     } finally {
       this.pumping = false
     }
+  }
+
+  private wantsMore(): boolean {
+    if (this.target === null || this.queue.length >= MAX_PREFETCH) return false
+    const last = this.queue[this.queue.length - 1] ?? this.current
+    return !last || last.timestamp + last.duration <= this.target
+  }
+
+  prefetch(seconds: number): void {
+    this.target = this.media.origin + seconds
+    void this.pump()
   }
 
   /** Resolves once the first frame is decoded (or the clip has none). */

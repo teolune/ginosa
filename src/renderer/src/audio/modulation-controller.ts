@@ -9,6 +9,7 @@ import { sequenceEnd } from '@engine/timeline/timeline'
 import { Observable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { analysisController } from './analysis-controller'
+import { tempoGrid, tempoKey } from '@engine/audio/tempo-map'
 
 /**
  * Every modulator's output curve, worked out in advance for the whole sequence (M8). The
@@ -32,7 +33,8 @@ interface Entry {
 const MARGIN_SECONDS = 30
 
 function inputsFor(project: Project, m: Modulator): { inputs: CurveInputs; ready: boolean; key: string } {
-  const grid = project.sequence.beatGrid
+  // On the tempo map (W2.3): LFOs, beat triggers and the Channel Rack follow its ramps.
+  const grid = tempoGrid(project.sequence)
   if (m.source.kind === 'pattern') {
     const id = m.source.rowId
     const rack = project.sequence.rack
@@ -67,7 +69,7 @@ export function computeCurves(project: Project, previous: Map<string, Entry> = n
   const out = new Map<string, Entry>()
   for (const m of project.sequence.modulators) {
     const { inputs, ready, key: inputKey } = inputsFor(project, m)
-    const key = JSON.stringify([m, project.sequence.beatGrid, inputKey, frames])
+    const key = JSON.stringify([m, project.sequence.beatGrid, tempoKey(project.sequence), inputKey, frames])
     const old = previous.get(m.id)
     const entry = old && old.key === key ? { ...old } : { key, curve: modulatorCurve(m, inputs, frames), raw: sourceSignal(m.source, inputs, frames), ready }
     if (m.source.kind === 'pattern') {

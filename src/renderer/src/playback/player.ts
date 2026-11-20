@@ -848,6 +848,7 @@ export class Player extends Observable {
       }
       if (this.rate < 0) continue // reverse shows the still-render path below
       const stream = this.ensureStream(layer, shown, sequence)
+      if (layer.prefetch !== undefined) stream?.prefetch?.(ticksToSeconds(layer.prefetch))
       const sample = stream?.frameAt(ticksToSeconds(layer.sourceTime)) ?? null
       if (!sample) {
         missing = true
@@ -953,6 +954,7 @@ export class Player extends Observable {
     }
     return {
       frameAt: (seconds) => stream.frameAt(seconds),
+      prefetch: (seconds) => stream.prefetch?.(seconds),
       ready: (timeoutMs) => stream.ready(timeoutMs),
       close: () => {
         stream.close()

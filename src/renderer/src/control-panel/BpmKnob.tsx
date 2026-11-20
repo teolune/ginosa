@@ -45,15 +45,20 @@ interface Props {
   set: boolean
   onChange(bpm: number, label: string): void
   onInvalid(message: string): void
+  /** The tempo here comes from a tempo clip (W2.3): the knob shows it and opens the clip instead of changing it. */
+  automated?: { name: string; open(): void } | null
+  /** Right-click: Automate BPM. */
+  onMenu?(x: number, y: number): void
 }
 
 /** The Control Panel's tempo: a knob to drag or scroll, and the number to click and type (to 999.999). */
-export function BpmKnob({ bpm, set, onChange, onInvalid }: Props) {
+export function BpmKnob({ bpm, set, onChange, onInvalid, automated = null, onMenu }: Props) {
   const [typing, setTyping] = useState(false)
   const drag = useRef<{ x: number; y: number; start: number } | null>(null)
   const turn = bpmTurn(bpm)
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (automated || event.button !== 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
     drag.current = { x: event.clientX, y: event.clientY, start: bpm }
     document.body.classList.add('dragging')
@@ -70,22 +75,34 @@ export function BpmKnob({ bpm, set, onChange, onInvalid }: Props) {
     document.body.classList.remove('dragging')
   }
   const onWheel = (event: ReactWheelEvent<HTMLButtonElement>) => {
+    if (automated) return
     const steps = event.deltaY < 0 ? 1 : -1
     onChange(clampBpm(bpm + steps * (event.altKey ? 0.01 : event.shiftKey ? 10 : 1)), 'Change Tempo')
   }
 
   return (
-    <span className={`bpm ${set ? '' : 'unset'}`}>
+    <span className={`bpm ${set ? '' : 'unset'} ${automated ? 'automated' : ''}`}>
       <button
         className="knob bpm-knob"
         aria-label="Tempo"
-        title="Tempo: drag up or down, or scroll (Shift: 10 BPM at a time, Option: hundredths). Arrow keys nudge."
+        title={
+          automated
+            ? `The tempo here comes from the tempo clip “${automated.name}”: click to edit its curve`
+            : 'Tempo: drag up or down, or scroll (Shift: 10 BPM at a time, Option: hundredths). Arrow keys nudge. Right-click to automate it.'
+        }
+        onClick={() => automated?.open()}
+        onContextMenu={(event) => {
+          if (!onMenu) return
+          event.preventDefault()
+          onMenu(event.clientX, event.clientY)
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
         onKeyDown={(event) => {
+          if (automated) return
           const step = event.altKey ? 0.01 : event.shiftKey ? 10 : 1
           if (event.key === 'ArrowUp' || event.key === 'ArrowRight') onChange(clampBpm(bpm + step), 'Change Tempo')
           else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') onChange(clampBpm(bpm - step), 'Change Tempo')
@@ -125,7 +142,11 @@ export function BpmKnob({ bpm, set, onChange, onInvalid }: Props) {
           }}
         />
       ) : (
-        <button className="bpm-readout mono" title={set ? 'Click to type a tempo (up to 999.999)' : 'No beat grid yet: click to type a tempo, or detect it'} onClick={() => setTyping(true)}>
+        <button
+          className="bpm-readout mono"
+          title={automated ? `The tempo here comes from the tempo clip “${automated.name}”: click to edit its curve` : set ? 'Click to type a tempo (up to 999.999)' : 'No beat grid yet: click to type a tempo, or detect it'}
+          onClick={() => (automated ? automated.open() : setTyping(true))}
+        >
           {bpm.toFixed(3)}
         </button>
       )}

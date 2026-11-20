@@ -9,6 +9,7 @@ import { DEFAULT_GRID } from '@engine/modulation/curve'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { rackUi } from './rack-ui'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 /**
  * The cube window (decision 109): for the selected cubes, one slider per value linked to
@@ -21,7 +22,7 @@ export function CubeWindow() {
   const stroke = useRef<string>('')
   const sequence = projectController.project?.sequence
   if (!sequence) return null
-  const grid = sequence.beatGrid ?? DEFAULT_GRID
+  const grid = tempoGrid(sequence) ?? DEFAULT_GRID
   const placed = placeSections(sequence.rack, grid)
   const groups = new Map<string, Array<{ ref: CubeRef; cube: RackCube }>>()
   for (const ref of rackUi.selection) {

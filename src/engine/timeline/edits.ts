@@ -579,7 +579,7 @@ export function copyClips(sequence: Sequence, clipIds: string[]): ClipboardClip[
     keyframes: cloneKeyframeMap(c.keyframes),
     modulation: cloneModulationMap(c.modulation),
     mask: c.mask ? { ...c.mask } : null,
-    ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })) } } : {})
+    ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })), ...(c.automation.tempo ? { tempo: { ...c.automation.tempo } } : {}) } } : {})
   }))
 }
 
@@ -625,7 +625,7 @@ export function applyPaste(sequence: Sequence, media: MediaItem[], clipboard: Cl
       keyframes: cloneKeyframeMap(c.keyframes),
       modulation: cloneModulationMap(c.modulation),
       mask: c.kind === 'video' ? keepMask(c.mask) : null,
-      ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })) } } : {})
+      ...(c.automation ? { automation: { modulatorId: c.automation.modulatorId, points: c.automation.points.map((p) => ({ ...p })), ...(c.automation.tempo ? { tempo: { ...c.automation.tempo } } : {}) } } : {})
     }
   })
   const destination = [...new Set(clips.map((c) => c.trackId))]

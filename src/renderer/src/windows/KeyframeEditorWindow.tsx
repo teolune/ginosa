@@ -44,6 +44,7 @@ import { modulationController } from '../audio/modulation-controller'
 import { projectController } from '../state/project-controller'
 import { SNAP_PIXELS } from '../timeline/geometry'
 import { timelineController as tl } from '../timeline/timeline-controller'
+import { tempoGrid } from '@engine/audio/tempo-map'
 
 type Drag =
   | { type: 'scrub' }
@@ -157,7 +158,7 @@ export function KeyframeEditorWindow() {
       isFocused: (ref) => keyframeController.isFocused(ref),
       marquee: d?.type === 'marquee' ? d : null,
       markers: sequence.markers.map((m) => m.time),
-      grid: sequence.beatGrid,
+      grid: tempoGrid(sequence),
       modulation: modulationController.context
     })
   })

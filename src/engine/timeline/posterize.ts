@@ -1,4 +1,4 @@
-import { beatTime } from '../audio/beat-grid'
+import { beatAt, beatTime } from '../audio/beat-grid'
 import type { ParamValue } from '../effects/types'
 import { DEFAULT_GRID } from '../modulation/curve'
 import type { BeatGrid } from '../project/model'
@@ -96,11 +96,11 @@ export function updateFrame(s: PosterizeSettings, grid: BeatGrid, frame: Ticks, 
 /** The hold that sequence frame `f` falls in (null when the knob is Off). */
 export function holdAt(s: PosterizeSettings, grid: BeatGrid, frame: Ticks, f: number): Hold | null {
   if (s.timing === 'beat' && POSTERIZE_RATES[s.rate]!.beats <= 0) return null
-  // Where f is in updates, roughly; then step until update k ≤ f < update k + 1.
+  // Where f is in updates, roughly (on the beats there, so a tempo map's ramps keep it close); then step until update k ≤ f < update k + 1.
   const periodFrames = s.timing === 'free' ? secondsToTicks(1 / s.fps) / frame : (POSTERIZE_RATES[s.rate]!.beats * secondsToTicks(60 / grid.bpm)) / frame
   if (!(periodFrames > 0) || !Number.isFinite(periodFrames)) return null
   const origin = updateFrame(s, grid, frame, 0)
-  let k = Math.floor((f - origin) / periodFrames)
+  let k = s.timing === 'free' ? Math.floor((f - origin) / periodFrames) : Math.floor((beatAt(grid, f * frame) - s.phase) / POSTERIZE_RATES[s.rate]!.beats)
   while (updateFrame(s, grid, frame, k) > f) k--
   while (updateFrame(s, grid, frame, k + 1) <= f) k++
   const start = updateFrame(s, grid, frame, k)

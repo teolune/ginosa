@@ -371,7 +371,16 @@ function parseAutomation(value: unknown, where: string): AutomationCurve {
     }
   })
   points.sort((a, b) => a.time - b.time)
-  return { modulatorId: expectString(value, 'modulatorId', where), points }
+  const curve: AutomationCurve = { modulatorId: expectString(value, 'modulatorId', where), points }
+  // A tempo clip (W2.3): its BPM range.
+  const tempo = value['tempo']
+  if (isObject(tempo)) {
+    const min = expectNumber(tempo, 'min', `${where}.tempo`)
+    const max = expectNumber(tempo, 'max', `${where}.tempo`)
+    if (!(min >= MIN_BPM && max <= MAX_BPM && max > min)) throw new ProjectFormatError(`${where}.tempo should run from ${MIN_BPM} to ${MAX_BPM} BPM, its top above its bottom`)
+    curve.tempo = { min, max }
+  }
+  return curve
 }
 
 function parseClip(value: unknown, index: number): Clip {

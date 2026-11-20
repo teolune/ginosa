@@ -1,5 +1,15 @@
 # Changelog
 
+## Tempo automation (W2.3, 20 Nov 2026)
+
+- **Automate BPM** (the wave button by the tempo knob, or right-click the knob): a **tempo clip** at the playhead, opened in the automation editor (decision 132). Its curve sets the tempo; the editor's axis reads in BPM, across a range 60 BPM either side of where it started (type both ends beside the graph; the curve keeps its tempos). Draw ramps with curves and jumps with holds or stairs, as for any value.
+- **Everything on the beat follows the tempo:** the Channel Rack's cubes, the metronome, Posterize Time, LFOs and beat triggers, effects' beat clock (Grain's pattern), snapping, the ruler and bar numbers, the automation editor's grid, and Detect. Beats are counted through a ramp exactly, not in steps.
+- **The tempo knob shows the tempo under the playhead.** Where a tempo clip sets it, the knob turns pink, and clicking it opens that clip; before the first tempo clip it's the song's tempo, as before. After a tempo clip ends its last tempo holds until the next one. Muting the automation track turns its tempo off.
+- Any automation clip can **control the tempo** too (+ Control the tempo in its editor), so one clip can move the tempo and an effect together (W2.4 builds on that); × stops it.
+- **Fixed on the way:** in real-time playback, Posterize Time showed the frame one or two frames late at each update (the decoder kept only 5 frames ahead, and a hold is 10–13). A held picture now decodes on to its next update during the hold.
+- **Measured** (`tempoauto`, `"verdict":"pass"`): Automate BPM at 4 s, the curve drawn from 120 to 140 BPM over 6 s, then held. Against beats worked out by hand: Posterize Time at 1/4 held the right frame on all 250 exported frames (holds shrinking from 12–13 frames to 11); the square driven by a cube on every beat flashed on exactly the 20 expected frames; every frame playback presented (249) matched the file; the metronome's 24 clicks were on their beats to within a microsecond. The engine's map is within a microsecond of the sums by hand through the ramp, a jump and the hold after. Tests: 440 (5 new).
+- **Next:** W2.4, one clip moving the tempo and an effect together, and your sign-off.
+
 ## Channel Rack: 4-bar sections, cubes at their own size (19 Nov 2026)
 
 - **Sections are 4 bars by default** (your request): + adds a 4-bar section, and Detect splits the song into 4-bar sections (the last one what's left). Sections you already have keep their length: right-click a section › **Split All Into 4-Bar Sections** (or **Split in Half**) turns them into 4-bar ones with every cube and its amounts where it plays, in one undo step.
