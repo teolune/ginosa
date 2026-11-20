@@ -121,7 +121,7 @@ export function allLinksTo(sequence: Sequence, modulatorId: string): ModLink[] {
 
 /**
  * Project format 13: M12's rows kept their steps along the whole song. They become sections of
- * 8 bars from bar 1 (the last one what's left), each with its steps where they are. Steps before
+ * 4 bars from bar 1 (the last one what's left), each with its steps where they are. Steps before
  * bar 1 are dropped.
  */
 export function sectionsFromSteps(rows: ReadonlyArray<{ id: string; steps: readonly number[] }>, grid: BeatGrid, newId: IdFactory): RackSection[] {
@@ -139,7 +139,7 @@ export function sectionsFromSteps(rows: ReadonlyArray<{ id: string; steps: reado
 
 /**
  * Sections from hits along the song (Automatic Detection, decision 130): the song from bar 1 up
- * to `endStep` in sections of `bars` (8 by default, like a new section; the last one is what's
+ * to `endStep` in sections of `bars` (4 by default, like a new section; the last one is what's
  * left), each with every hit where it is. Steps are 16ths from the downbeat; the result's cubes
  * are steps in their section, by channel id, and `doubtful` the ones only one check heard.
  */

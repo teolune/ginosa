@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { beatAt, beatTime } from '@engine/audio/beat-grid'
 import { DEFAULT_GRID } from '@engine/modulation/curve'
-import { MAX_SECTION_BARS, STEPS_PER_BEAT, type RackCube, type RackRow, type Sequence } from '@engine/project/model'
+import { DEFAULT_SECTION_BARS, MAX_SECTION_BARS, STEPS_PER_BEAT, type RackCube, type RackRow, type Sequence } from '@engine/project/model'
 import { channelModulatorIds, placeSections, sectionAtStep, sectionName, stepsPerBar, type PlacedSection } from '@engine/timeline/rack'
 import {
   addRackRows,
@@ -69,6 +69,8 @@ export function ChannelRackWindow() {
   const closeDoubt = useCallback(() => setDoubt(null), [])
   const stroke = useRef<{ id: string; mode: 'paint' | 'select'; rowId: string; sectionId: string; anchor: number } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  // The cubes scroll sideways when a section is wider than the window (cubes keep their size).
+  const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const end = () => (stroke.current = null)
     window.addEventListener('pointerup', end)
@@ -84,6 +86,22 @@ export function ChannelRackWindow() {
       (id) => rack.rows.some((r) => r.id === id)
     )
   }, [rack])
+  // While playing and following, keep the playhead's column in view: turn the page when it reaches the edge.
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller || !rackUi.follow || !timelineController.transport?.playing) return
+    const cube = scroller.querySelector<HTMLElement>('.rack-row .rack-cube.playing')
+    if (!cube) return
+    const head = scroller.querySelector<HTMLElement>('.rack-row .rack-row-head')?.offsetWidth ?? 0
+    const box = cube.getBoundingClientRect()
+    const view = scroller.getBoundingClientRect()
+    const from = view.left + head + 12
+    if (box.left < from || box.right > view.right - 8) scroller.scrollLeft += box.left - from
+  })
+  // A different section shown: from its start.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0
+  }, [rackUi.follow ? null : rackUi.sectionId])
   if (!project || !rack) return null
   const sequence = project.sequence
   const rows = rack.rows
@@ -96,9 +114,12 @@ export function ChannelRackWindow() {
   const chosen = placed.find((p) => p.section.id === rackUi.sectionId) ?? null
   const shown = rackUi.follow ? (playing ?? chosen ?? placed[0] ?? null) : (chosen ?? placed[0] ?? null)
   // The whole section, 16 to a bar (decision 130).
-  const columns = shown?.steps ?? 8 * perBar
+  const columns = shown?.steps ?? DEFAULT_SECTION_BARS * perBar
   const playColumn = shown && playing && playing.section.id === shown.section.id ? Math.floor(playStep - shown.firstStep) : -1
   const loop = columns
+  // Each bar's 16ths at their own size (at least 30 px), with a narrow empty track between bars, so a bar's first cube is as wide as the rest.
+  const bars = Math.max(1, Math.ceil(columns / perBar))
+  const cubeGrid: CSSProperties = { gridTemplateColumns: Array.from({ length: bars }, () => `repeat(${perBar}, minmax(30px, 1fr))`).join(' 2px ') }
 
   const ref = (rowId: string, step: number): CubeRef | null => (shown ? { sectionId: shown.section.id, rowId, step } : null)
 
@@ -296,7 +317,7 @@ export function ChannelRackWindow() {
       <div className="rack-top">
         <button
           className={`cp-button ${detector.busy ? 'busy' : ''}`}
-          title={detector.busy ? detector.status : 'Automatic Detection: kicks, claps, hi-hats and bass from the song on A1, in 8-bar sections'}
+          title={detector.busy ? detector.status : `Automatic Detection: kicks, claps, hi-hats and bass from the song on A1, in ${DEFAULT_SECTION_BARS}-bar sections`}
           aria-label="Detect the pattern from the song"
           disabled={detector.busy}
           onClick={() => void detector.run()}
@@ -342,7 +363,7 @@ export function ChannelRackWindow() {
               )}
             </div>
           ))}
-          <button className="cp-button" title="Add an empty section (8 bars) after the one shown" aria-label="Add a section" onClick={() => addSection(shown?.section.id ?? null)}>
+          <button className="cp-button" title={`Add an empty section (${DEFAULT_SECTION_BARS} bars) after the one shown`} aria-label="Add a section" onClick={() => addSection(shown?.section.id ?? null)}>
             +
           </button>
         </div>
@@ -367,19 +388,17 @@ export function ChannelRackWindow() {
           </button>
         </div>
       ) : (
-        <div className="rack-rows">
+        <>
+        <div className="rack-rows" ref={scrollRef}>
           {shown && (
             <div className="rack-bars-row" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <span />
-              <div className="rack-cubes rack-bar-numbers" style={{ '--columns': columns } as CSSProperties}>
+              <div className="rack-row-head" />
+              <div className="rack-cubes rack-bar-numbers" style={cubeGrid}>
                 {Array.from({ length: shown.section.bars }, (_, bar) => (
                   <button
                     key={bar}
                     className={`rack-bar-number ${bar > 0 ? 'bar-start' : ''}`}
-                    style={{ gridColumn: `span ${perBar}` }}
+                    style={{ gridColumn: `${bar * (perBar + 1) + 1} / span ${perBar}` }}
                     title={`Bar ${shown.startBar + bar + 1}: click to move the playhead there`}
                     tabIndex={-1}
                     onClick={() => timelineController.movePlayhead(Math.max(0, beatTime(grid, (shown.firstStep + bar * perBar) / 4)))}
@@ -396,6 +415,8 @@ export function ChannelRackWindow() {
             const links = linkCount(row)
             return (
               <div key={row.id} className={`rack-row ${row.enabled ? '' : 'off'}`}>
+                {/* The channel's controls stay put while its cubes scroll sideways. */}
+                <div className="rack-row-head">
                 <button className={`rack-light ${row.enabled ? 'on' : ''}`} title={row.enabled ? 'Turn this channel off (its cubes are kept)' : 'Turn this channel on'} aria-pressed={row.enabled} onClick={() => dispatch(setRackRow(row.id, { enabled: !row.enabled }))} />
                 <MiniKnob
                   value={row.nudge}
@@ -433,7 +454,8 @@ export function ChannelRackWindow() {
                   <span className="rack-name-text">{row.name}</span>
                   {links > 0 && <span className="rack-link-count" title={`${links} value${links === 1 ? '' : 's'} linked`}>{links}</span>}
                 </button>
-                <div className="rack-cubes" role="grid" aria-label={`${row.name} cubes`} style={{ '--columns': columns } as CSSProperties}>
+                </div>
+                <div className="rack-cubes" role="grid" aria-label={`${row.name} cubes`} style={cubeGrid}>
                   {Array.from({ length: columns }, (_, step) => {
                     const cube = cubes.get(step)
                     const here = ref(row.id, step)
@@ -443,6 +465,7 @@ export function ChannelRackWindow() {
                     return (
                       <button
                         key={step}
+                        style={{ gridColumn: step + Math.floor(step / perBar) + 1 }}
                         className={`rack-cube ${Math.floor(step / STEPS_PER_BEAT) % 2 ? 'odd' : ''} ${step > 0 && step % perBar === 0 ? 'bar-start' : step > 0 && step % STEPS_PER_BEAT === 0 ? 'beat-start' : ''} ${cube ? 'on' : ''} ${pushes ? 'down' : ''} ${selected ? 'sel' : ''} ${step === playColumn ? 'playing' : ''} ${outside ? 'outside' : ''} ${cube?.doubtful ? 'doubtful' : ''}`}
                         aria-pressed={Boolean(cube)}
                         aria-label={`${row.name}, bar ${Math.floor(step / perBar) + 1}, 16th ${(step % perBar) + 1}${cube ? (cube.doubtful ? ', doubtful' : '') : ', empty'}`}
@@ -499,6 +522,7 @@ export function ChannelRackWindow() {
               </div>
             )
           })}
+        </div>
           <div className="rack-row rack-add-row">
             <button className="button compact" onClick={(e) => addMenu(e.clientX, e.clientY)}>
               + Channel
@@ -509,7 +533,7 @@ export function ChannelRackWindow() {
               </span>
             )}
           </div>
-        </div>
+        </>
       )}
       {rackUi.cubeWindow && <CubeWindow />}
       {rackUi.channelWindow && <ChannelWindow key={rackUi.channelWindow} />}

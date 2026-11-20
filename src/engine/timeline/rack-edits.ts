@@ -135,7 +135,7 @@ export function removeRackRow(rowId: string): TimelineCommand {
 
 // ---- Sections ------------------------------------------------------------------------
 
-/** + : an empty section after `afterId` (at the end when null), 8 bars by default (decision 107). */
+/** + : an empty section after `afterId` (at the end when null), 4 bars by default (decision 107, 4 since 19 Nov). */
 export function addRackSection(afterId: string | null, bars = DEFAULT_SECTION_BARS, newId: IdFactory = defaultId): TimelineCommand & { sectionId: string } {
   const sectionId = newId()
   const command = timelineCommand('Add Section', (draft) => {

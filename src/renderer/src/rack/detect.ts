@@ -21,7 +21,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * first; the drum transcriber (W4.3, when set up) then finds the kick, snare and hi-hat hits
  * in the drums stem, and otherwise each channel listens to its band of its stem. Without
  * separation, the channels listen to frequency bands of A1's whole sound (and the message
- * says so). Hits snap to the nearest 16th on the beat grid, and the song is split into 8-bar
+ * says so). Hits snap to the nearest 16th on the beat grid, and the song is split into 4-bar
  * sections.
  */
 class Detector extends Observable {

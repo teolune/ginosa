@@ -23,8 +23,8 @@ open renders/ui/rackchannel.png
 - [ ] `rackui`: `"ui"` ends with `"pass":true` (link mode's socket links and unlinks Contrast, dragging Clap onto Brightness links it, clicking an empty cube makes one, Backspace deletes it), and `pushes` is `[1,-0.5]` (a +100% cube and a −50% cube on Kick Flash's link).
 - [ ] `rackui` also shows the doubtful cubes working (W4.6): `"doubtDots":2`, `"doubtPopover":true`, `"doubtKeeps":true`, `"doubtDeletes":true`, `"doubtUndone":true`.
 - [ ] `rackui.png`: the Channel Rack with even, raised cubes, the beats in alternating shades of four; Kick on every beat, Clap on 2 and 4, Hi-hat on every 8th; one pink cube (it pushes its value down).
-- [ ] `rackchannel`: `"verdict":"pass"`, `"cubes":80` and `"barNumbers":["1","2","3","4","5"]` (all of section A, nothing repeated), kicks through to step 64, `"listed"` with Basic Correction's Exposure and Mosaic's Cell Size, and `"amounts"` ending in −40s. `rackchannel.png`: Kick 2's window open over the rack.
-- [ ] `rackdetect`: `"verdict":"pass"`. Once detection is set up (below), with `"method":"stems"` and `"drums":"transcriber"`, sections `[8,3]`; before, `"method":"bands"`. Either way Kick `[0,4,8,…,28]`, Clap `[4,12,20,28]`, Hi-hat every even 16th. With detection set up it also says `"bass":"notes"`, `"listen":{"seconds":0.62,…}` (a Kick cube's moment played from the drums stem) and how many cubes it marked as doubtful in each channel.
+- [ ] `rackchannel`: `"verdict":"pass"`, `"cubes":64` and `"barNumbers":["1","2","3","4"]` (all of section A, nothing repeated), kicks through to step 64, `"listed"` with Basic Correction's Exposure and Mosaic's Cell Size, and `"amounts"` ending in −40s. `rackchannel.png`: Kick 2's window open over the rack.
+- [ ] `rackdetect`: `"verdict":"pass"`. Once detection is set up (below), with `"method":"stems"` and `"drums":"transcriber"`, sections `[4,4,3]`; before, `"method":"bands"`. Either way Kick `[0,4,8,…,28]`, Clap `[4,12,20,28]`, Hi-hat every even 16th. With detection set up it also says `"bass":"notes"`, `"listen":{"seconds":0.62,…}` (a Kick cube's moment played from the drums stem) and how many cubes it marked as doubtful in each channel.
 
 ### Stem separation (once)
 
@@ -53,7 +53,7 @@ npm start
 - [ ] In a project with nothing on A1, the A1 lane says **♪ Drop the song here**. Drop a song there.
 - [ ] Set the tempo with the Control Panel's sparkles (or type it on the knob). With detection set up they listen to the song on A1 with Beat This!: `dpackdist` should come out at about **167** and `entrust` about **162**, with bar 1 at the start of the song (the ruler's 1 lines up with the first kick or the first sound). A song with silence at the start gets bar 1 where the music starts.
 - [ ] Open the **Channel Rack** (Control Panel). Press its sparkles (**Detect**). The rack's top bar says what it's doing; with stems: *Separating the song into drums, bass and vocals…*, then *Transcribing the drums hit by hit…* (with a percentage) and *Hearing the bass note by note…*. The Bass channel should now catch 808 slides and notes that change pitch without a new hit. The first time takes a while; the stems are kept in the project's cache, so detecting again is quick.
-- [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into 8-bar sections (A, B, C…; the last one is what's left). Undo brings back what was there.
+- [ ] Kick, Clap, Hi-hat and Bass are filled (added first if they weren't there), and the song is split into 4-bar sections (A, B, C…; the last one is what's left). Undo brings back what was there.
 - [ ] The top bar counts the stages: *Step 1 of 3: Separating the song…*, *Step 2 of 3: Transcribing the drums hit by hit…*, *Step 3 of 3: Hearing the bass note by note…* (a fourth when a channel still listens to a band).
 - [ ] Some cubes have a **pink dot** in their top-right corner: only one of Detect's two checks heard most of their hits (DrumSep without ADTOF, or one of the bass's two ears). Click a dot: a small pop-up opens above the cube (no window). **▶ Listen** plays that moment of the channel's own stem (the drums or the bass, on its own, from just before the cube to half a second after). **Keep** takes the dot away; **Delete** removes the cube. Clicking elsewhere or Esc closes it. Undo works for both.
 - [ ] Your Keep and Delete answers are saved in `media/bench/answers/` (one file per song). The next `npm run snapshot -- --scenario detectbench` lists them under `"yourAnswers"` for that song.
@@ -61,7 +61,7 @@ npm start
 
 ## Cubes
 
-- [ ] Each cube is a 16th, and a section shows all of its bars as the song plays them (decision 130): an 8-bar section is 128 cubes, each beat's four alternating dark and light, a wider gap and a number at each bar. Nothing repeats. Click a bar number to move the playhead there.
+- [ ] Each cube is a 16th, and a section shows all of its bars as the song plays them (decision 130): a 4-bar section is 64 cubes, at their own size (when they don't fit, scroll sideways: the channels' lights, knobs and names stay put; while playing, Follow turns the page), each beat's four alternating dark and light, a wider gap and a number at each bar. Nothing repeats. Click a bar number to move the playhead there.
 - [ ] Open a project you made before today: it plays exactly as it did (each section's old two-bar loop is now written out through it).
 - [ ] Click an empty cube: it lights up (purple) and is selected. Click a lit one to select it. Drag across cubes to paint. **Backspace** deletes the selection. Cmd+A selects every cube in the section; Cmd+C / Cmd+V copy and paste cubes (with their amounts).
 - [ ] **Double-click** a lit cube: the cube window lists every value linked to its channel (effect · clip), each with a slider from −100% to +100%: how far this hit moves that value, up or down. A cube that pushes a value down turns pink. Nothing else is set there.
@@ -86,8 +86,8 @@ npm start
 
 ## Sections
 
-- [ ] The chips at the top: **A 8 bars**, **B …**. Click one to show its cubes; double-click to type its bars (1–16). Right-click for Change Length…, Add Empty Section After, Go to Its Start and Delete Section.
-- [ ] **+** adds an empty 8-bar section after the one shown.
+- [ ] The chips at the top: **A 4 bars**, **B …**. Click one to show its cubes; double-click to type its bars (1–16). Right-click for Change Length…, Add Empty Section After, Go to Its Start and Delete Section.
+- [ ] **+** adds an empty 4-bar section after the one shown.
 - [ ] The **Follow** button (the arrow) shows the section under the playhead as it plays; click it again to stop following.
 
 ## Later (on the to-do list)

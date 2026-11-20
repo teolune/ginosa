@@ -255,7 +255,8 @@ export interface Rack {
 }
 
 export const MAX_SECTION_BARS = 16
-export const DEFAULT_SECTION_BARS = 8
+/** A new section, and each of Detect's: 4 bars (your change, 19 Nov; it was 8). */
+export const DEFAULT_SECTION_BARS = 4
 /** Until project format 14, a section's cubes were a loop this many bars long (or the section, if shorter) that repeated through it. */
 export const OLD_LOOP_BARS = 2
 

@@ -18,7 +18,7 @@ export function songSteps(sequence: Sequence): [number, number] {
 /**
  * Fill from bands (M12's Auto-fill, kept for channels detection doesn't cover): each channel
  * takes its band's hits from an analysis source of the mix, snapped to the nearest 16th, then
- * the song is split into 8-bar sections. Gives each channel's 16ths and its hits' times (ticks,
+ * the song is split into 4-bar sections. Gives each channel's 16ths and its hits' times (ticks,
  * before snapping); null while the source is still being analysed.
  */
 export function fillFromBands(sourceId: string): { steps: Record<string, number[]>; times: Record<string, number[]> } | null {

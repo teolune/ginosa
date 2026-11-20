@@ -683,10 +683,16 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .rack-note { margin: 6px 12px 0; }
 .rack-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--accent); animation: cp-pulse 1.2s ease-in-out infinite alternate; }
 .rack-empty { padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-.rack-rows { flex: 1; overflow: auto; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 9px; background: linear-gradient(180deg, #141118, #100d14); }
-.rack-row { display: grid; grid-template-columns: 14px 22px 22px 112px minmax(0, 1fr); align-items: center; gap: 6px; }
+.rack-rows { flex: 1; overflow: auto; padding: 12px 12px 10px 0; display: flex; flex-direction: column; gap: 9px; background: #121016; }
+/* Each row is as wide as its cubes need (they keep their size, decision 130 as changed 19 Nov): wider than
+   the window, the rows scroll sideways while each channel's controls stay at the left. */
+.rack-row { display: grid; grid-template-columns: 196px minmax(max-content, 1fr); align-items: center; gap: 6px; width: max-content; min-width: 100%; }
+.rack-row-head {
+  position: sticky; left: 0; z-index: 2; align-self: stretch; display: grid; grid-template-columns: 14px 22px 22px 112px; align-items: center; gap: 6px;
+  padding-left: 12px; background: #121016; box-shadow: 8px 0 8px -6px rgba(0, 0, 0, 0.7);
+}
 .rack-row.off .rack-name, .rack-row.off .rack-cube.on { opacity: 0.4; }
-.rack-add-row { grid-template-columns: auto 1fr; gap: 12px; margin-top: 4px; }
+.rack-add-row { grid-template-columns: auto 1fr; gap: 12px; padding: 8px 12px 10px; width: auto; border-top: 1px solid var(--border); background: #121016; }
 .rack-where { justify-self: end; }
 .rack-light { width: 12px; height: 12px; border-radius: 6px; border: 1px solid var(--border-strong); background: #241f2d; padding: 0; cursor: pointer; }
 .rack-light.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px rgba(187, 145, 250, 0.6); }
@@ -708,33 +714,30 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .rack-link-count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent-deep); color: var(--accent); font-size: 10px; display: inline-flex; align-items: center; justify-content: center; }
 /* Cubes: keys raised out of the console, a whole section of 16ths (decision 130): the beats told
    apart by shade (groups of 4) and a little space, the bars by more. */
-/* At least 6 px a cube: a 16-bar section scrolls sideways in a narrow window rather than vanishing. */
-.rack-cubes { display: grid; grid-template-columns: repeat(var(--columns, 128), minmax(6px, 1fr)); gap: 1px; align-items: center; min-width: 0; padding: 2px 1px 4px; }
-.rack-cube.beat-start { margin-left: 3px; }
-.rack-cube.bar-start { margin-left: 9px; }
-.rack-bars-row { display: grid; grid-template-columns: 14px 22px 22px 112px minmax(0, 1fr); align-items: end; gap: 6px; margin-bottom: -6px; }
+/* Cubes at their own size (at least 30 px), filling the row when there's room. */
+.rack-cubes { display: grid; gap: 5px; align-items: center; min-width: 0; padding: 2px 1px 4px; }
+.rack-bars-row { display: grid; grid-template-columns: 196px minmax(max-content, 1fr); align-items: end; gap: 6px; margin-bottom: -6px; width: max-content; min-width: 100%; }
 .rack-bar-numbers { padding-bottom: 0; }
 .rack-bar-number {
   justify-self: stretch; text-align: left; padding: 0 0 0 2px; border: none; border-left: 1px solid var(--border-strong); background: transparent;
   color: var(--text-muted); font: 10.5px var(--mono); cursor: pointer; height: 14px; line-height: 14px;
 }
-.rack-bar-number.bar-start { margin-left: 9px; }
 .rack-bar-number:hover { color: var(--text); }
 .rack-cube {
   --lip: rgba(0, 0, 0, 0.34);
-  position: relative; height: 32px; min-width: 0; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
+  position: relative; height: 32px; min-width: 0; padding: 0; border: 0; border-radius: 6px; cursor: pointer;
   background: linear-gradient(180deg, #2f283b 0%, #251f30 52%, #1c1725 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -3px 0 var(--lip), 0 0 0 1px #08060c, 0 3px 4px rgba(0, 0, 0, 0.6);
   transition: transform 60ms ease-out, box-shadow 60ms ease-out, filter 90ms;
 }
 /* The slot near the top of each key. */
 .rack-cube::before {
-  content: ''; position: absolute; left: 22%; right: 22%; top: 6px; height: 3px; border-radius: 1px;
+  content: ''; position: absolute; left: 24%; right: 24%; top: 6px; height: 3px; border-radius: 2px;
   background: rgba(0, 0, 0, 0.55); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 /* A doubtful cube (W4.6): a pink dot in its top-right corner; click it to listen, keep or delete. */
 .rack-doubt {
-  position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; cursor: pointer; z-index: 1;
+  position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; cursor: pointer;
   background: #ff7ac8; box-shadow: 0 0 0 1.5px #1b0d18, 0 0 6px rgba(255, 122, 200, 0.75);
 }
 .rack-doubt:hover { transform: scale(1.25); }
@@ -767,7 +770,7 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -3px 0 var(--lip), 0 0 0 1px #08060c, 0 3px 4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(200, 121, 187, 0.32);
 }
 .rack-cube.on.down::before { background: rgba(84, 22, 72, 0.6); }
-.rack-cube.sel { outline: 2px solid #f3ecff; outline-offset: 1px; z-index: 1; }
+.rack-cube.sel { outline: 2px solid #f3ecff; outline-offset: 2px; }
 .rack-cube.playing { filter: brightness(1.55); }
 .rack-cube.outside { opacity: 0.16; cursor: default; box-shadow: 0 0 0 1px #08060c; }
 .cube-window {
