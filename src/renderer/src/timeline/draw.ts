@@ -65,6 +65,10 @@ const COLOURS = {
   transition: 'rgba(214,220,235,0.82)',
   adjustment: '#8e4a86',
   adjustmentSelected: '#c879bb',
+  // Multi-camera pieces (W5): one camera's stretch, with its angle's key.
+  multicam: '#3f58a8',
+  multicamSelected: '#6d86dc',
+  multicamKey: '#ffffff',
   // Automation clips (W2): amber until your colour list arrives.
   automation: '#8a6420',
   automationSelected: '#c99536',
@@ -322,6 +326,10 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
     ? selected
       ? COLOURS.adjustmentSelected
       : COLOURS.adjustment
+    : clip.multicam && !offline
+    ? selected
+      ? COLOURS.multicamSelected
+      : COLOURS.multicam
     : offline
       ? COLOURS.offline
       : clip.kind === 'video'
@@ -370,6 +378,21 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: Scene, clip: Clip, top: 
       ctx.fillStyle = '#ffffff'
       ctx.font = '700 8.5px -apple-system, BlinkMacSystemFont, sans-serif'
       ctx.fillText('fx', left + 2, y + 3)
+      ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, sans-serif'
+      ctx.fillStyle = COLOURS.clipText
+      left += 18
+    }
+    // A multi-camera piece: its angle's key, then the take's name.
+    const key = clip.multicam ? scene.sequence.multicam.find((g) => g.id === clip.multicam!.groupId)?.angles.find((a) => a.id === clip.multicam!.angleId)?.key : undefined
+    if (key && right - left > 30) {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)'
+      roundRect(ctx, left - 1, y + 1.5, 15, 11, 2)
+      ctx.fill()
+      ctx.fillStyle = COLOURS.multicamKey
+      ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText(key, left + 6.5, y + 2.5)
+      ctx.textAlign = 'left'
       ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, sans-serif'
       ctx.fillStyle = COLOURS.clipText
       left += 18

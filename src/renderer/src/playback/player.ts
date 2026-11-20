@@ -24,6 +24,7 @@ import { checkpointEvery } from '@engine/timeline/temporal'
 import { renderCache } from '../render-cache/render-cache'
 import { bakeStore } from '@engine/datamosh/bakes'
 import { bakeController } from './bake-controller'
+import { programView } from './program-view'
 
 export type PlaybackResolution = 1 | 0.5 | 0.25
 
@@ -1003,7 +1004,8 @@ export class Player extends Observable {
 export const player = new Player({
   scene: (preview) => {
     const project = projectController.project
-    return project ? { sequence: (preview ? timelineController.sequence : null) ?? project.sequence, media: project.media } : null
+    // The multi-camera view (W5.3) shows every angle in a grid instead.
+    return project ? { sequence: programView.apply((preview ? timelineController.sequence : null) ?? project.sequence, project.media), media: project.media } : null
   },
   get playhead() {
     return timelineController.playhead
@@ -1018,11 +1020,13 @@ export const player = new Player({
     const c = modulationController.subscribe(listener)
     // A bake finishing changes what a Datamosh Bake shows (M15).
     const d = bakeController.subscribe(listener)
+    const e = programView.subscribe(listener)
     return () => {
       a()
       b()
       c()
       d()
+      e()
     }
   }
 })

@@ -72,3 +72,27 @@ export function placeInSync(places: ReadonlyArray<{ clipId: string; start: Ticks
     sequence.clips.push(...moved)
   })
 }
+
+/**
+ * A sync point (W5.1, by hand): the take shows `mediaTime` (its file's time) at `at` on the
+ * timeline from now on, moved by whole frames; a take that would start before the sequence loses
+ * its head instead.
+ */
+export function syncPointPlace(sequence: Sequence, take: Clip, mediaTime: Ticks, at: Ticks): SyncPlacement {
+  const problem = syncable(take)
+  if (problem) return { problem }
+  const frame = frameTicks(sequence)
+  // Where the take shows that moment now: start + (mediaTime − sourceIn).
+  const now = take.start + (mediaTime - take.sourceIn)
+  const delta = Math.round((at - now) / frame) * frame
+  let start = take.start + delta
+  let sourceIn = take.sourceIn
+  let duration = take.duration
+  if (start < 0) {
+    sourceIn -= start
+    duration += start
+    start = 0
+  }
+  if (duration < frame) return { problem: 'none of it would be left in the sequence' }
+  return { start, sourceIn, duration }
+}

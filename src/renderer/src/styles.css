@@ -946,3 +946,21 @@ h3 { margin: 12px 0 4px; font-size: 12px; }
 .value-entry { position: fixed; z-index: 9800; display: flex; flex-direction: column; gap: 4px; width: 210px; padding: 8px 9px; background: var(--panel-raised); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); }
 .value-entry .input { width: 100%; }
 .value-entry-error { color: var(--bad); }
+
+/* Multi-camera (W5). */
+.multicam-window { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; height: 100%; overflow: auto; }
+.multicam-head, .multicam-foot { display: flex; align-items: center; gap: 8px; }
+.multicam-name { font-weight: 600; }
+.multicam-head .button.active { color: #fff; background: rgba(155, 130, 255, 0.28); border-color: rgba(185, 165, 255, 0.8); }
+.multicam-record.on { color: #fff; background: #c8344a; border-color: #ff5a72; }
+.multicam-hint { margin: 0; }
+.multicam-angles { display: flex; flex-direction: column; gap: 4px; }
+.multicam-angle { display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.03); border: 1px solid transparent; }
+.multicam-angle.live { border-color: rgba(155, 130, 255, 0.6); background: rgba(155, 130, 255, 0.08); }
+.multicam-key { width: 82px; }
+.multicam-track { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.multicam-overlay { position: absolute; inset: 0; pointer-events: none; }
+.multicam-cell { position: absolute; pointer-events: auto; background: transparent; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0; padding: 0; cursor: pointer; }
+.multicam-cell.live { border: 3px solid #a98bff; }
+.multicam-overlay.recording .multicam-cell.live { border-color: #ff4060; }
+.multicam-cell-label { position: absolute; left: 6px; top: 5px; padding: 1px 6px; border-radius: 4px; font-size: 11px; color: #fff; background: rgba(0, 0, 0, 0.55); }

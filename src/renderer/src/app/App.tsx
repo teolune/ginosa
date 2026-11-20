@@ -30,6 +30,8 @@ import { runDatamoshGpuTest } from '../playback/datamosh-gpu-test'
 import { datamoshExportTest } from '../playback/datamosh-export-test'
 import { datamoshBakeTest } from '../playback/datamosh-bake-test'
 import { syncTest } from '../multicam/sync-test'
+import { multicamUi } from '../multicam/multicam-ui'
+import { multicamTest } from '../multicam/multicam-test'
 import { datamoshFootage } from '../playback/datamosh-footage'
 import { effectsPerf } from '../playback/effects-perf'
 import { lookLutExportTest } from '../playback/look-lut-export-test'
@@ -519,6 +521,14 @@ async function runSnapshotScenario(scenario: string): Promise<void> {
       await wait(1200)
       break
     }
+    case 'multicam': {
+      // W5.2–W5.3: a group from the media, the multi-camera view, recording with the keys, switching, a sync point.
+      await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(multicam_song\.wav|take_(a|b|early)\.mp4)$/.test(f)), null)
+      await wait(2500)
+      await window.ginosa.snapshot.report(await multicamTest().catch((error: Error) => ({ verdict: 'fail', error: error.message, stack: error.stack })))
+      await wait(1200)
+      break
+    }
     case 'multicamsync': {
       // W5.1: takes synced to the song by their sound, through the timeline's Sync to Song by Sound.
       await mediaController.importPaths((await window.ginosa.snapshot.testMedia()).filter((f) => /(multicam_song\.wav|take_[a-z]+\.mp4)$/.test(f)), null)
@@ -910,6 +920,11 @@ export function App() {
       if (event.defaultPrevented || isEditingText() || !projectController.project || document.querySelector('.modal-backdrop')) return
       const active = document.activeElement
       const focus = active?.closest('.timeline-panel') ? 'timeline' : active?.closest('.source-monitor') ? 'source' : 'other'
+      // Multi-camera (W5): 1–9, 0 and the comma are the angles, when there's a group.
+      if (focus !== 'source' && multicamUi.handleKey(event)) {
+        event.preventDefault()
+        return
+      }
       if (timelineController.handleKey(event, focus)) event.preventDefault()
     }
     window.addEventListener('keydown', onKey)

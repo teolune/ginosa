@@ -12,8 +12,8 @@ import type { Mask, MaskRef } from '../masks/types'
  * selection, the playhead and other UI state do not.
  */
 
-/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. */
-export const PROJECT_SCHEMA_VERSION = 14
+/** 1: M1 (sequence and tracks). 2: M2 adds media and bins. 3: M3 adds clips, markers, sync lock and solo. 4: M4 adds Motion, opacity, blend modes and volume. 5: colour interpretation per media file; clip speed, reverse and transitions. 6: effect stacks and adjustment layers. 7: keyframes. 8: audio analysis sources and the beat grid. 9: modulators and modulation links. 10: shared masks. 11: In and Out on the timeline. 15: multi-camera groups and pieces (W5). */
+export const PROJECT_SCHEMA_VERSION = 15
 
 export type TrackKind = 'video' | 'audio' | 'automation'
 
@@ -135,6 +135,42 @@ export interface Clip {
   mask: MaskRef | null
   /** An automation clip's curve (W2, decision 127): only on automation tracks, which hold nothing else. */
   automation?: AutomationCurve
+  /**
+   * A multi-camera piece (W5, decision 134): this stretch of a group's angle, copied in sync from
+   * the clip on the angle's track with its effects (`angleEffects`, by id: the ones that came with
+   * the angle; any others were added to the piece). Switching its angle swaps those for the new
+   * angle's and keeps the rest.
+   */
+  multicam?: { groupId: string; angleId: string; angleEffects: string[] }
+}
+
+/** The keys a multi-camera group's angles sit on, in order (decision 134): 1–9, 0 and the comma. */
+export const MULTICAM_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', ','] as const
+
+/** A favourite part of a take (W5.4): a stretch of one clip's media, in its source time. */
+export interface Favourite {
+  id: string
+  clipId: string
+  from: Ticks
+  to: Ticks
+}
+
+/** One camera of a multi-camera group: a video track (its takes, synced to the song), on a key. */
+export interface MulticamAngle {
+  id: string
+  trackId: string
+  key: string
+  /** B-roll (W5.4): not synced; Automatic places its favourites anywhere. */
+  bRoll: boolean
+  favourites: Favourite[]
+}
+
+/** A multi-camera group (W5, decision 134): its angles, and the track its pieces go on. */
+export interface MulticamGroup {
+  id: string
+  name: string
+  programTrackId: string
+  angles: MulticamAngle[]
 }
 
 /** How an automation curve travels from a point to the next (FL Studio's point modes, W2). */
@@ -200,6 +236,8 @@ export interface Sequence {
   marks: { in: Ticks | null; out: Ticks | null }
   /** The drum sequencer (M12, the Channel Rack): rows of steps that fire effects. */
   rack: Rack
+  /** Multi-camera groups (W5, decision 134). */
+  multicam: MulticamGroup[]
 }
 
 /**
@@ -370,7 +408,8 @@ export function createProject({ name, settings, createId = defaultId, now = () =
       modulators: [],
       masks: [],
       marks: { in: null, out: null },
-      rack: { rows: [], sections: [] }
+      rack: { rows: [], sections: [] },
+      multicam: []
     },
     media: [],
     bins: []

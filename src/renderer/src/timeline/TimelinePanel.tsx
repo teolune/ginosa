@@ -1,4 +1,5 @@
 import { syncController } from '../multicam/sync-controller'
+import { multicamUi } from '../multicam/multicam-ui'
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { produce } from 'immer'
 import { addTrack, CommandError, removeTrack, renameTrack, setTrackFlag, type Command } from '@engine/project/commands'
@@ -389,6 +390,12 @@ export function TimelinePanel() {
         { label: 'Add Edit at Playhead', onSelect: () => tl.splitAtPlayhead(false) },
         { label: linked ? 'Unlink' : 'Link', disabled: !linked && ids.length < 2, onSelect: () => tl.toggleLink() },
         { label: 'Match Frame', disabled: hit.clip.adjustment, onSelect: () => tl.matchFrame() },
+        {
+          // W5: the selected takes' tracks as angles of a group.
+          label: 'New Multi-Camera Group',
+          disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video' && !c.adjustment && !c.multicam),
+          onSelect: () => void multicamUi.newGroupFromClips(ids)
+        },
         {
           // W5.1: line takes up with the song on A1 by listening for it in their sound.
           label: 'Sync to Song by Sound',

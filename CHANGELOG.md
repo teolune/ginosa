@@ -1,5 +1,25 @@
 # Changelog
 
+## Multi-camera: groups, the multi-camera view and recording (W5.2–W5.3, 20 Nov 2026)
+
+- **New Multi-Camera Group** (right-click your takes in the Media panel): each take goes on a video track of its own, lined up with the song on A1 by its sound, as angles 1, 2, 3… A **Multi-Camera** track goes above them for the pieces. The angles' tracks are hidden, and their own sound muted. From the timeline, right-click takes on tracks of their own › New Multi-Camera Group does the same with them. Window › Multi-Camera (⌥⇧7) shows the group.
+- **The Multi-Camera window:**
+  - Each angle with its key: 1–9, 0 and the comma, changeable.
+  - How each take is synced (In sync, Check, Not heard).
+  - **Sync Point**, for a take the song can't be heard in: put the playhead on a moment in the take (a clap, a beat) and press Sync Point, then put the playhead where the song has that moment and press Line Up Here.
+  - **Multi-Camera View**, **Record**, **Sync Takes to Song** and **Remove Group** (the pieces stay as clips).
+- **The multi-camera view** shows every angle in a grid in the Program monitor, labelled with its key: 2 × 2 for up to 4 angles, 3 × 3 up to 9. The live angle is framed, in red while recording. Click a cell to pick it.
+- **Recording:** press Record and the song plays from the playhead. Each angle's key cuts to it there. Space (or Stop) writes the cuts as pieces on the Multi-Camera track, in one undo step.
+- **Pieces** are clips, in blue with their angle's key on them. Each is the stretch of its take under it, in sync, with the take's effects already on it. They trim, take effects and export like any clip. A piece's effects are copied from its take when it's made: change a take's effects later and switch the piece (or record again) to bring the change in. Select pieces and press another angle's key to switch them: effects you added to a piece stay.
+- **Measured** (`multicam`, `"verdict":"pass"`):
+  - Three takes made a group, each in sync within 0.1 ms.
+  - The grid showed take_a and take_early in their cells at 8 s, and black where take_b had nothing yet.
+  - Recording from 6 s with keys pressed at 8, 9.6 and 14 s cut exactly there (angles 3, 1, 2). Each piece was in sync with its take, and the Program monitor showed each piece pixel for pixel as its take alone on its track.
+  - A key switched the selected piece to angle 1.
+  - A sync point moved a take exactly 0.4 s.
+  - Tests: 479 (7 new: groups, recording, empty stretches, switching, keys, saving and reading back, the grid).
+- Projects are format 15 (multi-camera groups); older projects open with none.
+
 ## Multi-camera begins: syncing takes by sound (W5.1); Channel Rack and knobs (20 Nov 2026)
 
 - **Multi-camera (W5)** is planned (decision 134, Proposed; the plan doc's Multi-camera section): groups of takes synced to the song, angles on 1–9, 0 and the comma, recording switches into a multi-camera clip, favourite parts, and Automatic.

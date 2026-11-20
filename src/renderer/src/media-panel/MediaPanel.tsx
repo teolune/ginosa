@@ -1,3 +1,4 @@
+import { multicamUi } from '../multicam/multicam-ui'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { deleteBin, moveToBin, removeMedia, renameBin, renameMedia, setMediaColour } from '@engine/project/media-commands'
 import { COLOUR_LABELS, OPTIMISE_REASON_TEXT, detectColour, type Bin, type ColourInput, type MediaItem } from '@engine/project/media'
@@ -293,6 +294,12 @@ export function MediaPanel() {
           ? [{ label: 'Cancel Optimised Copy', onSelect: () => void window.ginosa.media.cancelJob(runtime.job!.id) }]
           : []),
         { label: 'Locate File…', onSelect: () => void mediaController.relink(item.id) },
+        {
+          // W5: each selected video on a track of its own, synced to the song on A1, as angles of a group.
+          label: 'New Multi-Camera Group',
+          disabled: item.kind !== 'video',
+          onSelect: () => void multicamUi.newGroupFromMedia(selected.filter((id) => !id.startsWith('bin:')))
+        },
         ...(item.kind === 'video' ? colourEntries(item, selected.filter((id) => !id.startsWith('bin:'))) : []),
         'separator',
         { label: selected.length > 1 ? `Remove ${selected.length} Items from Project` : 'Remove from Project', danger: true, onSelect: removeSelected }

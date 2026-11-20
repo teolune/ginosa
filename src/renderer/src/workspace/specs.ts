@@ -145,6 +145,17 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
+    // W5: multi-camera groups, their angles' keys, syncing and recording.
+    id: 'multicam',
+    title: 'Multi-Camera',
+    shortcut: 'Alt+Shift+7',
+    defaultRect: { x: 260, y: 120, w: 520, h: 380 },
+    minSize: { w: 420, h: 240 },
+    dockable: true,
+    defaultOpen: false,
+    defaultDocked: false
+  },
+  {
     id: 'export',
     title: 'Export',
     shortcut: 'Alt+8',

@@ -1,5 +1,6 @@
 import { SYNC_RATE, type SyncMatch } from '@engine/audio/sync'
 import type { Clip } from '@engine/project/model'
+import type { MediaItem } from '@engine/project/media'
 import { placeInSync, syncable, syncPlacement } from '@engine/timeline/sync-edits'
 import { songTempo } from '../control-panel/song-tempo'
 import { mediaController } from '../state/media-controller'
@@ -67,28 +68,7 @@ class SyncController extends Observable {
         if (why || !item) results.push({ clipId: clip.id, name: clip.name, outcome: 'skipped', match: null, detail: why ?? '' })
         else work.push({ clip, path: item.path })
       }
-      const matches = new Map<string, SyncMatch>()
-      if (work.length) {
-        const songPcm = new Float32Array(await window.ginosa.stems.pcm(mediaController.playablePath(songItem) ?? songItem.path, SYNC_RATE))
-        const pcms = await Promise.all(work.map(async (w) => ({ id: w.clip.id, pcm: new Float32Array(await window.ginosa.stems.pcm(w.path, SYNC_RATE)) })))
-        await new Promise<void>((resolve, reject) => {
-          const worker = new Worker(new URL('./sync.worker.ts', import.meta.url), { type: 'module' })
-          worker.onmessage = (event: MessageEvent<SyncWorkerMessage>) => {
-            const m = event.data
-            if (m.kind === 'match') matches.set(m.id, m.match)
-            else {
-              worker.terminate()
-              if (m.kind === 'done') resolve()
-              else reject(new Error(m.error))
-            }
-          }
-          worker.onerror = (event) => {
-            worker.terminate()
-            reject(new Error(event.message))
-          }
-          worker.postMessage({ song: songPcm, takes: pcms } satisfies SyncWorkerRequest, [songPcm.buffer, ...pcms.map((p) => p.pcm.buffer)])
-        })
-      }
+      const matches = await this.match(songItem, work.map((w) => ({ id: w.clip.id, path: w.path })))
       // Into sync, all at once (from the project as it is now).
       const now = projectController.project!
       const places: Parameters<typeof placeInSync>[0][number][] = []
@@ -124,6 +104,32 @@ class SyncController extends Observable {
       this.busy = false
       this.notify()
     }
+  }
+
+  /** Where each file's start is in the song's file (in a worker); ids are the caller's. */
+  async match(song: MediaItem, files: ReadonlyArray<{ id: string; path: string }>): Promise<Map<string, SyncMatch>> {
+    const matches = new Map<string, SyncMatch>()
+    if (files.length === 0) return matches
+    const songPcm = new Float32Array(await window.ginosa.stems.pcm(mediaController.playablePath(song) ?? song.path, SYNC_RATE))
+    const pcms = await Promise.all(files.map(async (f) => ({ id: f.id, pcm: new Float32Array(await window.ginosa.stems.pcm(f.path, SYNC_RATE)) })))
+    await new Promise<void>((resolve, reject) => {
+      const worker = new Worker(new URL('./sync.worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = (event: MessageEvent<SyncWorkerMessage>) => {
+        const m = event.data
+        if (m.kind === 'match') matches.set(m.id, m.match)
+        else {
+          worker.terminate()
+          if (m.kind === 'done') resolve()
+          else reject(new Error(m.error))
+        }
+      }
+      worker.onerror = (event) => {
+        worker.terminate()
+        reject(new Error(event.message))
+      }
+      worker.postMessage({ song: songPcm, takes: pcms } satisfies SyncWorkerRequest, [songPcm.buffer, ...pcms.map((p) => p.pcm.buffer)])
+    })
+    return matches
   }
 
   /** One line for the message bar. */

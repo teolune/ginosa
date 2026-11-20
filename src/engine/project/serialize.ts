@@ -1,7 +1,7 @@
 import { BANDS, type BandId } from '../audio/analysis'
 import { FRAME_RATES } from '../time'
 import type { AudioStreamInfo, Bin, ColourInfo, ColourInput, MediaColour, MediaInfo, MediaItem, VideoStreamInfo } from './media'
-import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, AUTOMATION_SHAPES, type AutomationCurve, type AutomationPoint, type AutomationShape, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, OLD_LOOP_BARS, STEPS_PER_BEAT, defaultId } from './model'
+import { BLEND_MODES, MAX_DIMENSION, MIN_DIMENSION, PROJECT_SCHEMA_VERSION, type BlendMode, AUTOMATION_SHAPES, type AutomationCurve, type AutomationPoint, type AutomationShape, type Clip, type Marker, type Motion, type Project, type SequenceSettings, type Track, type Transition, type AudioSource, type BeatGrid, type Rack, type RackCube, type RackRow, type RackSection, MAX_SECTION_BARS, OLD_LOOP_BARS, STEPS_PER_BEAT, defaultId, MULTICAM_KEYS, type MulticamAngle, type MulticamGroup } from './model'
 import { DEFAULT_GRID } from '../modulation/curve'
 import { sectionSteps, sectionsFromSteps } from '../timeline/rack'
 import { defaultMotion, sourceSize } from '../timeline/motion'
@@ -179,6 +179,11 @@ function migrate(raw: Json): Json {
       data = { ...data, sequence: { ...sequence, rack: { ...rack, sections } } }
     }
     data = { ...data, schemaVersion: 14 }
+  }
+  // 15 (W5): multi-camera groups.
+  if (version < 15) {
+    const sequence = isObject(data['sequence']) ? data['sequence'] : {}
+    data = { ...data, schemaVersion: 15, sequence: { ...sequence, multicam: [] } }
   }
   return data
 }
@@ -414,8 +419,37 @@ function parseClip(value: unknown, index: number): Clip {
     keyframes: parseKeyframes(value['keyframes'], `${where}.keyframes`),
     modulation: wrap(() => parseModulation(value['modulation'], `${where}.modulation`)),
     // Checked against the sequence's masks once they're read.
-    mask: (value['mask'] ?? null) as Clip['mask']
+    mask: (value['mask'] ?? null) as Clip['mask'],
+    // Checked against the multi-camera groups once they're read.
+    ...(isObject(value['multicam']) ? { multicam: value['multicam'] as unknown as NonNullable<Clip['multicam']> } : {})
   }
+}
+
+/** Multi-camera groups (W5): only angles on video tracks there are, keys from MULTICAM_KEYS, favourites of clips there are. */
+function parseMulticam(value: unknown, tracks: readonly Track[], clips: readonly Clip[]): MulticamGroup[] {
+  if (!Array.isArray(value)) return []
+  const video = new Set(tracks.filter((t) => t.kind === 'video').map((t) => t.id))
+  const clipIds = new Set(clips.map((c) => c.id))
+  const groups: MulticamGroup[] = []
+  for (const raw of value) {
+    if (!isObject(raw) || typeof raw['id'] !== 'string' || typeof raw['programTrackId'] !== 'string' || !video.has(raw['programTrackId']) || !Array.isArray(raw['angles'])) continue
+    const keys = new Set<string>()
+    const angles: MulticamAngle[] = []
+    for (const a of raw['angles']) {
+      if (!isObject(a) || typeof a['id'] !== 'string' || typeof a['trackId'] !== 'string' || !video.has(a['trackId'])) continue
+      const key = typeof a['key'] === 'string' && (MULTICAM_KEYS as readonly string[]).includes(a['key']) && !keys.has(a['key']) ? a['key'] : (MULTICAM_KEYS.find((k) => !keys.has(k)) ?? null)
+      if (key === null) continue
+      keys.add(key)
+      const favourites = (Array.isArray(a['favourites']) ? a['favourites'] : []).flatMap((f): MulticamAngle['favourites'] =>
+        isObject(f) && typeof f['id'] === 'string' && typeof f['clipId'] === 'string' && clipIds.has(f['clipId']) && typeof f['from'] === 'number' && typeof f['to'] === 'number' && f['to'] > f['from']
+          ? [{ id: f['id'], clipId: f['clipId'], from: Math.round(f['from']), to: Math.round(f['to']) }]
+          : []
+      )
+      angles.push({ id: a['id'], trackId: a['trackId'], key, bRoll: a['bRoll'] === true, favourites })
+    }
+    if (angles.length) groups.push({ id: raw['id'], name: typeof raw['name'] === 'string' ? raw['name'] : 'Multi-Camera', programTrackId: raw['programTrackId'], angles })
+  }
+  return groups
 }
 
 /** Modulation parsing reports through ProjectFormatError like everything else here. */
@@ -716,7 +750,16 @@ export function parseProject(input: string | unknown): Project {
   const marks = parseSequenceMarks(sequence['marks'])
   const rack = parseRack(sequence['rack'], beatGrid)
   for (const r of rack.rows) if (r.modulatorId && !modulatorIds.has(r.modulatorId)) r.modulatorId = null
-  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks, rack })
+  // Multi-camera groups, and pieces only of groups and angles there are.
+  const multicam = parseMulticam(sequence['multicam'], tracks, clips)
+  for (const clip of clips) {
+    const ref = clip.multicam
+    if (!ref) continue
+    const group = multicam.find((g) => g.id === ref.groupId)
+    if (!group || typeof ref.angleId !== 'string' || !group.angles.some((a) => a.id === ref.angleId) || clip.kind !== 'video') delete clip.multicam
+    else clip.multicam = { groupId: ref.groupId, angleId: ref.angleId, angleEffects: Array.isArray(ref.angleEffects) ? ref.angleEffects.filter((id): id is string => typeof id === 'string') : [] }
+  }
+  syncLinkedRamps({ id: '', name: '', settings: { width: 1, height: 1, frameRate: '25', sampleRate: 48_000 }, tracks, clips, markers, audioSources, beatGrid, modulators, masks, marks, rack, multicam })
 
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -740,7 +783,8 @@ export function parseProject(input: string | unknown): Project {
       modulators,
       masks,
       marks,
-      rack
+      rack,
+      multicam
     },
     media,
     bins

@@ -15,6 +15,7 @@ import { MasksWindow } from '../windows/MasksWindow'
 import { PlaybackTestWindow } from '../windows/PlaybackTestWindow'
 import { ProjectSettingsWindow } from '../windows/ProjectSettingsWindow'
 import { SourceMonitorWindow } from '../windows/SourceMonitorWindow'
+import { MulticamWindow } from '../multicam/MulticamWindow'
 
 /** Window contents by id. New windows (Effects Library, Keyframe Editor…) register in specs.ts and here. */
 export function renderWindow(id: string): ReactNode {
@@ -51,6 +52,8 @@ export function renderWindow(id: string): ReactNode {
       return <PlaybackTestWindow />
     case 'automation-editor':
       return <AutomationEditorWindow />
+    case 'multicam':
+      return <MulticamWindow />
     default:
       return null
   }
