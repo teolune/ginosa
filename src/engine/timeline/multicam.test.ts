@@ -293,3 +293,47 @@ describe('favourites and Automatic (W5.4–W5.5)', () => {
     expect(group().angles[0]!.favourites).toEqual([])
   })
 })
+
+describe('adding to a group and taking out (your Multi-Camera design, 20 Nov)', () => {
+  it('adds takes to the group on the next free keys, hidden, the group’s track on top; up to 10 clips, on 1–9 and 0', async () => {
+    const { addToMulticam, addMediaToMulticam, removeAngle } = await import('./multicam-edits')
+    const { history, run, take, video } = setup()
+    // take_a's track first: a new group (nothing given).
+    const made = run(addToMulticam(null, { clipIds: [take('a').id] }, ids))
+    const group = () => history.state.sequence.multicam[0]!
+    expect(history.state.sequence.multicam).toHaveLength(1)
+    expect(group().angles.map((a) => a.key)).toEqual(['1'])
+    // Then b and c, to the same group: keys 2 and 3, their tracks hidden.
+    run(addToMulticam(made.groupId, { clipIds: [take('b').id, take('c').id] }, ids))
+    expect(group().angles.map((a) => a.key)).toEqual(['1', '2', '3'])
+    expect(history.state.sequence.tracks.filter((t) => video.includes(t.id)).map((t) => t.visible)).toEqual([false, false, false])
+    // The same track again: refused.
+    expect(() => history.dispatch(addToMulticam(made.groupId, { trackIds: [video[0]!] }, ids))).toThrow(/Already in/)
+    // A file from the Media panel: on a new track under the group's own track, on 4.
+    run(addMediaToMulticam(made.groupId, [{ mediaId: 'm-a', offset: null }], null, ids))
+    const order = history.state.sequence.tracks.filter((t) => t.kind === 'video').map((t) => t.id)
+    expect(order[order.length - 1]).toBe(group().programTrackId)
+    expect(group().angles.map((a) => a.key)).toEqual(['1', '2', '3', '4'])
+    // A key freed by taking a clip out is used again; the track shows again.
+    const second = group().angles[1]!
+    run(removeAngle(made.groupId, second.id))
+    expect(history.state.sequence.tracks.find((t) => t.id === second.trackId)!.visible).toBe(true)
+    run(addToMulticam(made.groupId, { trackIds: [second.trackId] }, ids))
+    expect(group().angles.map((a) => a.key)).toEqual(['1', '3', '4', '2'])
+  })
+
+  it('takes a clip out: its pieces stay as clips; the last one out removes the group', async () => {
+    const { removeAngle } = await import('./multicam-edits')
+    const { history, run, take } = setup()
+    const made = run(newMulticamGroup([take('a').id, take('b').id], ids))
+    const group = () => history.state.sequence.multicam[0]
+    const [a, b] = group()!.angles
+    run(recordMulticam(made.groupId, 0, s(4), [{ at: 0, angleId: a!.id }, { at: s(2), angleId: b!.id }], ids))
+    run(removeAngle(made.groupId, a!.id))
+    const pieces = history.state.sequence.clips.filter((c) => c.trackId === group()!.programTrackId)
+    expect(pieces.map((p) => p.multicam?.angleId ?? null)).toEqual([null, b!.id])
+    run(removeAngle(made.groupId, b!.id))
+    expect(history.state.sequence.multicam).toEqual([])
+    expect(history.state.sequence.clips.some((c) => c.multicam)).toBe(false)
+  })
+})

@@ -116,6 +116,7 @@ export class Player extends Observable {
   /** Times the GPU device was lost and the picture started again on a new one (for tests). */
   gpuResets = 0
   private canvas: HTMLCanvasElement | null = null
+  private readonly mirrors = new Map<HTMLCanvasElement, GPUCanvasContext>()
   private context: GPUCanvasContext | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
   private streams = new Map<string, FrameSource>()
@@ -230,6 +231,7 @@ export class Player extends Observable {
     this.context = canvas.getContext('webgpu')
     this.format = navigator.gpu.getPreferredCanvasFormat()
     this.context?.configure({ device: gpu.device, format: this.format, alphaMode: 'opaque' })
+    for (const context of this.mirrors.values()) context.configure({ device: gpu.device, format: this.format, alphaMode: 'opaque' })
     this.requestStill()
   }
 
@@ -273,6 +275,51 @@ export class Player extends Observable {
     this.stop()
     this.canvas = null
     this.context = null
+  }
+
+  /**
+   * Another canvas showing the same picture as the monitor (the Multi-Camera window's preview,
+   * W5): each frame is drawn once and shown on both.
+   */
+  async attachMirror(canvas: HTMLCanvasElement): Promise<void> {
+    const gpu = await getGpu()
+    const context = canvas.getContext('webgpu')
+    if (!context) return
+    context.configure({ device: gpu.device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' })
+    this.mirrors.set(canvas, context)
+    if (this.lastStill && this.device === gpu.device) this.showOn(canvas, context, this.lastStill)
+    else this.requestStill()
+  }
+
+  detachMirror(canvas: HTMLCanvasElement): void {
+    this.mirrors.delete(canvas)
+  }
+
+  /** Tests: called as a frame is shown on the monitor and a mirror, while both canvases can still be read (the same task). */
+  mirrorProbe: ((monitor: HTMLCanvasElement, mirror: HTMLCanvasElement) => void) | null = null
+
+  /** A frame on the monitor and its mirrors. */
+  private show(texture: GPUTexture): void {
+    if (!this.compositor || !this.context) return
+    this.compositor.present(texture, this.context, this.format)
+    for (const [canvas, context] of this.mirrors) {
+      this.showOn(canvas, context, texture)
+      if (this.mirrorProbe && this.canvas) this.mirrorProbe(this.canvas, canvas)
+    }
+  }
+
+  private showOn(canvas: HTMLCanvasElement, context: GPUCanvasContext, texture: GPUTexture): void {
+    if (!this.compositor) return
+    if (canvas.width !== texture.width || canvas.height !== texture.height) {
+      canvas.width = texture.width
+      canvas.height = texture.height
+    }
+    try {
+      this.compositor.present(texture, context, this.format)
+    } catch {
+      // A mirror on another device (after a GPU reset): set up again on the next attach.
+      this.mirrors.delete(canvas)
+    }
   }
 
   setResolution(resolution: PlaybackResolution): void {
@@ -500,7 +547,7 @@ export class Player extends Observable {
         this.prepareTarget(sequence)
         const texture = this.compositor.previewTexture(bitmap)
         bitmap.close()
-        this.compositor.present(texture, this.context, this.format)
+        this.show(texture)
         this.lastStill = texture
         this.lastStillCached = true
         return
@@ -571,7 +618,7 @@ export class Player extends Observable {
       return layer ? [layer] : []
     })
     const result = this.compositor.render(composite, scale)
-    this.compositor.present(result, this.context, this.format)
+    this.show(result)
     this.lastStill = result
     this.lastStillAt = performance.now()
     for (const p of prepared) if (p.source?.kind === 'video') p.source.frame.close()
@@ -884,7 +931,7 @@ export class Player extends Observable {
       result = this.compositor.previewTexture(preview)
       this.stats.cached++
     } else result = this.compositor.render(composite, scale)
-    this.compositor.present(result, this.context, this.format)
+    this.show(result)
     frames.forEach((f) => f.close())
     this.probe?.(result, shown)
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## Multi-camera, as your design (20 Nov 2026)
+
+- **Opening it:** the Control Panel's new **Multi-Camera** button (a camera in a viewfinder), or right-click a clip on the timeline › **Add to Multi-Camera** (also on files in the Media panel). Clips go into the group, made the first time, lined up with the song on A1 by their sound.
+- **The window**, laid out as you drew it:
+  - **A preview** with **Record** (red), **Play/Pause**, go to start/end and frame steps, the timecode, a grid button (every clip, or the edit), and **full screen** on the far right. It shows the same picture as the Program monitor: each frame is drawn once and shown in both.
+  - **Add Clip +**: what's selected on the timeline, what's selected in the Media panel, or a whole video track (V1, V2…).
+  - **Mark Clip**: the soloed clip plays alone in the preview, and **M** marks an in, then **M** again the out. With no clip soloed, it solos the next one with nothing marked; if every clip has marks, it says so. While marking, 1–9 and 0 solo that clip, Esc drops an in-point, and M doesn't add timeline markers.
+  - **Each clip** as *take_a (V2)*, with its **key** (click to change; taking another clip's key swaps them), a yellow **solo** button (one at a time), and its **strip**. Marks show in red on the strip: drag a mark's start or end to change it, its middle to move it, click it and press ⌫ to delete it. Click the strip anywhere else to move the playhead. Right-click a clip for Solo, B-Roll, Sync Point and Remove from Multi-Camera.
+  - **Automatic** and the gaps list stay under the clips; the group's other actions (Sync All Clips to the Song, Remove) are in **⋯**.
+- **Keys are 1–9 and 0**, up to 10 clips, as in your design (the comma is gone).
+- **Measured** (`multicamauto`, `"verdict":"pass"`):
+  - The Control Panel button opened the window; Add Clip + › Selected in the Media Panel added three takes on 1–3, and Add to Multi-Camera from the timeline added take_noise on 4, its track hidden.
+  - The window's preview showed the Program monitor's picture exactly (difference 0).
+  - Mark Clip soloed take_a, and the preview showed it pixel for pixel as take_a alone. M at 7 s and M at 11 s marked exactly 7–11 s, and added no markers. 2 soloed take_b.
+  - Dragging the mark's end moved it to 12.52 s, undone in one step; clicking the strip at 15 s put the playhead there; ⌫ deleted the mark and nothing else. Right-click › B-Roll worked.
+  - Automatic made the same edit as before, and the Control Panel button closed the window, the preview back to the edit.
+  - Tests: 487 (2 new: adding to a group on the next free keys, and taking a clip out).
+
 ## Multi-camera: favourites, B-roll and Automatic (W5.4–W5.5, 20 Nov 2026)
 
 - **Favourites:** each angle in the Multi-Camera window has a strip. Drag across it to mark a favourite part of the take, as many as you like. Drag a favourite's ends to change it, its middle to move it; click one and press ⌫ to delete it. While you drag, the playhead follows and the multi-camera view is on, so you see the frame you're on. Marking and dragging is one undo step.

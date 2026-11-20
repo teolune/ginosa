@@ -25,29 +25,54 @@ export function groupOf(sequence: Sequence, groupId: string): MulticamGroup {
   return group
 }
 
+const KEYS_TEXT = '1–9 and 0'
+
 /**
  * A new group from these takes: each video track holding one of them is an angle (V1 first, on
- * 1, then 2…: up to 11, on 1–9, 0 and the comma). A new video track above all the others takes
- * its pieces. The angles' tracks are hidden and the sound of their takes muted (the song plays).
+ * 1, then 2…: up to 10, on 1–9 and 0). A new video track above all the others takes its pieces.
+ * The angles' tracks are hidden and the sound of their takes muted (the song plays).
  */
 export function newMulticamGroup(clipIds: readonly string[], newId: IdFactory = defaultId): TimelineCommand & { groupId: string } {
-  const groupId = newId()
-  const command = timelineCommand('New Multi-Camera Group', (draft) => applyNewGroup(draft.sequence, clipIds, groupId, newId)) as TimelineCommand & { groupId: string }
-  command.groupId = groupId
+  return addToMulticam(null, { clipIds }, newId)
+}
+
+/**
+ * Adds takes to a group (Add to Multi-Camera, Add Clip +): the tracks holding `clipIds`, and
+ * `trackIds`, become angles, on the next free keys. With no group (`groupId` null, or one that's
+ * gone), a new one is made of them. One undo step.
+ */
+export function addToMulticam(groupId: string | null, what: { clipIds?: readonly string[]; trackIds?: readonly string[] }, newId: IdFactory = defaultId): TimelineCommand & { groupId: string } {
+  const command = timelineCommand(groupId ? 'Add to Multi-Camera' : 'New Multi-Camera Group', (draft) => {
+    const sequence = draft.sequence
+    const fromClips = sequence.clips.filter((c) => what.clipIds?.includes(c.id) && c.kind === 'video' && !c.adjustment && !c.multicam).map((c) => c.trackId)
+    command.groupId = applyAddAngles(sequence, groupId, [...fromClips, ...(what.trackIds ?? [])], newId)
+  }) as TimelineCommand & { groupId: string }
+  command.groupId = groupId ?? ''
   return command
 }
 
-function applyNewGroup(sequence: Sequence, clipIds: readonly string[], groupId: string, newId: IdFactory): void {
+/** Makes `trackIds` angles of the group (made when there's none); returns its id. */
+function applyAddAngles(sequence: Sequence, groupId: string | null, trackIds: readonly string[], newId: IdFactory): string {
   const video = tracksOf(sequence, 'video')
-  const chosen = new Set(sequence.clips.filter((c) => clipIds.includes(c.id) && c.kind === 'video' && !c.adjustment && !c.multicam).map((c) => c.trackId))
-  const angleTracks = video.filter((t) => chosen.has(t.id))
-  if (angleTracks.length === 0) throw new CommandError('Select the takes (video clips) to make a group of')
-  if (angleTracks.length > MULTICAM_KEYS.length) throw new CommandError(`A group has at most ${MULTICAM_KEYS.length} angles (1–9, 0 and the comma): the takes are on ${angleTracks.length} tracks`)
-  const program = createTrack('video', video.length, newId)
-  program.name = `Multi-Camera ${sequence.multicam.length + 1}`
-  sequence.tracks.push(program)
-  const angles: MulticamAngle[] = angleTracks.map((t, i) => ({ id: newId(), trackId: t.id, key: MULTICAM_KEYS[i]!, bRoll: false, favourites: [] }))
-  sequence.multicam.push({ id: groupId, name: program.name, programTrackId: program.id, angles })
+  let group = groupId ? (sequence.multicam.find((g) => g.id === groupId) ?? null) : null
+  // Not a group's own track, and not already an angle of this group.
+  const taken = new Set([...sequence.multicam.map((g) => g.programTrackId), ...(group?.angles.map((a) => a.trackId) ?? [])])
+  const wanted = new Set(trackIds)
+  const angleTracks = video.filter((t) => wanted.has(t.id) && !taken.has(t.id))
+  if (angleTracks.length === 0) {
+    if (group && [...wanted].some((id) => group!.angles.some((a) => a.trackId === id))) throw new CommandError(`Already in ${group.name}`)
+    throw new CommandError('Choose takes (video clips) to add')
+  }
+  if (!group) {
+    const program = createTrack('video', video.length, newId)
+    program.name = `Multi-Camera ${sequence.multicam.length + 1}`
+    sequence.tracks.push(program)
+    group = { id: newId(), name: program.name, programTrackId: program.id, angles: [] }
+    sequence.multicam.push(group)
+  }
+  const free = MULTICAM_KEYS.filter((k) => !group!.angles.some((a) => a.key === k))
+  if (angleTracks.length > free.length) throw new CommandError(`A group has at most ${MULTICAM_KEYS.length} clips (on ${KEYS_TEXT}): ${group.angles.length ? `${group.name} has ${group.angles.length}, and these are` : 'these takes are'} on ${angleTracks.length} tracks`)
+  group.angles.push(...angleTracks.map((t, i): MulticamAngle => ({ id: newId(), trackId: t.id, key: free[i]!, bRoll: false, favourites: [] })))
   // The angles are seen only through the pieces; their own sound is off.
   const angleIds = new Set(angleTracks.map((t) => t.id))
   const links = new Set(sequence.clips.filter((c) => angleIds.has(c.trackId) && c.linkId).map((c) => c.linkId))
@@ -56,9 +81,10 @@ function applyNewGroup(sequence: Sequence, clipIds: readonly string[], groupId: 
     if (angleIds.has(t.id)) t.visible = false
     if (soundTracks.has(t.id)) t.muted = true
   }
+  return group.id
 }
 
-/** A take for a new group from the media: where its file starts in the song's (seconds), or null when it isn't synced (it goes at the start). */
+/** A take for a group from the media: where its file starts in the song's (seconds), or null when it isn't synced (it goes at the start). */
 export interface TakeToPlace {
   mediaId: string
   offset: number | null
@@ -70,19 +96,32 @@ export interface TakeToPlace {
  * group, all in one undo step.
  */
 export function newMulticamFromMedia(takes: readonly TakeToPlace[], song: Clip | null, newId: IdFactory = defaultId): TimelineCommand & { groupId: string; clipIds: string[] } {
-  const groupId = newId()
+  return addMediaToMulticam(null, takes, song, newId)
+}
+
+/**
+ * Media added to a group (made when there's none): each take on a new video track of its own,
+ * under the group's track, in sync with `song` where it was heard. One undo step.
+ */
+export function addMediaToMulticam(groupId: string | null, takes: readonly TakeToPlace[], song: Clip | null, newId: IdFactory = defaultId): TimelineCommand & { groupId: string; clipIds: string[] } {
   const clipIds: string[] = []
-  const command = timelineCommand('New Multi-Camera Group', (draft) => {
+  const command = timelineCommand(groupId ? 'Add to Multi-Camera' : 'New Multi-Camera Group', (draft) => {
     const sequence = draft.sequence
-    if (takes.length === 0) throw new CommandError('Select the takes (video files) to make a group of')
-    if (takes.length > MULTICAM_KEYS.length) throw new CommandError(`A group has at most ${MULTICAM_KEYS.length} angles (1–9, 0 and the comma)`)
+    if (takes.length === 0) throw new CommandError('Select the takes (video files) to add')
+    if (takes.length > MULTICAM_KEYS.length) throw new CommandError(`A group has at most ${MULTICAM_KEYS.length} clips (on ${KEYS_TEXT})`)
+    const group = groupId ? sequence.multicam.find((g) => g.id === groupId) : undefined
     const ctx = new EditContext(newId)
+    const trackIds: string[] = []
+    clipIds.length = 0
     for (const take of takes) {
       const item = draft.media.find((m) => m.id === take.mediaId)
       if (!item || !item.info.video) throw new CommandError('A take isn’t a video file in the project')
       const track = createTrack('video', tracksOf(sequence, 'video').length, newId)
       track.name = item.name
-      sequence.tracks.push(track)
+      // Under the group's own track, so it stays on top.
+      const program = group ? sequence.tracks.findIndex((t) => t.id === group.programTrackId) : -1
+      if (program >= 0) sequence.tracks.splice(program, 0, track)
+      else sequence.tracks.push(track)
       const length = mediaLength(item) ?? 0
       const [clip] = applyPlace(sequence, draft.media, { mediaId: item.id, sourceIn: 0, sourceOut: length, at: 0, videoTrackId: track.id, audioTrackId: null, mode: 'overwrite' }, ctx)
       if (!clip) continue
@@ -91,12 +130,39 @@ export function newMulticamFromMedia(takes: readonly TakeToPlace[], song: Clip |
         if (!('problem' in place)) Object.assign(clip, place)
       }
       clipIds.push(clip.id)
+      trackIds.push(track.id)
     }
-    applyNewGroup(sequence, clipIds, groupId, newId)
+    command.groupId = applyAddAngles(sequence, group ? group.id : null, trackIds, newId)
   }) as TimelineCommand & { groupId: string; clipIds: string[] }
-  command.groupId = groupId
+  command.groupId = groupId ?? ''
   command.clipIds = clipIds
   return command
+}
+
+/**
+ * Takes a clip (its angle) out of a group: its track shows again and its sound plays; pieces
+ * that came from it stay, as ordinary clips. One undo step.
+ */
+export function removeAngle(groupId: string, angleId: string): TimelineCommand {
+  return timelineCommand('Remove from Multi-Camera', (draft) => {
+    const sequence = draft.sequence
+    const group = groupOf(sequence, groupId)
+    const angle = group.angles.find((a) => a.id === angleId)
+    if (!angle) throw new CommandError('That clip isn’t in the group')
+    group.angles = group.angles.filter((a) => a.id !== angleId)
+    for (const c of sequence.clips) if (c.multicam?.groupId === groupId && c.multicam.angleId === angleId) delete c.multicam
+    const links = new Set(sequence.clips.filter((c) => c.trackId === angle.trackId && c.linkId).map((c) => c.linkId))
+    const sound = new Set(sequence.clips.filter((c) => c.kind === 'audio' && c.linkId && links.has(c.linkId)).map((c) => c.trackId))
+    for (const t of sequence.tracks) {
+      if (t.id === angle.trackId) t.visible = true
+      if (sound.has(t.id)) t.muted = false
+    }
+    // A group with no clips left goes; its pieces stay as clips.
+    if (group.angles.length === 0) {
+      sequence.multicam = sequence.multicam.filter((g) => g.id !== groupId)
+      for (const c of sequence.clips) if (c.multicam?.groupId === groupId) delete c.multicam
+    }
+  })
 }
 
 /**
@@ -190,7 +256,7 @@ export function switchAngle(pieceIds: readonly string[], angleId: string, newId:
 export function setAngleKey(groupId: string, angleId: string, key: string): TimelineCommand {
   return timelineCommand('Change Angle Key', (draft) => {
     const group = groupOf(draft.sequence, groupId)
-    if (!(MULTICAM_KEYS as readonly string[]).includes(key)) throw new CommandError('Angles go on 1–9, 0 and the comma')
+    if (!(MULTICAM_KEYS as readonly string[]).includes(key)) throw new CommandError(`Clips go on ${KEYS_TEXT}`)
     const angle = group.angles.find((a) => a.id === angleId)
     if (!angle) throw new CommandError('That angle isn’t in the group')
     const other = group.angles.find((a) => a.key === key && a.id !== angleId)

@@ -393,10 +393,10 @@ export function TimelinePanel() {
         { label: linked ? 'Unlink' : 'Link', disabled: !linked && ids.length < 2, onSelect: () => tl.toggleLink() },
         { label: 'Match Frame', disabled: hit.clip.adjustment, onSelect: () => tl.matchFrame() },
         {
-          // W5: the selected takes' tracks as angles of a group.
-          label: 'New Multi-Camera Group',
+          // W5: the selected takes (their tracks) into the multi-camera group, made if there's none.
+          label: 'Add to Multi-Camera',
           disabled: !project.sequence.clips.some((c) => ids.includes(c.id) && c.kind === 'video' && !c.adjustment && !c.multicam),
-          onSelect: () => void multicamUi.newGroupFromClips(ids)
+          onSelect: () => void multicamUi.addClips(ids)
         },
         {
           // W5.1: line takes up with the song on A1 by listening for it in their sound.

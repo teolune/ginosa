@@ -48,6 +48,7 @@ export const SYMBOLS = {
   automationClip: 'point.topleft.down.to.point.bottomright.curvepath',
   adjustmentLayer: 'square.stack.3d.up',
   channelRack: 'square.grid.3x3',
+  multicam: 'camera.viewfinder',
   sidebarLeft: 'sidebar.left',
   fullscreen: 'arrow.up.left.and.arrow.down.right',
   metronome: 'metronome',

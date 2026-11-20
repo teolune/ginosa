@@ -144,8 +144,8 @@ export interface Clip {
   multicam?: { groupId: string; angleId: string; angleEffects: string[] }
 }
 
-/** The keys a multi-camera group's angles sit on, in order (decision 134): 1–9, 0 and the comma. */
-export const MULTICAM_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', ','] as const
+/** The keys a multi-camera group's angles sit on, in order (decision 134, your Multi-Camera design of 20 Nov): 1–9 and 0. */
+export const MULTICAM_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] as const
 
 /** A favourite part of a take (W5.4): a stretch of one clip's media, in its source time. */
 export interface Favourite {

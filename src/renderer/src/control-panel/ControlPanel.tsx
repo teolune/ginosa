@@ -12,6 +12,7 @@ import { player } from '../playback/player'
 import { useObservable } from '../state/observable'
 import { projectController } from '../state/project-controller'
 import { workspaceController } from '../state/workspace'
+import { multicamUi } from '../multicam/multicam-ui'
 import { timelineController } from '../timeline/timeline-controller'
 import type { FrameChoice } from '../workspace/layout'
 import { BpmKnob } from './BpmKnob'
@@ -52,6 +53,7 @@ export function ControlPanel() {
   const detecting = songTempo.busy || pendingStatus === 'queued' || pendingStatus === 'mixing' || pendingStatus === 'analysing'
   const layout = workspaceController.layout
   const rackOpen = workspaceController.isOpen('channel-rack')
+  const multicamOpen = workspaceController.isOpen('multicam')
   const playing = player.playing
 
   const frameItems: MenuEntry[] = FRAMES.map((f) => ({
@@ -119,6 +121,9 @@ export function ControlPanel() {
       <div className="cp-group">
         <button className={`cp-button ${rackOpen ? 'on' : ''}`} title={rackOpen ? 'Close the Channel Rack' : 'Open the Channel Rack'} aria-label="Channel Rack" onClick={() => workspaceController.toggle('channel-rack')}>
           <Icon name="channelRack" fallback="▦" />
+        </button>
+        <button className={`cp-button ${multicamOpen ? 'on' : ''}`} title={multicamOpen ? 'Close Multi-Camera' : 'Multi-Camera: your takes synced to the song, cut live with 1–9 and 0, or cut automatically from your favourite parts'} aria-label="Multi-Camera" onClick={() => multicamUi.toggleWindow()}>
+          <Icon name="multicam" fallback="◉" />
         </button>
         <button className={`cp-button ${layout.mediaOpen ? 'on' : ''}`} title={layout.mediaOpen ? 'Close the import folder' : 'Open the import folder'} aria-label="Import folder" onClick={() => workspaceController.toggleMedia()}>
           <Icon name="sidebarLeft" fallback="▯" />

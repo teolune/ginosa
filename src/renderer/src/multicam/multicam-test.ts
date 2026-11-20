@@ -11,7 +11,7 @@ import { multicamUi } from './multicam-ui'
 /**
  * W5.2 and W5.3 through the app: the song on A1, and three takes made from it (make-test-media.sh:
  * take_a in sync from 5.2 s, take_b from 13.36 s, take_early starting 1.5 s before the song).
- *  - Media panel › New Multi-Camera Group: each take on a track of its own, in sync, angles 1–3;
+ *  - Media panel › Add to Multi-Camera: each take on a track of its own, in sync, on keys 1–3;
  *  - the multi-camera view shows each take in its cell (and nothing where a take has nothing);
  *  - recording while the song plays: keys pressed at 8, 9.6 and 14 s cut to angles 3, 1 and 2;
  *    the pieces cut there (within two frames of the press), each in sync with its take, and the
@@ -62,7 +62,7 @@ export async function multicamTest() {
   const takes = ['take_a', 'take_b', 'take_early'].map(item)
 
   // A group straight from the media, synced.
-  const groupId = await multicamUi.newGroupFromMedia(takes.map((t) => t.id))
+  const groupId = await multicamUi.addMedia(takes.map((t) => t.id))
   const sequence = () => projectController.project!.sequence
   const group = () => sequence().multicam.find((g) => g.id === groupId)!
   if (!groupId) return { verdict: 'fail', reasons: [`no group: ${projectController.lastError}`] }
@@ -108,6 +108,8 @@ export async function multicamTest() {
   await until(16)
   multicamUi.record()
   await wait(400)
+  // The edit, not the grid (the Multi-Camera window keeps the grid while it's open).
+  multicamUi.setView(false)
   const pieces = sequence().clips.filter((c) => c.trackId === group().programTrackId).sort((a, b) => a.start - b.start)
   const recorded = pieces.map((p) => ({ take: p.name, from: ticksToSeconds(p.start), to: ticksToSeconds(clipEnd(p)), inSync: Math.abs(ticksToSeconds(p.start - p.sourceIn) - zero(p.name)) < 1e-6 }))
   if (recorded.map((r) => r.take).join() !== 'take_a,take_early,take_a,take_b') reasons.push(`recorded ${recorded.map((r) => r.take).join(', ')}`)

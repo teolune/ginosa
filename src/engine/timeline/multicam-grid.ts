@@ -57,3 +57,8 @@ export function multicamGrid(sequence: Sequence, media: readonly MediaItem[], gr
   })
   return { ...sequence, tracks, clips }
 }
+
+/** One clip shown alone (Mark Clip's solo): its track the only video shown, as it is on the timeline. */
+export function soloView(sequence: Sequence, trackId: string): Sequence {
+  return { ...sequence, tracks: sequence.tracks.map((t) => (t.kind !== 'video' ? t : { ...t, visible: t.id === trackId, solo: false })) }
+}

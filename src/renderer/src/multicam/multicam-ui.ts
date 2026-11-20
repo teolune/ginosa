@@ -1,7 +1,7 @@
 import { MULTICAM_KEYS, type MulticamGroup, type Sequence } from '@engine/project/model'
 import type { Ticks } from '@engine/time'
-import { multicamGrid } from '@engine/timeline/multicam-grid'
-import { newMulticamFromMedia, newMulticamGroup, recordMulticam, removeFavourites, switchAngle, type Switch } from '@engine/timeline/multicam-edits'
+import { multicamGrid, soloView } from '@engine/timeline/multicam-grid'
+import { addFavourite, addMediaToMulticam, addToMulticam, recordMulticam, removeAngle, removeFavourites, switchAngle, type Switch } from '@engine/timeline/multicam-edits'
 import { applyAutomatic, cutEveryBeats, planAutomatic } from '@engine/timeline/multicam-auto'
 import { syncPointPlace, placeInSync } from '@engine/timeline/sync-edits'
 import { clipEnd, frameTicks, sourceTimeAt } from '@engine/timeline/timeline'
@@ -17,15 +17,26 @@ import { syncController } from './sync-controller'
 export const CUT_LABELS: Record<string, string> = { beat: 'beat', '2beats': '2 beats', bar: 'bar', '2bars': '2 bars', '4bars': '4 bars' }
 
 /**
- * Multi-camera in the interface (W5, decision 134): the group in use, the multi-camera view in
- * the Program monitor, the angle keys, and recording. While recording, the song plays and each
- * key cuts to its angle there; stopping writes the pieces (one undo step). Not recording, a key
- * switches the selected pieces (or the one under the playhead) to its angle.
+ * Multi-camera in the interface (W5, decision 134; your Multi-Camera design of 20 Nov): the group
+ * in use, what the preview shows (the clips in a grid, one clip soloed, or the edit), the keys,
+ * recording, and marking favourite parts with M. While recording, the song plays and each key
+ * cuts to its clip there; stopping writes the pieces (one undo step). Not recording, a key
+ * switches the selected pieces (or the one under the playhead) to its clip; with Mark Clip on, it
+ * solos that clip instead.
  */
 class MulticamUi extends Observable {
   /** The group the window and the keys work on (null: the sequence's first). */
   groupId: string | null = null
+  /** The preview shows every clip in a grid (on while the window is open; off: the edit). */
   view = false
+  /** The Multi-Camera window is open (its preview mirrors the Program monitor's picture). */
+  windowOpen = false
+  /** The clip shown alone in the preview, to mark its favourite parts (one at a time). */
+  solo: string | null = null
+  /** Mark Clip: M marks the soloed clip's favourite parts, in then out. */
+  marking = false
+  /** The in-point of a favourite being marked: the soloed clip's take, and the timeline time. */
+  pendingIn: { angleId: string; clipId: string; at: Ticks } | null = null
   /** The angle a recording starts on, and the one live while recording. */
   live: string | null = null
   recording: { groupId: string; from: Ticks; switches: Switch[] } | null = null
@@ -48,6 +59,11 @@ class MulticamUi extends Observable {
     projectController.subscribe(() => {
       const group = this.group()
       if (this.groupId && !group) this.groupId = null
+      if (this.solo && !group?.angles.some((a) => a.id === this.solo)) {
+        this.solo = null
+        this.pendingIn = null
+        this.applyPreview()
+      }
       if (this.view && !group) this.setView(false)
     })
   }
@@ -59,7 +75,9 @@ class MulticamUi extends Observable {
 
   choose(groupId: string): void {
     this.groupId = groupId
-    if (this.view) this.setView(true)
+    this.solo = null
+    this.pendingIn = null
+    this.applyPreview()
     this.notify()
   }
 
@@ -68,13 +86,46 @@ class MulticamUi extends Observable {
     workspaceController.focus('multicam')
   }
 
-  /** A new group from timeline clips (each track holding one is an angle), synced to the song first when there is one. */
-  async newGroupFromClips(clipIds: readonly string[]): Promise<string | null> {
+  /** The Control Panel's button: opens the window, or closes it. */
+  toggleWindow(): void {
+    if (workspaceController.isOpen('multicam')) workspaceController.close('multicam')
+    else this.open()
+  }
+
+  /** The window opened or closed: its preview shows the grid while open; solo and marking end with it. */
+  windowShown(open: boolean): void {
+    if (this.windowOpen === open) return
+    this.windowOpen = open
+    if (open) this.view = true
+    else {
+      this.view = false
+      this.solo = null
+      this.marking = false
+      this.pendingIn = null
+    }
+    this.applyPreview()
+    this.notify()
+  }
+
+  // ---- Adding clips ----
+
+  /** Add to Multi-Camera (timeline): the tracks holding these clips become clips of the group (made when there's none), synced to the song first when there is one. */
+  async addClips(clipIds: readonly string[]): Promise<string | null> {
+    const sequence = projectController.project?.sequence
+    if (!sequence) return null
+    const takes = sequence.clips.filter((c) => clipIds.includes(c.id) && c.kind === 'video' && !c.adjustment && !c.multicam)
+    if (takes.length === 0) {
+      projectController.showMessage('Choose video clips to add to Multi-Camera')
+      return null
+    }
+    const group = this.group()
     if (syncController.song()) {
-      const results = await syncController.syncToSong(clipIds)
+      // Takes already in the group stay where they are.
+      const ids = takes.filter((c) => !group?.angles.some((a) => a.trackId === c.trackId)).map((c) => c.id)
+      const results = ids.length ? await syncController.syncToSong(ids) : []
       if (results.length) projectController.showMessage(syncController.summary(results))
     }
-    const command = newMulticamGroup(clipIds)
+    const command = addToMulticam(group?.id ?? null, { clipIds })
     if (!projectController.dispatch(command)) return null
     this.groupId = command.groupId
     this.open()
@@ -82,13 +133,30 @@ class MulticamUi extends Observable {
     return command.groupId
   }
 
-  /** A new group from media (the Media panel): each take on a track of its own, synced to the song on A1 by its sound. */
-  async newGroupFromMedia(mediaIds: readonly string[]): Promise<string | null> {
+  /** Add Clip + › a track: its takes become a clip of the group, synced to the song first. */
+  async addTrack(trackId: string): Promise<string | null> {
+    const sequence = projectController.project?.sequence
+    if (!sequence) return null
+    const takes = sequence.clips.filter((c) => c.trackId === trackId && c.kind === 'video' && !c.adjustment && !c.multicam).map((c) => c.id)
+    if (syncController.song() && takes.length) {
+      const results = await syncController.syncToSong(takes)
+      if (results.length) projectController.showMessage(syncController.summary(results))
+    }
+    const command = addToMulticam(this.group()?.id ?? null, { trackIds: [trackId] })
+    if (!projectController.dispatch(command)) return null
+    this.groupId = command.groupId
+    this.open()
+    this.notify()
+    return command.groupId
+  }
+
+  /** Add to Multi-Camera (Media panel): each take on a track of its own, synced to the song on A1 by its sound. */
+  async addMedia(mediaIds: readonly string[]): Promise<string | null> {
     const project = projectController.project
     if (!project) return null
     const items = project.media.filter((m) => mediaIds.includes(m.id) && m.kind === 'video')
     if (items.length === 0) {
-      projectController.showMessage('Select video files to make a group of')
+      projectController.showMessage('Select video files to add to Multi-Camera')
       return null
     }
     const song = syncController.song()
@@ -101,7 +169,7 @@ class MulticamUi extends Observable {
         const m = heard.get(i.id)
         return { mediaId: i.id, offset: m && m.confidence !== 'none' ? m.offset : null }
       })
-      const command = newMulticamFromMedia(takes, song)
+      const command = addMediaToMulticam(this.group()?.id ?? null, takes, song)
       if (!projectController.dispatch(command)) return null
       this.groupId = command.groupId
       const unheard = items.filter((i) => (heard.get(i.id)?.confidence ?? 'none') === 'none').map((i) => i.name)
@@ -123,13 +191,107 @@ class MulticamUi extends Observable {
     }
   }
 
-  /** The multi-camera view: every angle in a grid in the Program monitor. */
+  removeAngle(angleId: string): void {
+    const group = this.group()
+    if (group) projectController.dispatch(removeAngle(group.id, angleId))
+  }
+
+  // ---- The preview ----
+
+  /** What the preview shows: the soloed clip alone, every clip in a grid, or (neither) the edit. */
+  private applyPreview(): void {
+    const solo = this.solo
+    if (solo) {
+      programView.set((sequence) => {
+        const group = this.group(sequence)
+        const angle = group?.angles.find((a) => a.id === solo)
+        return group && angle ? soloView(sequence, angle.trackId) : sequence
+      })
+    } else if (this.view) {
+      programView.set((sequence, media) => {
+        const group = this.group(sequence)
+        return group ? multicamGrid(sequence, media, group) : sequence
+      })
+    } else programView.set(null)
+  }
+
+  /** The preview's grid of every clip (off: the edit). */
   setView(on: boolean): void {
     this.view = on
-    programView.set(on ? (sequence, media) => {
-      const group = this.group(sequence)
-      return group ? multicamGrid(sequence, media, group) : sequence
-    } : null)
+    this.applyPreview()
+    this.notify()
+  }
+
+  /** Solos a clip in the preview (the same one again: none). */
+  setSolo(angleId: string | null): void {
+    const next = angleId === this.solo ? null : angleId
+    if (this.pendingIn && this.pendingIn.angleId !== next) this.pendingIn = null
+    this.solo = next
+    this.applyPreview()
+    this.notify()
+  }
+
+  // ---- Marking favourites (M) ----
+
+  /** Mark Clip: on, M marks the soloed clip's favourite parts; with none soloed, the next clip with none marked is soloed. */
+  toggleMarking(): void {
+    if (this.marking) {
+      this.marking = false
+      this.pendingIn = null
+      this.notify()
+      return
+    }
+    const group = this.group()
+    if (!group) return
+    if (this.recording) this.record()
+    if (!this.solo) {
+      const next = group.angles.find((a) => a.favourites.length === 0)
+      if (!next) {
+        projectController.showMessage('Every clip has favourite parts marked. Solo one (its yellow button) to mark more')
+        return
+      }
+      this.solo = next.id
+      this.applyPreview()
+    }
+    this.marking = true
+    this.notify()
+  }
+
+  /** M: the in-point at the playhead, then the out-point, which marks the favourite. */
+  markKey(): void {
+    const sequence = projectController.project?.sequence
+    const group = this.group()
+    const angle = group?.angles.find((a) => a.id === this.solo)
+    if (!sequence || !group || !angle) {
+      projectController.showMessage('Solo a clip to mark its favourite parts')
+      return
+    }
+    const frame = frameTicks(sequence)
+    const at = Math.round(timelineController.playhead / frame) * frame
+    const pending = this.pendingIn
+    if (!pending || pending.angleId !== angle.id) {
+      const take = sequence.clips.find((c) => c.trackId === angle.trackId && c.kind === 'video' && !c.adjustment && c.start <= at && at < clipEnd(c))
+      if (!take) {
+        projectController.showMessage('This clip has no picture at the playhead')
+        return
+      }
+      this.pendingIn = { angleId: angle.id, clipId: take.id, at }
+      this.notify()
+      return
+    }
+    const take = sequence.clips.find((c) => c.id === pending.clipId)
+    this.pendingIn = null
+    if (!take) return this.notify()
+    const from = Math.min(pending.at, at)
+    const to = Math.max(pending.at, at)
+    if (to - from < frame) {
+      projectController.showMessage('Move the playhead (or play) between the in and the out')
+      return this.notify()
+    }
+    // On the take's own time (a mark past the take's end stops there).
+    const source = (t: Ticks) => take.sourceIn + (t - take.start)
+    const command = addFavourite(group.id, angle.id, take.id, source(Math.max(take.start, from)), source(Math.min(clipEnd(take), to)))
+    if (projectController.dispatch(command)) this.favourite = { angleId: angle.id, id: command.favouriteId }
     this.notify()
   }
 
@@ -139,7 +301,9 @@ class MulticamUi extends Observable {
     return projectController.project?.sequence.clips.find((c) => c.trackId === group.programTrackId && c.multicam && c.start <= t && t < clipEnd(c)) ?? null
   }
 
-  /** Record (or stop): plays from the playhead; keys cut between angles until playback stops. */
+  // ---- Recording ----
+
+  /** Record (or stop): plays from the playhead with every clip in the grid; keys cut between clips until playback stops. */
   record(): void {
     if (this.recording) {
       player.stop()
@@ -152,7 +316,11 @@ class MulticamUi extends Observable {
     const from = Math.round(timelineController.playhead / frame) * frame
     const start = this.live && group.angles.some((a) => a.id === this.live) ? this.live : (this.pieceAtPlayhead(group)?.multicam?.angleId ?? group.angles[0]!.id)
     this.live = start
-    if (!this.view) this.setView(true)
+    this.marking = false
+    this.pendingIn = null
+    this.solo = null
+    this.view = true
+    this.applyPreview()
     void player.play(1, from)
     this.recording = { groupId: group.id, from, switches: [{ at: from, angleId: start }] }
     this.notify()
@@ -164,15 +332,20 @@ class MulticamUi extends Observable {
     this.recording = null
     const to = timelineController.playhead
     if (to > rec.from) projectController.dispatch(recordMulticam(rec.groupId, rec.from, to, rec.switches))
-    this.setView(false)
+    // The grid stays while the window is open.
+    this.setView(this.windowOpen)
     this.notify()
   }
 
-  /** A key: an angle of the group. True when it was one. */
+  /** A key: a clip of the group. True when it was one. */
   press(key: string): boolean {
     const group = this.group()
     const angle = group?.angles.find((a) => a.key === key)
     if (!group || !angle) return false
+    if (this.marking && !this.recording) {
+      if (this.solo !== angle.id) this.setSolo(angle.id)
+      return true
+    }
     this.live = angle.id
     if (this.recording) {
       const at = timelineController.playhead
@@ -188,16 +361,24 @@ class MulticamUi extends Observable {
     return true
   }
 
-  /** The keyboard: 1–9, 0 and the comma (the number pad's decimal key too) are the angles. */
+  /** The keyboard: 1–9 and 0 (the number pad's too) are the clips; with Mark Clip on, M marks and Esc drops an in-point. */
   handleKey(event: KeyboardEvent): boolean {
     if (event.metaKey || event.ctrlKey || event.altKey) return false
     const group = this.group()
     if (!group) return false
-    const key = event.code === 'NumpadDecimal' ? ',' : event.key
-    if (!(MULTICAM_KEYS as readonly string[]).includes(key)) return false
-    // The comma is Insert on the timeline, unless multi-camera is in use right now.
-    if (key === ',' && !this.recording && !this.view) return false
-    return this.press(key)
+    if (this.marking && !this.recording) {
+      if ((event.key === 'm' || event.key === 'M') && !event.shiftKey) {
+        this.markKey()
+        return true
+      }
+      if (event.key === 'Escape' && this.pendingIn) {
+        this.pendingIn = null
+        this.notify()
+        return true
+      }
+    }
+    if (!(MULTICAM_KEYS as readonly string[]).includes(event.key)) return false
+    return this.press(event.key)
   }
 
   // ---- Automatic (W5.5) ----
@@ -223,7 +404,7 @@ class MulticamUi extends Observable {
     const range = this.automaticRange()
     if (!project || !group || !range) return
     if (!group.angles.some((a) => a.favourites.length)) {
-      projectController.showMessage('Mark some favourites first: drag across a take’s strip in this window')
+      projectController.showMessage('Mark some favourite parts first: Mark Clip, then M at the start and M at the end')
       return
     }
     const everyBeats = cutEveryBeats(this.cutEvery, project.sequence.beatGrid?.beatsPerBar ?? 4)
@@ -231,7 +412,7 @@ class MulticamUi extends Observable {
     if (!projectController.dispatch(applyAutomatic(group.id, plan))) return
     this.gaps = plan.flatMap((p) => (p.kind === 'gap' ? [{ groupId: group.id, from: p.from, to: p.to, hold: p.holdAngleId }] : []))
     const shots = plan.filter((p) => p.kind !== 'gap').length
-    projectController.showMessage(`${shots} shots, cut every ${CUT_LABELS[this.cutEvery] ?? 'bar'}${this.gaps.length ? `. ${this.gaps.length} ${this.gaps.length === 1 ? 'stretch' : 'stretches'} nothing marked covers: flagged in red (the angle before holds there)` : ''}`)
+    projectController.showMessage(`${shots} shots, cut every ${CUT_LABELS[this.cutEvery] ?? 'bar'}${this.gaps.length ? `. ${this.gaps.length} ${this.gaps.length === 1 ? 'stretch' : 'stretches'} nothing marked covers: flagged in red (the last clip holds there)` : ''}`)
     this.notify()
   }
 

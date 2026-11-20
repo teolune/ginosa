@@ -145,12 +145,12 @@ export const WINDOW_SPECS: WindowSpec[] = [
     defaultDocked: false
   },
   {
-    // W5: multi-camera groups, their angles' keys, syncing and recording.
+    // W5: multi-camera (your design of 20 Nov): a preview, Add Clip +, Mark Clip, each clip's key, solo and favourite parts; recording; Automatic.
     id: 'multicam',
     title: 'Multi-Camera',
     shortcut: 'Alt+Shift+7',
-    defaultRect: { x: 260, y: 120, w: 520, h: 380 },
-    minSize: { w: 420, h: 240 },
+    defaultRect: { x: 240, y: 70, w: 760, h: 780 },
+    minSize: { w: 520, h: 520 },
     dockable: true,
     defaultOpen: false,
     defaultDocked: false
