@@ -16,6 +16,7 @@ import {
   setRackCubes,
   setRackRow,
   setRackSectionBars,
+  splitRackSections,
   STARTER_ROWS,
   type CubeRef
 } from '@engine/timeline/rack-edits'
@@ -293,6 +294,12 @@ export function ChannelRackWindow() {
       y,
       items: [
         { label: 'Change Length…', onSelect: () => setEditingBars(p.section.id) },
+        { label: 'Split in Half', onSelect: () => dispatch(splitRackSections([p.section.id], 'half')), disabled: p.section.bars < 2 },
+        {
+          label: `Split All Into ${DEFAULT_SECTION_BARS}-Bar Sections`,
+          onSelect: () => dispatch(splitRackSections('all', DEFAULT_SECTION_BARS)),
+          disabled: !rack.sections.some((s) => s.bars > DEFAULT_SECTION_BARS)
+        },
         { label: 'Add Empty Section After', onSelect: () => addSection(p.section.id) },
         { label: 'Go to Its Start', onSelect: () => timelineController.movePlayhead(Math.max(0, beatTime(grid, p.firstStep / 4))) },
         'separator',

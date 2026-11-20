@@ -24,6 +24,7 @@ import {
   STARTER_ROWS,
   giveLaterCubesAmounts,
   laterCubes,
+  splitRackSections,
   stepsFromHits
 } from './rack-edits'
 import type { TimelineCommand } from './edits'
@@ -210,6 +211,36 @@ describe('Channel Rack sections', () => {
     expect(shortEnd.map((s) => s.bars)).toEqual([4, 4, 3])
     expect(shortEnd[2]!.cubes['kick']).toEqual([0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40])
     expect(sectionsFromHits({ kick: [0, 4, 8] }, GRID, 10)[0]!.cubes['kick']).toEqual([0, 4, 8])
+  })
+
+  it('split a section in half, or every section into 4 bars, each cube still where it plays', () => {
+    const { history, run, rows, sections } = setup()
+    run(addRackRows([STARTER_ROWS[0]!], ids))
+    const kick = rows()[0]!.id
+    const a = sections()[0]!.id
+    run(setRackSectionBars(a, 8))
+    const b = run(addRackSection(a, 3, ids)).sectionId
+    run(setRackCubes(a, kick, [0, 63, 64, 127], true))
+    run(setCubeAmount([{ sectionId: a, rowId: kick, step: 64 }], 'link-1', -30))
+    run(setRackCubes(b, kick, [20], true))
+    const hits = () => channelHits(history.state.sequence.rack, kick, GRID).map((h) => h.step)
+    const before = hits()
+    const half = run(splitRackSections([a], 'half', ids))
+    expect(half.made).toBe(1)
+    expect(sections().map((s) => s.bars)).toEqual([4, 4, 3])
+    expect(sections()[0]!.id).toBe(a)
+    expect(sections()[1]!.cubes[kick]!.map((c) => [c.step, c.amounts['link-1'] ?? 100])).toEqual([[0, -30], [63, 100]])
+    expect(hits()).toEqual(before)
+    history.undo()
+    // All into 4 bars: the 8 into two 4s, the 3 left as it is; one undo step.
+    run(splitRackSections('all', 4, ids))
+    expect(sections().map((s) => s.bars)).toEqual([4, 4, 3])
+    expect(hits()).toEqual(before)
+    expect(() => history.dispatch(splitRackSections('all', 4, ids))).toThrow(/No section is longer than 4 bars/)
+    expect(() => history.dispatch(splitRackSections([sections()[0]!.id], 'half', ids))).not.toThrow()
+    history.undo()
+    history.undo()
+    expect(sections().map((s) => s.bars)).toEqual([8, 3])
   })
 
   it('mark the cubes only one check heard as doubtful (W4.6)', () => {

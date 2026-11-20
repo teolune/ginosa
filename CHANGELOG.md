@@ -2,9 +2,9 @@
 
 ## Channel Rack: 4-bar sections, cubes at their own size (19 Nov 2026)
 
-- **Sections are 4 bars by default** (your request): + adds a 4-bar section, and Detect splits the song into 4-bar sections (the last one what's left). Sections you already have keep their length; run the sparkles again, or double-click a section to change its length.
+- **Sections are 4 bars by default** (your request): + adds a 4-bar section, and Detect splits the song into 4-bar sections (the last one what's left). Sections you already have keep their length: right-click a section › **Split All Into 4-Bar Sections** (or **Split in Half**) turns them into 4-bar ones with every cube and its amounts where it plays, in one undo step.
 - **Cubes keep their size** (at least 30 px, as wide as before when there's room), with a gap at each bar. When a section is wider than the window, the rack **scrolls sideways**; each channel's light, knobs and name stay at the left. While playing, Follow turns the page when the playhead reaches the edge.
-- `rackui`, `rackdetect` (sections 4, 4, 3) and `rackchannel` (64 cubes, bars 1–4) pass; 434 tests.
+- `rackui`, `rackdetect` (sections 4, 4, 3) and `rackchannel` (64 cubes, bars 1–4) pass; 435 tests (new: splitting sections, every hit still where it was).
 
 ## The automation editor (W2.2, 20 Nov 2026)
 

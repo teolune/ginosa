@@ -155,6 +155,48 @@ export function setRackSectionBars(sectionId: string, bars: number): TimelineCom
   })
 }
 
+/**
+ * Right-click a section › Split in Half, or Split All Into 4-Bar Sections (19 Nov): each section
+ * becomes sections of `bars` (half its length, rounded up, for 'half'; the last one what's left),
+ * every cube staying where it plays. One undo step. The first part keeps the section's id.
+ */
+export function splitRackSections(which: readonly string[] | 'all', bars: number | 'half', newId: IdFactory = defaultId): TimelineCommand & { made: number } {
+  const command = timelineCommand(which === 'all' ? 'Split Sections' : 'Split Section', (draft, cmd) => {
+    const result = command
+    const sequence = draft.sequence
+    const perBar = sectionSteps({ bars: 1 }, sequence.beatGrid ?? DEFAULT_GRID)
+    const chosen = which === 'all' ? null : new Set(which)
+    if (chosen) for (const id of chosen) section(sequence, id)
+    result.made = 0
+    const out: RackSection[] = []
+    for (const s of sequence.rack.sections) {
+      const size = bars === 'half' ? Math.ceil(s.bars / 2) : Math.max(1, Math.floor(bars))
+      if ((chosen && !chosen.has(s.id)) || s.bars <= size) {
+        out.push(s)
+        continue
+      }
+      const parts = Math.ceil(s.bars / size)
+      for (let k = 0; k < parts; k++) {
+        const from = k * size * perBar
+        const last = k === parts - 1
+        const to = last ? Infinity : (k + 1) * size * perBar
+        const cubes: Record<string, RackCube[]> = {}
+        for (const [rowId, list] of Object.entries(s.cubes)) {
+          const here = list.filter((c) => c.step >= from && c.step < to).map((c) => ({ ...c, step: c.step - from, amounts: { ...c.amounts } }))
+          if (here.length) cubes[rowId] = here
+        }
+        out.push({ id: k === 0 ? s.id : newId(), bars: last ? s.bars - k * size : size, cubes })
+      }
+      result.made += parts - 1
+    }
+    if (result.made === 0) throw new CommandError(bars === 'half' ? 'A 1-bar section can’t be split' : `No section is longer than ${bars} bars`)
+    sequence.rack.sections = out
+    cmd.notice = `${result.made} new section${result.made === 1 ? '' : 's'}: every cube stays where it plays`
+  }) as TimelineCommand & { made: number }
+  command.made = 0
+  return command
+}
+
 export function removeRackSection(sectionId: string): TimelineCommand {
   return timelineCommand('Remove Section', (draft) => {
     section(draft.sequence, sectionId)

@@ -19,7 +19,7 @@ cat renders/ui/rackchannel.json
 open renders/ui/rackchannel.png
 ```
 
-- [ ] `npm run check` ends with **Tests 430 passed (430)**. Since 19 Nov: a channel's effects (listing, linking, unlinking, a new effect on a clip or on a new adjustment layer), later cubes' amounts, whole sections (decision 130) and opening projects saved with loops.
+- [ ] `npm run check` ends with **Tests 435 passed (435)**. Since 19 Nov: a channel's effects (listing, linking, unlinking, a new effect on a clip or on a new adjustment layer), later cubes' amounts, whole sections (decision 130) and opening projects saved with loops.
 - [ ] `rackui`: `"ui"` ends with `"pass":true` (link mode's socket links and unlinks Contrast, dragging Clap onto Brightness links it, clicking an empty cube makes one, Backspace deletes it), and `pushes` is `[1,-0.5]` (a +100% cube and a −50% cube on Kick Flash's link).
 - [ ] `rackui` also shows the doubtful cubes working (W4.6): `"doubtDots":2`, `"doubtPopover":true`, `"doubtKeeps":true`, `"doubtDeletes":true`, `"doubtUndone":true`.
 - [ ] `rackui.png`: the Channel Rack with even, raised cubes, the beats in alternating shades of four; Kick on every beat, Clap on 2 and 4, Hi-hat on every 8th; one pink cube (it pushes its value down).
@@ -87,6 +87,7 @@ npm start
 ## Sections
 
 - [ ] The chips at the top: **A 4 bars**, **B …**. Click one to show its cubes; double-click to type its bars (1–16). Right-click for Change Length…, Add Empty Section After, Go to Its Start and Delete Section.
+- [ ] Right-click a section › **Split in Half** (8 bars become two 4s), or **Split All Into 4-Bar Sections**: the cubes and their amounts stay where they play, and one ⌘Z undoes it.
 - [ ] **+** adds an empty 4-bar section after the one shown.
 - [ ] The **Follow** button (the arrow) shows the section under the playhead as it plays; click it again to stop following.
 
